@@ -5,6 +5,7 @@ last week. A clear match (90 or more, nobody else within 3 points) goes straight
 Anything less gives the person candidates to tap. Teams are matched by their aliases
 (parlaytracker's rules) when no player is named.
 """
+import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 
@@ -12,7 +13,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from juju.core.enums import EventStatus, PlayKind
+from juju.core.markets import BY_KEY, Scope
 from juju.core.models import Game, Player
+from juju.core.parlay import MAX_LEGS, LegKey
 from juju.ingest.llm import LlmReader
 from juju.ingest.parse import Parsed, for_position, parse_text
 from juju.ingest.resolve import (
@@ -65,13 +68,14 @@ class Choice:
 
 @dataclass
 class Result:
-    kind: str            # "player", "team", "choices", "none"
+    kind: str            # "player", "team", "parlay", "choices", "none"
     path: str            # "deterministic", "llm", "choices", "none"
     parsed: Parsed
     game_id: int | None = None
     id: str | None = None
     choices: list[Choice] = field(default_factory=list)
     message: str | None = None
+    legs: str | None = None  # a parlay's legs, as its URL writes them
 
     @property
     def expect(self) -> bool:
@@ -110,8 +114,55 @@ def _find_team(session: Session, text: str, tiers: list[list[Game]]) -> list[Cho
     return []
 
 
-def resolve(session: Session, text: str, now: datetime, llm: LlmReader | None = None
-            ) -> Result:
+# "Barkley TD and Smith 5+ catches": parts joined by "and", "&", a comma or a spaced "+".
+# ("100+" has no space before its "+", so it never splits.)
+_PARTS = re.compile(r"\s*(?:,|;|&|\band\b|\s\+\s)\s*", re.IGNORECASE)
+_TEAM_MARKETS = frozenset({"h2h", "spreads", "totals", "team_totals"})
+_PLAY_MARKETS = {PlayKind.TOUCHDOWN: "player_anytime_td", PlayKind.PASS_TD: "player_pass_tds"}
+
+
+def _leg(result: Result) -> LegKey | None:
+    """The bet one part of a parlay names, or None if it names none."""
+    p = result.parsed
+    if result.kind == "team":
+        if p.market_key in _TEAM_MARKETS:
+            return LegKey(BY_KEY[p.market_key], team=result.id)
+        return None
+    key = p.market_key or (_PLAY_MARKETS.get(p.play) if p.play else None)
+    market = BY_KEY.get(key) if key else None
+    if market is None or market.scope is not Scope.PLAYER:
+        return None
+    ladder = BY_KEY.get(f"{market.key}_alternate")
+    if p.threshold is not None and ladder is not None:
+        return LegKey(ladder, athlete=result.id, threshold=p.threshold)  # the line they named
+    return LegKey(market, athlete=result.id)
+
+
+def resolve_parlay(session: Session, text: str, now: datetime) -> Result | None:
+    """Several bets in one line become a parlay only if every part is certain: one player
+    or team each, in the same game, each naming a bet. Anything less is read as one lookup.
+    Parts are read deterministically: the LLM is never asked about each one."""
+    parts = [x for x in _PARTS.split(text) if x.strip()]
+    if not 2 <= len(parts) <= MAX_LEGS:
+        return None
+    games, legs = set(), []
+    for part in parts:
+        r = resolve(session, part, now, None, parts_allowed=False)
+        leg = _leg(r) if r.kind in ("player", "team") else None
+        if leg is None:
+            return None
+        games.add(r.game_id)
+        legs.append(leg.text)
+    if len(games) != 1 or len(set(legs)) != len(legs):
+        return None
+    return Result("parlay", "deterministic", parse_text(text), games.pop(),
+                  legs=",".join(legs))
+
+
+def resolve(session: Session, text: str, now: datetime, llm: LlmReader | None = None,
+            parts_allowed: bool = True) -> Result:
+    if parts_allowed and (several := resolve_parlay(session, text, now)) is not None:
+        return several
     parsed = parse_text(text)
     tiers = game_tiers(session, now)
     positions: dict[str, str] = {}

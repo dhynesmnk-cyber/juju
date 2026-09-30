@@ -242,13 +242,13 @@ def do_lookup(body: LookupIn, request: Request, session: SessionDep) -> JSONResp
     ms = int((time.monotonic() - started) * 1000)
     p = result.parsed
     session.add(Lookup(path=result.path, text=body.text[:200], milliseconds=ms,
-                       result=f"{result.kind}:{result.id or ''}"[:80]))
+                       result=f"{result.kind}:{result.id or result.legs or ''}"[:80]))
     session.commit()
     focus = {"play": p.play, "market": p.market_key, "threshold": p.threshold,
              "expect": result.expect, "yards": p.yards}
     return respond({"kind": result.kind, "path": result.path, "game_id": result.game_id,
                     "id": result.id, "choices": result.choices, "message": result.message,
-                    "focus": focus})
+                    "legs": result.legs, "focus": focus})
 
 
 def _focus(play: str | None, market: str | None, threshold: str | None,

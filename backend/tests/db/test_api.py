@@ -125,6 +125,32 @@ def test_lookup_finds_a_team(client, db):
     assert (r["kind"], r["id"]) == ("team", "3")
 
 
+def test_several_bets_in_one_line_are_a_parlay(client, db):
+    game = seed(db, "live")
+    body = client.post("/api/lookup", json={
+        "text": "Barkley 100+ rush yds and DeVonta Smith 5+ catches"}).json()
+    assert (body["kind"], body["game_id"]) == ("parlay", game)
+    assert body["legs"] == (f"p-{BARKLEY}-player_rush_yds_alternate-99.5,"
+                            f"p-{SMITH}-player_receptions_alternate-4.5")
+    body = client.post("/api/lookup", json={
+        "text": "Barkley TD, DeVonta Smith over 71.5 receiving yards & Bears cover"}).json()
+    assert body["legs"] == (f"p-{BARKLEY}-player_anytime_td,"
+                            f"p-{SMITH}-player_reception_yds_alternate-71.5,t-3-spreads")
+    parlay = client.get(f"/api/parlay/{game}", params={"legs": body["legs"]})
+    assert parlay.status_code == 200
+
+
+@pytest.mark.parametrize("text", [
+    "Hurts and Smith connect for 30",       # one play, two players: no bets named
+    "Smith catch and Barkley TD",           # a shared surname: not certain
+    "Barkley TD and Mahomes TD",            # someone not in the game
+    "Barkley TD and Barkley touchdown",     # the same bet twice
+])
+def test_a_line_that_is_not_certainly_a_parlay_is_one_lookup(client, db, text):
+    seed(db, "live")
+    assert client.post("/api/lookup", json={"text": text}).json()["kind"] != "parlay"
+
+
 def test_lookups_are_rate_limited(client, db):
     seed(db, "live")
     app_module._limit = app_module.RateLimit(2)
