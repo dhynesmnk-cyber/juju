@@ -2,7 +2,7 @@
 
 Revision ID: 0001
 Revises: 
-Create Date: 2026-09-30 02:16:04.149133
+Create Date: 2026-09-30 02:26:47.172453
 """
 from collections.abc import Sequence
 
@@ -135,6 +135,7 @@ def upgrade() -> None:
     sa.Column('clock', sa.String(length=8), nullable=True),
     sa.Column('wallclock', sa.DateTime(timezone=True), nullable=True),
     sa.Column('kind', sa.String(length=20), nullable=False),
+    sa.Column('label', sa.String(length=80), nullable=False),
     sa.Column('yards', sa.Integer(), nullable=True),
     sa.Column('text', sa.Text(), nullable=False),
     sa.Column('espn_athlete_id', sa.String(length=20), nullable=True),

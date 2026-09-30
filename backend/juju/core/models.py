@@ -173,6 +173,7 @@ class Play(Base):
     clock: Mapped[str | None] = mapped_column(String(8))
     wallclock: Mapped[datetime | None] = mapped_column(TZ)
     kind: Mapped[str] = mapped_column(String(20))  # a PlayKind value
+    label: Mapped[str] = mapped_column(String(80))  # "S. Barkley 60-yd TD run"
     yards: Mapped[int | None]
     text: Mapped[str] = mapped_column(Text)
     espn_athlete_id: Mapped[str | None] = mapped_column(String(20))

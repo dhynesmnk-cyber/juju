@@ -18,6 +18,7 @@ EVENT_TIME_TOLERANCE = timedelta(hours=3)
 PLAYER_AUTO_SCORE = 90      # select automatically
 PLAYER_DOUBTFUL_SCORE = 75  # 75-89: offer, but ask; below: not a candidate
 AMBIGUOUS_MARGIN = 3        # a runner-up this close makes even a good match doubtful
+SURNAME_SCORE = 95.0        # the surname alone matched exactly
 
 # The Odds API's team names against ESPN's displayName. They match today (verified by
 # parlaytracker for the NFL); record any team that differs here, in normalised form.
@@ -135,8 +136,9 @@ def match_abbreviated(name: str | None, roster: Iterable[RosterEntry]) -> str | 
         words = player_key(p.name).split()
         if len(words) < 2:
             continue
-        if words[0].startswith(initial) and " ".join(words[1:]).replace(" ", "") == \
-                last_key.replace(" ", ""):
+        target = last_key.replace(" ", "")
+        if words[0].startswith(initial) and any(
+                "".join(words[k:]) == target for k in range(1, len(words))):
             hits.append(p.espn_athlete_id)
     return hits[0] if len(set(hits)) == 1 else None
 
@@ -167,7 +169,9 @@ def rank_players(text: str, roster: Iterable[RosterEntry], limit: int = 5) -> li
                 continue
             s = fuzz.token_sort_ratio(g, full)
             if g == last or (len(parts) > 1 and g == parts[-1]):
-                s = max(s, 100.0)
+                # A surname on its own: strong, but a full name beats it, so "DeVonta Smith"
+                # is clear even with another Smith in the game.
+                s = max(s, SURNAME_SCORE)
             elif len(g) >= 4:
                 s = max(s, fuzz.ratio(g, last) - 5)  # a typo in the surname costs a little
             score = max(score, s)
