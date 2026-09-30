@@ -1,11 +1,13 @@
 import CountUp from "@/components/CountUp";
+import ParlayButton from "@/components/ParlayButton";
 import ShareButton from "@/components/ShareButton";
 import Jujus from "@/components/world/Jujus";
 import type { Mood } from "@/components/world/worlds";
 import { american, localAndEt, quarter } from "@/lib/format";
+import type { TrayLeg } from "@/lib/parlayTray";
 import type { Card, Outcome } from "@/lib/types";
 
-const TONE: Record<Outcome, [string, string]> = {
+export const TONE: Record<Outcome, [string, string]> = {
   won: ["good", "✓"], locked: ["good", "✓"], lost: ["bad", "✕"], gone: ["bad", "✕"],
   live: ["live", "●"], waiting_for_feed: ["live", "…"], pregame: ["neutral", "◷"],
   push: ["neutral", "="], void: ["neutral", "="], no_stat_line: ["neutral", "–"],
@@ -30,8 +32,9 @@ function progress(card: Card): string | null {
   return `${now} so far.`;
 }
 
-export default function ResultCard({ card, changed, crew, countUp, id, sharePath }: {
+export default function ResultCard({ card, changed, crew, countUp, id, sharePath, parlay }: {
   card: Card; changed?: boolean; crew?: Mood; countUp?: boolean; id?: string; sharePath?: string;
+  parlay?: { game: number; leg: TrayLeg };
 }) {
   const [tone, icon] = TONE[card.outcome];
   const p = card.price;
@@ -86,8 +89,13 @@ export default function ResultCard({ card, changed, crew, countUp, id, sharePath
         <ul className="notes">{card.notes.map((n) => <li key={n}>{n}</li>)}</ul>
       )}
       {p && <div className="others">Source record {p.provenance}</div>}
-      {p && sharePath && (
-        <ShareButton path={sharePath} text={`${card.bet}: ${card.headline} (hypothetical)`} />
+      {p && (sharePath || parlay) && (
+        <div className="share-row">
+          {sharePath && (
+            <ShareButton path={sharePath} text={`${card.bet}: ${card.headline} (hypothetical)`} />
+          )}
+          {parlay && <ParlayButton game={parlay.game} leg={parlay.leg} />}
+        </div>
       )}
     </article>
   );

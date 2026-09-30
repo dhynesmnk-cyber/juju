@@ -46,8 +46,9 @@ juju-backend`, then `curl localhost:8000/health`) should show `"ok": true`.
 1. **DNS:** add the domain, and a proxied (orange-cloud) CNAME to `juju-web.fly.dev`.
    Set SSL/TLS to **Full (strict)**.
 2. **Cache rule:**
-   - Applies to `/api/player/*`, `/api/team/*`, `/api/live`, `/api/suggest` and the share
-     images, `/g/*/image` (a settled card's image is cached for a day, a live one for 30 s).
+   - Applies to `/api/player/*`, `/api/team/*`, `/api/parlay/*`, `/api/live`, `/api/suggest`
+     and the share images, `/g/*/image` (a settled card's image is cached for a day, a live
+     one for 30 s).
    - Set "Eligible for cache", with the edge TTL respecting the origin.
    - The backend sends `s-maxage=5` while a game is live and `300` once it is final. A viral
      play then costs the backend about one request every 5 s per player, however many people

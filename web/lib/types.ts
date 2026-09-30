@@ -123,11 +123,45 @@ export interface Focus {
 }
 
 export interface LookupResponse {
-  kind: "player" | "team" | "choices" | "none";
+  kind: "player" | "team" | "parlay" | "choices" | "none";
   path: string;
   game_id: number | null;
   id: string | null;
   choices: Choice[];
   message: string | null;
+  legs: string | null;  // a parlay's legs, as its URL writes them
   focus: Focus;
+}
+
+// A same-game parlay (M4). Derived values only: each leg's own price is on its card.
+export interface ParlayLeg {
+  key: string;
+  kind: "player" | "team";
+  id: string;
+  who: string;
+  label: string;
+  bet: string;
+  line: string | null;
+  outcome: Outcome;
+  outcome_text: string;
+  current: string | null;
+  needed: string | null;
+  book_name: string | null;
+  timing: "on_time" | "early" | null;
+  provenance: string | null;
+  no_price: string | null;
+}
+
+export interface ParlayView {
+  game: GameView;
+  legs: ParlayLeg[];
+  outcome: Outcome;
+  outcome_text: string;
+  headline: string;
+  returns: string | null;
+  fair_returns: string | null;
+  book_name: string | null;
+  legs_counted: number;
+  notes: string[];
+  disclaimer: string;
 }

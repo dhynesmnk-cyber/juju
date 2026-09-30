@@ -158,6 +158,34 @@ h2 { font-size: 1.05rem; margin: 22px 0 10px; }
 .status-chip.verified { margin-left: 6px; }
 .card .decided { font-size: 0.92rem; margin: 2px 0 4px; }
 .turnstile { margin-top: 10px; min-height: 65px; }
+.share.go { display: inline-flex; align-items: center; text-decoration: none;
+            background: var(--accent); color: var(--accent-text); border-color: transparent; }
+.share[aria-pressed="true"] { background: var(--won-bg); color: var(--won); }
+.share:disabled { opacity: 0.6; cursor: default; }
+
+/* Parlay (M4) */
+.tray {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; gap: 10px;
+  align-items: center; justify-content: space-between; flex-wrap: wrap;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: var(--surface); border-top: 1px solid var(--border); box-shadow: var(--shadow);
+}
+.tray-legs { display: flex; flex-direction: column; min-width: 0; flex: 1 1 200px; }
+.tray-legs .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tray-actions { display: flex; gap: 8px; align-items: center; }
+.page:has(.tray) { padding-bottom: 96px; }
+.sky { display: flex; justify-content: center; gap: 18px; list-style: none; padding: 8px 0 18px; margin: 0; }
+.light {
+  width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.06); transition: background 400ms ease, box-shadow 400ms ease;
+}
+.light.lit { background: #ffc53d; border-color: #ffe39a; box-shadow: 0 0 14px 4px rgba(255, 197, 61, 0.65); }
+.light.out { background: #3a1d22; border-color: #7a3a44; }
+.light.dropped { border-style: dashed; opacity: 0.5; }
+.legs { list-style: none; padding: 0; margin: 10px 0 0; }
+.legs li { padding: 10px 0; border-top: 1px solid var(--border); }
+.legs li .status-chip { margin: 4px 0; }
+@media (prefers-reduced-motion: reduce) { .light { transition: none; } }
 .share-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 0.9rem; }
 .share {
   min-height: 44px; min-width: 44px; padding: 0 16px; border-radius: 999px; font: inherit;

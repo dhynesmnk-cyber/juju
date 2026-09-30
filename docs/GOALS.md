@@ -215,7 +215,7 @@ Rules:
 | M1 | Archive (capture, repair, backfill), lookup engine, internal API | done |
 | M2 | Live overlay, deterministic parse and LLM fallback, Next.js UI, deploy config | done |
 | M3 | Worlds and the Jujus, nflverse verification and corrections, the play that decided it, lookup golden set, share images, Turnstile past a lookup threshold | done |
-| M4 | Same-game parlays | next |
+| M4 | Same-game parlays: the tray and parlay page, multi-leg text, one book when possible | done |
 | M5 | Launch hardening: licensed live stats, load test, alerting, restore drill, legal review of state exposure | before launch |
 
 ## 11. Open before public launch (not before the build)

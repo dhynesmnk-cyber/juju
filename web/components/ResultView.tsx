@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ParlayTray from "@/components/ParlayTray";
 import ResultCard from "@/components/ResultCard";
 import WorldStage from "@/components/world/WorldStage";
 import { MOOD, worldFor } from "@/components/world/worlds";
 import { secondsAgo } from "@/lib/format";
+import { legKey } from "@/lib/parlayTray";
 import type { Card, PlayerView, TeamView } from "@/lib/types";
 
 const SETTLED = new Set(["won", "lost", "push", "void", "no_stat_line"]);
@@ -36,6 +38,15 @@ export function sharePath(pagePath: string, card: Card): string {
   const q = new URLSearchParams({ card: card.key });
   if (card.alternate && card.line) q.set("threshold", card.line);
   return `${pagePath}?${q}`;
+}
+
+/** The card as a parlay leg, for the tray; undefined for a card that can't be one. */
+function parlayLeg(v: View, c: Card) {
+  const key = "player" in v ? legKey("player", v.player.id, c)
+    : legKey("team", v.team.espn_id, c);
+  if (!key || c.outcome === "void") return undefined;
+  const who = "player" in v ? v.player.name : v.team.abbr ?? v.team.name;
+  return { game: v.game.id, leg: { key, who, bet: c.bet } };
 }
 
 /** Shows the price straight away and keeps the status current: every 10 s until settled. */
@@ -130,10 +141,12 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
           <ResultCard key={c.key} card={c} changed={changed.has(c.key)}
                       id={i === 0 ? "first-card" : undefined}
                       crew={i === 0 ? MOOD[world] : undefined}
-                      countUp={i === 0 && countFirst} sharePath={sharePath(pagePath, c)} />
+                      countUp={i === 0 && countFirst} sharePath={sharePath(pagePath, c)}
+                      parlay={parlayLeg(view, c)} />
         ))}
       </div>
       <p className="hint hypo">{view.disclaimer}</p>
+      <ParlayTray game={view.game.id} />
       <p><Link href="/">← Look up another play</Link></p>
     </>
   );

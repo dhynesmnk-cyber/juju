@@ -20,11 +20,11 @@ export default function ShareButton({ path, text }: { path: string; text: string
     }
   }
   return (
-    <div className="share-row">
+    <>
       <button type="button" className="share" onClick={share}>
         <span aria-hidden="true">↗</span> Share
       </button>
       <span className="muted" role="status">{said}</span>
-    </div>
+    </>
   );
 }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import TurnstileWidget, { TURNSTILE_SITE_KEY } from "@/components/TurnstileWidget";
 import { choiceHref, resultHref } from "@/lib/links";
+import { parlayHref } from "@/lib/parlayTray";
 import type { Choice, Focus, LookupResponse } from "@/lib/types";
 
 /** Typeahead for players in live games first, and free text for anything else. The
@@ -72,7 +73,9 @@ export default function SearchBox() {
         return;
       }
       const body: LookupResponse = await r.json();
-      if ((body.kind === "player" || body.kind === "team") && body.game_id && body.id) {
+      if (body.kind === "parlay" && body.game_id && body.legs) {
+        router.push(parlayHref(body.game_id, body.legs));
+      } else if ((body.kind === "player" || body.kind === "team") && body.game_id && body.id) {
         router.push(resultHref(body.kind, body.game_id, body.id, body.focus));
       } else if (body.kind === "choices") {
         setChoices(body.choices);
