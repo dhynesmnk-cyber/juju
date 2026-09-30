@@ -9,8 +9,8 @@ where the build stands and what to do next. Update it before you finish a sessio
 
 | | |
 |---|---|
-| Branch | `main` has M0–M4: PR #1 merged M0–M2, and PR #2 merged M3 and M4 (its head `c836382`, merged as `991b306`). Two commits reached `claude/happy-galileo-p7ify3` **after** PR #2 merged, so they missed `main`. `claude/eager-galileo-olocx1` brings them in: the parlay leg prices (`00befec`, cherry-picked) and this file (what was right in `a133cd3`). Its PR is open |
-| CI | Green on `main` at `991b306`. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys) |
+| Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 merged M3 and M4, and PR #3 merged the parlay leg prices and this file. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
+| CI | Green on every merged PR head (the last is PR #3's, `0a58a52`, whose tree `main` has). Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys) |
 | Tests | 1,154 backend tests (re-run on `main` on 2026-09-30), 3 web unit tests (`node --test`), 17 Playwright tests |
 | Deployed | **No.** The Fly.io config and runbook exist (`docs/deploy.md`); the owner has not created the apps yet |
 | Real data | No real capture has run. The archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
@@ -18,12 +18,11 @@ where the build stands and what to do next. Update it before you finish a sessio
 
 ## First thing to do
 
-1. **Look at the PR for `claude/eager-galileo-olocx1`** (the parlay leg prices and this file).
-   If it is merged, start from the latest `main`. If it is still open, fix any red CI or review
-   comments on it first.
-2. **Set up the environment** (below), and run the tests before changing anything.
-3. **Pick from "Next steps"** in order, unless the owner asks for something else. A merged PR
+1. **Set up the environment** (below), and run the tests before changing anything.
+2. **Pick from "Next steps"** in order, unless the owner asks for something else. A merged PR
    is finished: start each new piece of work from the latest `main`, and give it a new PR.
+3. **Before you finish, check that everything you pushed reached `main`** (or sits in an open
+   PR). Never push to a branch whose PR has merged: that is how `00befec` was stranded.
 
 ## Setting up a fresh container
 
@@ -175,7 +174,7 @@ without the owner's OK. parlaytracker's own handover says the key should be rota
 
 ## Next steps
 
-In order, after "First thing to do". None of these needs the owner, except where it says so.
+In order. None of these needs the owner, except where it says so.
 
 **1. Follow-ups from M3 and M4** (small, each a commit):
 - **Verify the first-TD scorer** against the play-by-play: the first play with
@@ -212,15 +211,14 @@ pages and of state exposure; then a soft launch.
 
 ## Needs the owner
 
-1. **Merge the PR for `claude/eager-galileo-olocx1`** (the parlay leg prices and this file).
-2. A **Juju-only Odds API key on the 100K plan** ($59/mo), set as a Fly secret. Real captures
+1. A **Juju-only Odds API key on the 100K plan** ($59/mo), set as a Fly secret. Real captures
    and historical repair need it: historical data is paid-only.
-3. **Fly.io:** create the apps, or give a deploy token. Then follow `docs/deploy.md`.
-4. **A domain on Cloudflare**, then `SITE_URL` in `web/fly.toml` (share previews).
-5. **Turnstile:** a widget for the domain (site key and secret, `docs/deploy.md` step 5).
-6. **Optional:** an OpenRouter key and model for the LLM fallback.
-7. **Before public launch:** the live-stats licence decision, and legal review.
-8. **FYI:** GitHub reports the parlaytracker repository as **public**, while the old goals doc
+2. **Fly.io:** create the apps, or give a deploy token. Then follow `docs/deploy.md`.
+3. **A domain on Cloudflare**, then `SITE_URL` in `web/fly.toml` (share previews).
+4. **Turnstile:** a widget for the domain (site key and secret, `docs/deploy.md` step 5).
+5. **Optional:** an OpenRouter key and model for the LLM fallback.
+6. **Before public launch:** the live-stats licence decision, and legal review.
+7. **FYI:** GitHub reports the parlaytracker repository as **public**, while the old goals doc
    said "still private". The owner was told on 2026-09-30.
 
 ## Gotchas
