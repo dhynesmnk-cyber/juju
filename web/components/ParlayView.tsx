@@ -6,6 +6,7 @@ import CountUp from "@/components/CountUp";
 import { TONE } from "@/components/ResultCard";
 import WorldStage from "@/components/world/WorldStage";
 import { worldFor } from "@/components/world/worlds";
+import { american } from "@/lib/format";
 import { legCardHref } from "@/lib/parlayTray";
 import type { Outcome, ParlayLeg, ParlayView as View } from "@/lib/types";
 
@@ -24,7 +25,7 @@ function progress(leg: ParlayLeg): string | null {
   if (leg.outcome === "live" && leg.needed !== null) {
     return `${Number(leg.current)} so far, needs ${Number(leg.needed)} more`;
   }
-  return `${Number(leg.current)}`;
+  return `${Number(leg.current)} so far`;
 }
 
 /** The parlay card: the price at once, the status every 10 s until it settles. The gold
@@ -112,9 +113,18 @@ export default function ParlayView({ initial, apiPath }: { initial: View; apiPat
                 <span className={`status-chip ${legTone}`}>
                   <span aria-hidden="true">{legIcon}</span> {l.outcome_text}
                 </span>
+                {progress(l) && <div className="detail">{progress(l)}</div>}
                 <div className="detail">
-                  {[progress(l), l.book_name ? `priced at ${l.book_name}` : l.no_price,
-                    l.timing === "early" ? "earlier than T-45" : null].filter(Boolean).join(" · ")}
+                  {l.price ? (
+                    <>
+                      {american(l.price.american)} at {l.price.book_name}
+                      {l.price.point !== null && l.line !== null && l.price.point !== l.line
+                        ? ` (line ${l.price.point})` : ""}
+                      {`, ${l.price.minutes_before_kickoff} min before kickoff`}
+                      {l.price.timing === "early"
+                        && <span className="flag"> (earlier than T-45)</span>}
+                    </>
+                  ) : l.no_price}
                 </div>
               </li>
             );
@@ -122,7 +132,7 @@ export default function ParlayView({ initial, apiPath }: { initial: View; apiPat
         </ol>
         <ul className="notes">{view.notes.map((n) => <li key={n}>{n}</li>)}</ul>
       </article>
-      <p className="hint">Each leg&apos;s price is on its own card: tap a name.</p>
+      <p className="hint">Tap a name for that bet&apos;s own card, with the other books&apos; prices.</p>
       <p className="hint hypo">{view.disclaimer}</p>
       <p><Link href={`/`}>← Look up another play</Link></p>
     </>

@@ -38,7 +38,9 @@ for any live HTTP call through the proxy.
 - **Requests from users never reach a data provider** (ESPN, The Odds API, nflverse). Only the
   worker does. The optional LLM fallback is the one outbound call the API makes.
 - **Licensing** (docs/licensing.md): no endpoint may list prices across players or games, or
-  export raw odds. The backend has no public address.
+  export raw odds. The one exception, the owner's call on 2026-09-30: a same-game parlay card
+  shows the price of each of the 2 to 6 legs someone picked, in one game, at one book (never
+  the other books). The backend has no public address.
 - **Secrets:** never print, log or commit API keys. `Settings` holds them as `SecretStr`. httpx
   loggers stay at WARNING, because the Odds API key is a query parameter.
 - **Tests:** no test uses the network (`tests/conftest.py` blocks it); use `tests/fixtures/`.
