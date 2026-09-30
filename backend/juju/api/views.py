@@ -270,12 +270,19 @@ def claim_in_feed(focus: Focus, stats: dict[Stat, Decimal]) -> bool:
 _CHECKED_OUTCOMES = card.SETTLED - {Outcome.VOID}
 
 
+UNCONFIRMED = "The official stats don't confirm this number, so it isn't verified."
+FIRST_TD_UNCONFIRMED = ("The official play-by-play doesn't agree on who scored the first "
+                        "touchdown, so this isn't verified.")
+
+
 @dataclass(frozen=True)
 class Check:
     """What the next-day check against nflverse says about the number a card settled on."""
     checkable: bool                # nflverse has this stat at all
     verified: bool = False         # it gave the same number (or the one now shown)
     corrections: tuple[StatCorrection, ...] = ()
+    checked: bool = False          # the check of this number has run
+    unconfirmed: str = UNCONFIRMED  # the note when it ran and didn't confirm it
 
 
 UNCHECKED = Check(checkable=False)
@@ -285,7 +292,7 @@ def _fmt(value: Decimal) -> str:
     return format(value.normalize(), "f")
 
 
-def check_notes(check: Check, game: Game, outcome: Outcome) -> tuple[bool, list[str]]:
+def check_notes(check: Check, outcome: Outcome) -> tuple[bool, list[str]]:
     """(verified, notes) for a card. Nothing is said before the game has settled."""
     if outcome not in _CHECKED_OUTCOMES:
         return False, []
@@ -300,23 +307,29 @@ def check_notes(check: Check, game: Game, outcome: Outcome) -> tuple[bool, list[
         notes.append("Verified against the official stats (nflverse).")
     elif not check.checkable:
         notes.append("The official stats don't include this stat, so it can't be verified.")
-    elif game.verified_at is None:
+    elif not check.checked:
         notes.append("Awaiting verification against the official stats.")
     else:
-        notes.append("The official stats don't confirm this number, so it isn't verified.")
+        notes.append(check.unconfirmed)
     return check.verified, notes
 
 
 def player_check(market: Market, game: Game, rows: dict[Stat, LiveStat],
-                 corrections: Sequence[StatCorrection]) -> Check:
+                 corrections: Sequence[StatCorrection], *, first_td: str | None) -> Check:
+    """`first_td` is ESPN's first-touchdown scorer, as the card was decided on."""
+    if market.first_td:  # against the play-by-play's (worker/deciding.py `check_first_td`)
+        checked = game.first_td_checked_at is not None
+        agrees = first_td != card.UNKNOWN_SCORER and game.first_td_official == first_td
+        return Check(True, checked and agrees, checked=checked, unconfirmed=FIRST_TD_UNCONFIRMED)
     stat = market.stat
-    if stat is None or market.first_td or stat not in CHECKED_STATS | MAX_STATS:
+    if stat is None or stat not in CHECKED_STATS | MAX_STATS:
         return UNCHECKED  # the longest plays are checked against the play-by-play
     mine = tuple(c for c in corrections if c.stat is stat)
+    checked = game.verified_at is not None
     if not rows:  # no stat line: confirmed once nflverse, checked, had none either
-        return Check(True, game.verified_at is not None, mine)
+        return Check(True, checked, mine, checked)
     row = rows.get(stat)
-    return Check(True, row is not None and row.verified_at is not None, mine)
+    return Check(True, row is not None and row.verified_at is not None, mine, checked)
 
 
 # --- The play that decided it -------------------------------------------------------------------
@@ -358,7 +371,7 @@ def _build(market: Market, sel: Selection, bet: Bet, game: Game, stat: PlayerSta
     outcome_text = OUTCOME_TEXT[outcome]
     if outcome is Outcome.UNTRACKED and bet.line is None and market.tracked:
         outcome_text = NO_LINE_TEXT
-    verified, notes = check_notes(check, game, outcome)
+    verified, notes = check_notes(check, outcome)
     shown = _FIRST_TD_DECIDED if market.first_td else _CASHED
     decided_by = (_decided(deciding_play) if deciding_play is not None and outcome in shown
                   else None)
@@ -457,7 +470,8 @@ def player_view(session: Session, game: Game, athlete: str, now: datetime,
             play = decided.get((market.stat, line))
         views.append(_build(market, sel, Bet(market, line), game, stat, now, focus,
                             claim_seen=claim_seen,
-                            check=player_check(market, game, rows, corrections),
+                            check=player_check(market, game, rows, corrections,
+                                               first_td=scorer),
                             deciding_play=play))
     ranked = plays.rank([plays.Ranked(BY_KEY[v.key], v.outcome, v.touched, v.named)
                          for v in views])
@@ -516,7 +530,8 @@ def team_view(session: Session, game: Game, team_espn_id: str, now: datetime,
         bet = Bet(market, line, side_is_home=is_home)
         side = (game.home_abbr if is_home else game.away_abbr) or name
         # The final score is checked with the rest of the game; a disputed one never is.
-        check = Check(True, game.verified_at is not None)
+        checked = game.verified_at is not None
+        check = Check(True, checked, checked=checked)
         views.append(_build(market, sel, bet, game, None, now, focus, side, check=check))
     return TeamView(game_view(game, now),
                     {"espn_id": team_espn_id, "name": name,

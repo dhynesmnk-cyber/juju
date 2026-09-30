@@ -1,12 +1,25 @@
 """Finding the play that decided a bet: the pure parts, and the real play-by-play of PHI @ CHI."""
+from datetime import UTC, datetime
 from decimal import Decimal as D
 
 import pytest
 
+from juju.api.views import FIRST_TD_UNCONFIRMED, check_notes, player_check
+from juju.core.card import UNKNOWN_SCORER, Outcome
 from juju.core.enums import Stat
-from juju.ingest.nflverse import NflverseData, play_value
+from juju.core.markets import BY_KEY
+from juju.core.models import Game
+from juju.ingest.nflverse import NflverseData, first_td_scorer, play_value
 from juju.ingest.router import Breakers
-from juju.worker.deciding import STAT_KINDS, _desc, _pbp_clock, crossed, deciding_index, total
+from juju.worker.deciding import (
+    STAT_KINDS,
+    _desc,
+    _pbp_clock,
+    check_first_td,
+    crossed,
+    deciding_index,
+    total,
+)
 from tests.support import BARKLEY, PHI_CHI_ESPN_ID, SMITH, nflverse_loader
 
 
@@ -86,3 +99,61 @@ def test_plays_come_in_order_and_other_games_are_dropped(pbp):
     ids = [D(r["play_id"]) for r in plays]
     assert ids == sorted(ids)
     assert data.plays(2026, frozenset({"2099_01_NOT_REAL"})) == {"2099_01_NOT_REAL": []}
+
+
+# --- The first touchdown ------------------------------------------------------------------------
+
+NOW = datetime(2026, 9, 29, 14, 7, tzinfo=UTC)
+FIRST_TD = BY_KEY["player_1st_td"]
+
+
+def play(td="0", scorer="", two_point="0"):
+    return {"touchdown": td, "td_player_id": scorer, "two_point_attempt": two_point}
+
+
+def test_the_first_touchdown_in_the_play_by_play():
+    assert first_td_scorer([play(), play("1", "00-1"), play("1", "00-2")]) == "00-1"
+    assert first_td_scorer([play("1.0", "00-1")]) == "00-1"
+    assert first_td_scorer([play("1", "00-9", two_point="1"), play("1", "00-2")]) == "00-2"
+    assert first_td_scorer([play(), play()]) is None  # no touchdown
+    assert first_td_scorer([play("1", "")]) == ""     # a touchdown that names nobody
+
+
+def test_the_recorded_first_touchdown():
+    data = NflverseData(Breakers(engine=None), nflverse_loader())
+    game = data.game_id(2026, PHI_CHI_ESPN_ID)
+    gsis = first_td_scorer(data.plays(2026, frozenset({game}))[game])
+    assert data.espn_id(gsis) == "4685278"  # Burden, Q1 8:56
+
+
+def test_check_first_td_keeps_the_official_scorer_as_an_espn_id():
+    espn_of = {"00-1": "111"}.get
+    for plays, official in (([play("1", "00-1")], "111"),
+                            ([play("1", "00-7")], UNKNOWN_SCORER),  # no ESPN id for him
+                            ([play("1", "")], UNKNOWN_SCORER),
+                            ([play()], None)):
+        game = Game(home_team="h", away_team="a")
+        check_first_td(game, plays, espn_of, NOW)
+        assert (game.first_td_official, game.first_td_checked_at) == (official, NOW)
+    game = Game(home_team="h", away_team="a")
+    check_first_td(game, [], espn_of, NOW)  # nflverse has no plays for it yet
+    assert game.first_td_checked_at is None
+
+
+def first_td_check(official, checked, espn):
+    game = Game(home_team="h", away_team="a", first_td_official=official,
+                first_td_checked_at=NOW if checked else None)
+    return player_check(FIRST_TD, game, {}, [], first_td=espn)
+
+
+def test_first_touchdown_cards_are_verified_only_when_both_sources_agree():
+    assert first_td_check("111", True, "111").verified
+    assert first_td_check(None, True, None).verified  # no touchdown in either
+    assert not first_td_check("111", False, "111").verified  # not checked yet
+    assert not first_td_check("222", True, "111").verified
+    assert not first_td_check(None, True, "111").verified
+    assert not first_td_check(UNKNOWN_SCORER, True, UNKNOWN_SCORER).verified  # never guessed
+    assert check_notes(first_td_check("111", False, "111"), Outcome.WON) == (
+        False, ["Awaiting verification against the official stats."])
+    assert check_notes(first_td_check("222", True, "111"), Outcome.LOST) == (
+        False, [FIRST_TD_UNCONFIRMED])

@@ -235,8 +235,8 @@ def test_the_longest_plays_are_confirmed_by_the_play_by_play_never_corrected(db)
         game = s.get(Game, game_id)
         rows = {r.stat: r for r in s.scalars(select(LiveStat).where(
             LiveStat.game_id == game_id, LiveStat.espn_athlete_id == SMITH))}
-        check = player_check(BY_KEY["player_reception_longest"], game, rows, [])
-        assert check_notes(check, game, Outcome.WON) == (False, [
+        check = player_check(BY_KEY["player_reception_longest"], game, rows, [], first_td=None)
+        assert check_notes(check, Outcome.WON) == (False, [
             "The official stats don't confirm this number, so it isn't verified."])
 
 
@@ -247,15 +247,15 @@ def test_notes_for_a_stat_the_official_stats_do_not_have(db):
         game = s.get(Game, game_id)
         rows = {r.stat: r for r in s.scalars(select(LiveStat).where(
             LiveStat.game_id == game_id, LiveStat.espn_athlete_id == SMITH))}
-        check = player_check(BY_KEY["player_pass_longest_completion"], game, rows, [])
+        check = player_check(BY_KEY["player_pass_longest_completion"], game, rows, [],
+                             first_td=None)
         assert check == Check(checkable=False)  # no stat for it at all
-        assert check_notes(check, game, Outcome.WON) == (
+        assert check_notes(check, Outcome.WON) == (
             False, ["The official stats don't include this stat, so it can't be verified."])
-        assert player_check(BY_KEY["player_1st_td"], game, rows, []).checkable is False
         # Nothing is said about a void, or before a game settles.
-        assert check_notes(player_check(BY_KEY["player_receptions"], game, rows, []), game,
-                           Outcome.VOID) == (False, [])
-        assert check_notes(Check(True), game, Outcome.LIVE) == (False, [])
+        receptions = player_check(BY_KEY["player_receptions"], game, rows, [], first_td=None)
+        assert check_notes(receptions, Outcome.VOID) == (False, [])
+        assert check_notes(Check(True), Outcome.LIVE) == (False, [])
         # No stat line in ESPN or nflverse: confirmed by the check.
-        assert player_check(BY_KEY["player_receptions"], game, {}, []).verified is True
+        assert player_check(BY_KEY["player_receptions"], game, {}, [], first_td=None).verified
 
