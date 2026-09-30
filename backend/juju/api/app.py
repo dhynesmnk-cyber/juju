@@ -22,9 +22,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from juju.api import lookup
-from juju.api.views import Focus, game_view, player_view, team_view
+from juju.api.views import Focus, game_view, parlay_view, player_view, team_view
 from juju.config import Settings, get_settings
 from juju.core.enums import EventStatus, HealthState, PlayKind
+from juju.core.parlay import parse_legs
 from juju.core.models import Game, HotGame, Lookup, OddsSnapshot, Play, SourceHealth
 from juju.db import session_factory
 from juju.ingest.llm import Budget, LlmReader
@@ -299,6 +300,26 @@ def team(game_id: int, team_id: str, session: SessionDep, play: str | None = Non
                      _focus(play, market, None, False))
     if view is None:
         raise HTTPException(404, "No such team in this game")
+    mark_hot(session, game.id, now)
+    return respond({**jsonable_encoder(view, custom_encoder={Decimal: lambda d: format(d, "f")}),
+                    "disclaimer": DISCLAIMER}, _cache_for(game.status))
+
+
+@app.get("/api/parlay/{game_id}")
+def parlay_card(game_id: int, session: SessionDep,
+                legs: Annotated[str, Query(max_length=600)] = "") -> JSONResponse:
+    """One same-game parlay of 2 to 6 legs the person chose (docs/GOALS.md section 5)."""
+    game = session.get(Game, game_id)
+    if game is None:
+        raise HTTPException(404, "No such game")
+    try:
+        keys = parse_legs(legs)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    now = _utcnow()
+    view = parlay_view(session, game, keys, now, get_settings().books)
+    if view is None:
+        raise HTTPException(404, "A leg names a player or team who isn't in this game")
     mark_hot(session, game.id, now)
     return respond({**jsonable_encoder(view, custom_encoder={Decimal: lambda d: format(d, "f")}),
                     "disclaimer": DISCLAIMER}, _cache_for(game.status))

@@ -5,7 +5,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import { BACKEND_URL } from "@/lib/backend";
 import { CLEARED_SECONDS, COOKIE, passIsValid, signPass, verifyToken } from "@/lib/turnstile";
 
-const GET_PATHS = [/^live$/, /^status$/, /^suggest$/, /^player\/\d+\/\d+$/, /^team\/\d+\/\d+$/];
+const GET_PATHS = [/^live$/, /^status$/, /^suggest$/, /^player\/\d+\/\d+$/, /^team\/\d+\/\d+$/,
+                   /^parlay\/\d+$/];
 const POST_PATHS = [/^lookup$/];
 
 function clientId(req: NextRequest): string {

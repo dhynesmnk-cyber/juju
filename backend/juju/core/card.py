@@ -103,6 +103,9 @@ def decide(bet: Bet, game: GameState, stat: PlayerStat | None, now: datetime) ->
     # "live status unavailable", never a guess.
     stale = freshness(game.status, game.last_polled_at, now) is Severity.RED
     market = bet.market
+    if bet.line is None and market.scope is not Scope.MONEYLINE and not market.first_td:
+        # No price, so no line to decide it on (the card says "no price on file").
+        return Decided(Outcome.UNTRACKED)
 
     if market.scope is not Scope.PLAYER:
         value = _game_value(bet, game)

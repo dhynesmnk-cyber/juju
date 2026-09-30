@@ -89,6 +89,13 @@ def test_a_play_that_is_not_in_the_feed_yet_waits(client, db):
     assert view["waiting_for_feed"] is True
 
 
+def test_a_named_threshold_shows_its_ladder_card(client, db):
+    game = seed(db, "final")
+    view = client.get(f"/api/player/{game}/{BARKLEY}", params={"threshold": "79.5"}).json()
+    ladder = card(view, "player_rush_yds_alternate")
+    assert ladder["bet"] == "80+ rush yards" and ladder["outcome"] == "won"  # 82
+
+
 def test_team_cards(client, db):
     game = seed(db, "final")
     view = client.get(f"/api/team/{game}/3").json()  # Chicago
@@ -159,9 +166,11 @@ def test_live_lists_games_and_plays_without_prices(client, db):
 
 
 def test_there_is_no_endpoint_that_lists_prices_across_players(client):
+    # The parlay spans players but lists no price: tests/db/test_parlay.py holds it to that.
     paths = {r.path for r in app_module.app.routes}
     assert paths == {"/health", "/api/status", "/api/live", "/api/suggest", "/api/lookup",
-                     "/api/player/{game_id}/{athlete_id}", "/api/team/{game_id}/{team_id}"}
+                     "/api/player/{game_id}/{athlete_id}", "/api/team/{game_id}/{team_id}",
+                     "/api/parlay/{game_id}"}
 
 
 def test_health_reports_the_worker(client, db):

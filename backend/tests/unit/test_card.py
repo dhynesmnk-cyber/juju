@@ -125,3 +125,17 @@ def test_what_ten_dollars_came_back_as():
     assert settled_returns(Outcome.LOST, m) == D("0.00")
     assert settled_returns(Outcome.PUSH, m) == D("10.00")
     assert settled_returns(Outcome.LIVE, m) is None
+
+
+def test_a_bet_with_no_price_has_no_line_and_is_never_decided():
+    """A market with rows but no usable price (the player was pulled): before, deciding it
+    raised and took the whole page down."""
+    no_line = Bet(BY_KEY["player_rush_yds"], None)
+    assert decide(no_line, game(), stat(82), LIVE_NOW).outcome is Outcome.UNTRACKED
+    final = game(S.FINAL, final_at=KICK + timedelta(hours=3))
+    assert decide(no_line, final, stat(82), KICK + timedelta(hours=4)).outcome \
+        is Outcome.UNTRACKED
+    spread = Bet(BY_KEY["spreads"], None, side_is_home=True)
+    assert decide(spread, game(), None, LIVE_NOW).outcome is Outcome.UNTRACKED
+    moneyline = Bet(BY_KEY["h2h"], None, side_is_home=True)  # needs no line
+    assert decide(moneyline, game(), None, LIVE_NOW).outcome is Outcome.LIVE
