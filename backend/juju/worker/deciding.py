@@ -19,10 +19,11 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from juju.core.card import UNKNOWN_SCORER
 from juju.core.enums import EventStatus, PlayKind, Stat
 from juju.core.markets import BY_KEY, CATALOG, OVER, YES, Scope
 from juju.core.models import DecidingPlay, Game, LiveStat, Play, Price
-from juju.ingest.nflverse import MAX_STATS, PLAY_STATS, play_value
+from juju.ingest.nflverse import MAX_STATS, PLAY_STATS, first_td_scorer, play_value
 
 log = logging.getLogger("juju.deciding")
 
@@ -217,3 +218,21 @@ def check_longest(session: Session, game: Game, plays: Sequence[dict[str, str]],
             log.info("%s: %s %s is %s in the feed but not in the play-by-play", game.label,
                      row.espn_athlete_id, row.stat, row.value)
     return verified
+
+
+def check_first_td(game: Game, plays: Sequence[dict[str, str]],
+                   espn_of: Callable[[str], str | None], now: datetime) -> None:
+    """The first touchdown's scorer in the play-by-play, kept on the game for the cards to
+    compare with ESPN's (api/views.py `player_check`). Like the longest plays, it only
+    confirms: ESPN's scorer still decides the card, so a disagreement leaves it unverified and
+    never corrects it."""
+    if not plays:
+        return
+    gsis = first_td_scorer(plays)
+    if gsis is None:
+        official = None  # no touchdown in the game
+    else:
+        official = (espn_of(gsis) if gsis else None) or UNKNOWN_SCORER
+    game.first_td_official, game.first_td_checked_at = official, now
+    log.info("%s: the play-by-play's first touchdown: gsis %r, ESPN %r", game.label, gsis,
+             official)

@@ -84,8 +84,11 @@ Save-Data.
 - **Next-day check:** `verify_games` runs at 10:07 and 16:07 ET (and at startup). It checks
   last week's final games against nflverse, replaces any stat the official numbers correct, and
   logs an ERROR for a game whose final score disagrees (nothing is applied; see
-  `games.last_error`). Run it by hand with `python -m juju.cli verify`. It needs outbound HTTPS
-  to `github.com` and `release-assets.githubusercontent.com`.
+  `games.last_error`). From the play-by-play it confirms the longest plays and the first
+  touchdown's scorer, and never corrects them (a disagreement leaves the card unverified; the
+  first touchdown's is `games.first_td_official`). Run it by hand with
+  `python -m juju.cli verify`. It needs outbound HTTPS to `github.com` and
+  `release-assets.githubusercontent.com`.
 - **Logs:** ship them with Fly's log shipper, and alert on `ERROR juju.`.
 
 ## First real capture

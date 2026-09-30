@@ -11,7 +11,7 @@ where the build stands and what to do next. Update it before you finish a sessio
 |---|---|
 | Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 merged M3 and M4, and PR #3 merged the parlay leg prices and this file. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
 | CI | Green on every merged PR head (the last is PR #3's, `0a58a52`, whose tree `main` has). Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys) |
-| Tests | 1,154 backend tests (re-run on `main` on 2026-09-30), 3 web unit tests (`node --test`), 17 Playwright tests |
+| Tests | 1,161 backend tests, 3 web unit tests (`node --test`), 17 Playwright tests |
 | Deployed | **No.** The Fly.io config and runbook exist (`docs/deploy.md`); the owner has not created the apps yet |
 | Real data | No real capture has run. The archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
@@ -60,7 +60,8 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   - `odds.py`, `settlement.py` and `live.py`, ported from parlaytracker;
   - `parlay.py` (M4): legs in a URL, one book for every leg when one priced them all, the
     parlay outcome (a lost leg loses it, pushes drop out, no stat line leaves it undecided);
-  - `models.py`, including `StatCorrection` and `DecidingPlay` (migrations 0002, 0003).
+  - `models.py`, including `StatCorrection` and `DecidingPlay` (migrations 0002, 0003), and
+    `Game.first_td_official` and `first_td_checked_at` (0004).
 - `ingest/`:
   - `odds_api.py`: live, historical and scores endpoints;
   - `espn.py`: box score parsing, plus notable plays for the chips;
@@ -83,7 +84,8 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
     play by that player among the plays in the read that saw the stat pass the line (only the
     game clock if there is none, or on a game's first read). Next day: exact, from the
     play-by-play, kept only if the play-by-play adds up to the final stat. `check_longest`
-    confirms the longest rush and catch from the play-by-play (it never corrects them);
+    confirms the longest rush and catch from the play-by-play, and `check_first_td` records
+    its first touchdown's scorer for the cards to compare with ESPN's (neither ever corrects);
   - `__main__.py`: the scheduler, holding an advisory lock.
 - `api/`: FastAPI, private and reached only through the site:
   - `app.py`: the endpoints. Lookups: 30 a minute per client, and after 12 in 15 minutes a
@@ -142,6 +144,10 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
   Juju has no one to review. A disputed *final score* is never applied.
 - **Only stats that matched ESPN exactly on a real game are checked.** A mapping that drifts
   would "correct" good numbers. `tests/unit/test_nflverse.py` pins the agreement.
+- **The first touchdown from the play-by-play only confirms**, like the longest plays: ESPN's
+  scorer decides the card, and a disagreement leaves it unverified, never corrected. The
+  play-by-play is a derived source, not an official stat column, and flipping a first-TD bet
+  flips it for everyone who looked it up.
 - **A first name alone is offered, never picked** ("Will", "Chance", "Case" are players here).
 - **The edge rule for lookups is a block, not a managed challenge.** A challenge page can't be
   solved from a `fetch`; Turnstile runs in the page instead. (GOALS §3 and `docs/licensing.md`
@@ -177,15 +183,11 @@ without the owner's OK. parlaytracker's own handover says the key should be rota
 In order. None of these needs the owner, except where it says so.
 
 **1. Follow-ups from M3 and M4** (small, each a commit):
-- **Verify the first-TD scorer** against the play-by-play: the first play with
-  `touchdown == 1` gives `td_player_id` (map it with `NflverseData.espn_id`). It needs
-  somewhere to record the result, e.g. `games.first_td_verified_at` (a new migration), and
-  `views.player_check` then treats first-TD cards as checkable. Today they say "can't be
-  verified".
 - **Retry late play-by-play.** `VerifyGames._exact_plays` runs only in the run that verifies a
-  game, so a game whose play-by-play was published late never gets exact deciding plays or
-  the longest-play check. Record when that step succeeded (e.g. `games.plays_checked_at`) and
-  retry games verified in the last 7 days that lack it.
+  game, so a game whose play-by-play was published late never gets exact deciding plays, the
+  longest-play check or the first-touchdown check (its cards then await verification for
+  good). `games.first_td_checked_at` already marks a game whose play-by-play was read: retry
+  games verified in the last 7 days that lack it.
 - **A share image for a parlay:** `/g/[game]/parlay/image?legs=`, reusing `lib/shareImage.tsx`
   (the lights in the sky, the combined payout, the correlation note), and Open Graph tags on
   the parlay page.
@@ -254,7 +256,8 @@ pages and of state exposure; then a soft launch.
     bundler; keep `lib/turnstile.ts` free of `@/` imports.
 - **Layering the world:** `.world` is `z-index: -1`, and `html.worlds .page` has
   `position: relative; z-index: 1`. Anything else puts the world on top of the text.
-- **Migrations:** 0001 was regenerated once, before any deploy; 0002 and 0003 came with M3.
+- **Migrations:** 0001 was regenerated once, before any deploy; 0002 and 0003 came with M3,
+  0004 with the first-touchdown check.
   From now on, add new migrations and never edit an existing one. Generate against a scratch
   database at head (`alembic revision --autogenerate`), read the file, and run
   `tests/db/test_migrations.py`.

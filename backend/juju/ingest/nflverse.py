@@ -3,7 +3,8 @@
 # worker has 512 MB, and only a few columns are needed); Juju's `Stat`s replace parlaytracker's
 # market types; there are no snap counts (Juju never settles a missing player to zero);
 # `game_stats` returns every stat line of one game, for checking a whole box score at once; and
-# the play-by-play is new (`plays`, `play_value`), for the play that decided a bet.
+# the play-by-play is new (`plays`, `play_value`, `first_td_scorer`), for the play that decided a
+# bet and the first touchdown.
 """nflverse: the next-day check of the stats Juju settles on (docs/GOALS.md sections 5 and 10).
 
 Used only by the worker. Players map through the ID columns only (ESPN id -> gsis_id), never by
@@ -21,7 +22,7 @@ import csv
 import gzip
 import io
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import NoReturn
@@ -241,6 +242,15 @@ def play_value(row: dict[str, str], gsis_id: str, stat: Stat) -> Decimal | None:
         case Stat.DEF_INTERCEPTIONS if (_is(row, "interception")
                                         and row["interception_player_id"] == gsis_id):
             return one
+    return None
+
+
+def first_td_scorer(plays: Sequence[dict[str, str]]) -> str | None:
+    """Who scored the first touchdown in a game's play-by-play (in order): a gsis_id, "" when
+    the play names nobody, or None when there was no touchdown. A two-point try is never one."""
+    for row in plays:
+        if _is(row, "touchdown") and not _is(row, "two_point_attempt"):
+            return row["td_player_id"]
     return None
 
 

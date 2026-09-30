@@ -1,6 +1,8 @@
 """The play that decided it, on the recorded PHI @ CHI game: live from ESPN's box score ("on or
 around"), then exact from nflverse's play-by-play the next day."""
 import copy
+import csv
+import io
 from datetime import datetime, timedelta
 from decimal import Decimal as D
 
@@ -10,7 +12,7 @@ import respx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from juju.api.views import player_view
+from juju.api.views import FIRST_TD_UNCONFIRMED, player_view
 from juju.config import DEFAULT_BOOK_CHAIN
 from juju.core.card import Outcome
 from juju.core.enums import EventStatus, FailureKind, Stat
@@ -31,6 +33,7 @@ BOARD = load(FIXTURES / "espn" / "nfl_scoreboard_2026-09-28_final.json")
 SUMMARY = load(FIXTURES / "espn" / "nfl_summary_401872963_full.json")
 SMITH_30_YD_CATCH = "4018729631932"  # Q2 1:12
 BURDEN = "4685278"  # scored the game's first touchdown
+HURTS = "4040715"  # scored its second
 IN_PLAY = {"clock": 312.0, "displayClock": "5:12", "period": 4,
            "type": {"id": "2", "name": "STATUS_IN_PROGRESS", "state": "in", "completed": False,
                     "description": "In Progress", "detail": "5:12 - 4th",
@@ -203,10 +206,9 @@ def test_without_the_play_by_play_the_game_still_verifies(db):
     assert rows(db, SMITH, Stat.RECEPTIONS, exact=True) == {}
 
 
-def test_first_touchdown_cards_show_the_touchdown(db):
+def add_first_td_prices(db, game_id):
     """The recorded odds have no first-TD market, so two prices are added to the recorded
-    snapshot for this test only."""
-    game_id = seeded(db)
+    snapshot, for these tests only."""
     with Session(db) as s:
         snapshot = s.scalars(select(OddsSnapshot).where(OddsSnapshot.game_id == game_id)).first()
         for athlete, name, american in ((BURDEN, "Luther Burden III", 650),
@@ -215,9 +217,84 @@ def test_first_touchdown_cards_show_the_touchdown(db):
                         market_key="player_1st_td", outcome_name="Yes", description=name,
                         espn_athlete_id=athlete, point=None, american=american))
         s.commit()
+
+
+def verify(db, loader=None):
+    return VerifyGames(db, lambda: NflverseData(Breakers(engine=None),
+                                                loader or nflverse_loader()))(NEXT_MORNING)
+
+
+def pbp_with(change) -> bytes:
+    """The recorded play-by-play, each play passed through `change(row) -> row`."""
+    path = FIXTURES / "nflverse" / "play_by_play_2026.csv"
+    rows = list(csv.DictReader(io.StringIO(path.read_text())))
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=list(rows[0]))
+    writer.writeheader()
+    writer.writerows(change(row) for row in rows)
+    return out.getvalue().encode()
+
+
+def test_first_touchdown_cards_show_the_touchdown(db):
+    game_id = seeded(db)
+    add_first_td_prices(db, game_id)
     won = card(db, game_id, BURDEN, "player_1st_td", NEXT_MORNING)
     assert won.outcome is Outcome.WON
     assert won.decided_by == {"text": "L. Burden III 8-yd TD catch", "period": 1,
                               "clock": "8:47", "exact": True}
     lost = card(db, game_id, SMITH, "player_1st_td", NEXT_MORNING)
     assert lost.outcome is Outcome.LOST and lost.decided_by == won.decided_by
+
+
+def test_the_first_touchdown_is_verified_against_the_play_by_play(db):
+    game_id = seeded(db)
+    add_first_td_prices(db, game_id)
+    won = card(db, game_id, BURDEN, "player_1st_td", NEXT_MORNING)
+    assert won.verified is False
+    assert won.notes == ["Awaiting verification against the official stats."]
+    verify(db)
+    with Session(db) as s:
+        game = s.get(Game, game_id)
+        assert (game.first_td_official, game.first_td_checked_at) == (BURDEN, NEXT_MORNING)
+    for athlete, outcome in ((BURDEN, Outcome.WON), (SMITH, Outcome.LOST)):
+        c = card(db, game_id, athlete, "player_1st_td", NEXT_MORNING)
+        assert c.outcome is outcome and c.verified is True
+        assert c.notes == ["Verified against the official stats (nflverse)."]
+
+
+def test_a_different_first_touchdown_in_the_play_by_play_is_never_applied(db):
+    """The play-by-play credits Burden's touchdown to Hurts. ESPN's scorer still decides the
+    cards; they stay as they were, unverified."""
+    game_id = seeded(db)
+    add_first_td_prices(db, game_id)
+    hurts_gsis = "00-0036389"
+
+    def to_hurts(row):
+        if row["play_id"] == "315":  # Q1 8:56, Keenum to Burden, the first touchdown
+            row["td_player_id"] = hurts_gsis
+        return row
+    verify(db, nflverse_loader(replace={"pbp": pbp_with(to_hurts)}))
+    with Session(db) as s:
+        assert s.get(Game, game_id).first_td_official == HURTS
+    won = card(db, game_id, BURDEN, "player_1st_td", NEXT_MORNING)
+    assert won.outcome is Outcome.WON and won.verified is False
+    assert won.notes == [FIRST_TD_UNCONFIRMED]
+
+
+def test_the_first_touchdown_awaits_the_play_by_play(db):
+    """The game verifies without it, but its first touchdown hasn't been checked: the card
+    says it is awaiting verification, not that the official stats disagree."""
+    game_id = seeded(db)
+    add_first_td_prices(db, game_id)
+    fixture = nflverse_loader()
+
+    def loader(dataset, season):
+        if dataset == "pbp":
+            raise FetchError("https://github.com/x", FailureKind.TRANSIENT, "timeout")
+        return fixture(dataset, season)
+    assert verify(db, loader).verified == 1
+    with Session(db) as s:
+        assert s.get(Game, game_id).first_td_checked_at is None
+    won = card(db, game_id, BURDEN, "player_1st_td", NEXT_MORNING)
+    assert won.verified is False
+    assert won.notes == ["Awaiting verification against the official stats."]

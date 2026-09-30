@@ -13,7 +13,7 @@ The one exception is the final score: if nflverse's differs, nflverse or the mat
 nothing is applied and the reason goes to `games.last_error`.
 
 Games verified in a run then get their exact deciding plays from the play-by-play, which also
-confirms the longest rush and catch (`worker/deciding.py`).
+confirms the longest rush and catch and the first touchdown's scorer (`worker/deciding.py`).
 """
 import logging
 from collections import defaultdict
@@ -99,6 +99,7 @@ class VerifyGames:
                     out.plays += deciding.exact_plays(session, game, plays[game_id],
                                                       data.gsis_id, now)
                     deciding.check_longest(session, game, plays[game_id], data.gsis_id, now)
+                    deciding.check_first_td(game, plays[game_id], data.espn_id, now)
                     session.commit()
         except (NflverseError, ProviderOpen) as e:
             session.rollback()
