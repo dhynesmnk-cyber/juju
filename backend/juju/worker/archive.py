@@ -8,6 +8,7 @@ and its prices keep no player id rather than a guessed one.
 import gzip
 import hashlib
 import logging
+import re
 from datetime import datetime
 from decimal import Decimal
 
@@ -31,6 +32,15 @@ def roster_for(session: Session, game: Game) -> list[RosterEntry]:
     return [RosterEntry(p.espn_athlete_id, p.name, p.team_espn_id, p.unavailable) for p in rows]
 
 
+# Outcomes in player markets that are not players (seen in the 2026-10-01 PIT @ CLE recording):
+# a team's defense scoring the touchdown, and the first-TD market's "No Touchdown".
+_NOT_A_PLAYER = re.compile(r"\b(d/st|dst|defense|defence)\s*$|^no (touchdown|td)\b", re.I)
+
+
+def is_not_a_player(raw_name: str) -> bool:
+    return bool(_NOT_A_PLAYER.search(raw_name.strip()))
+
+
 class NameMapper:
     """Odds API player names -> ESPN athlete ids for one game, cached in `player_name_map`."""
 
@@ -42,6 +52,8 @@ class NameMapper:
         self._roster: list[RosterEntry] | None = None
 
     def athlete_id(self, raw_name: str) -> str | None:
+        if is_not_a_player(raw_name):
+            return None  # stored with no player, never matched to one
         held = self._known.get(raw_name)
         if held is None or (held.status == "unmapped" and self._roster is None):
             if self._roster is None:
