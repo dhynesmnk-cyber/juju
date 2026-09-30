@@ -41,6 +41,11 @@ export interface Card {
   named: boolean;
   alternate: boolean;
   verified: boolean; // the settled number matches the official stats (nflverse)
+  // The play that took it past the line. `exact` false: the live feed's "on or around", and
+  // `text` may be null (only the game clock is known).
+  decided_by: {
+    text: string | null; period: number | null; clock: string | null; exact: boolean;
+  } | null;
   notes: string[];
 }
 

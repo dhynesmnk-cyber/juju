@@ -200,6 +200,26 @@ class Play(Base):
     scoring: Mapped[bool] = mapped_column(default=False)
 
 
+class DecidingPlay(Base):
+    """The play on which a player's stat went past an archived line (worker/deciding.py).
+    `exact` is False for the live feed's "on or around" (the play may be missing, leaving only
+    the game clock), True for nflverse's play-by-play the next day."""
+    __tablename__ = "deciding_plays"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("games.id", ondelete="CASCADE"))
+    espn_athlete_id: Mapped[str] = mapped_column(String(20))
+    stat: Mapped[Stat] = mapped_column(_enum(Stat, "deciding_stat"))
+    line: Mapped[Decimal] = mapped_column(Numeric(6, 1))
+    exact: Mapped[bool]
+    period: Mapped[int | None]
+    clock: Mapped[str | None] = mapped_column(String(8))  # the game clock, "7:42"
+    text: Mapped[str | None] = mapped_column(String(300))
+    play_id: Mapped[int | None] = mapped_column(ForeignKey("plays.id", ondelete="SET NULL"))
+    noted_at: Mapped[datetime] = mapped_column(TZ)
+
+    __table_args__ = (Index("ix_deciding_plays_lookup", "game_id", "espn_athlete_id"),)
+
+
 class HotGame(Base):
     """Games people are looking up right now: the live loop reads their box scores first."""
     __tablename__ = "hot_games"

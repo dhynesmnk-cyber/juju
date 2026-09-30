@@ -1,7 +1,7 @@
 import CountUp from "@/components/CountUp";
 import Jujus from "@/components/world/Jujus";
 import type { Mood } from "@/components/world/worlds";
-import { american, localAndEt } from "@/lib/format";
+import { american, localAndEt, quarter } from "@/lib/format";
 import type { Card, Outcome } from "@/lib/types";
 
 const TONE: Record<Outcome, [string, string]> = {
@@ -10,6 +10,13 @@ const TONE: Record<Outcome, [string, string]> = {
   push: ["neutral", "="], void: ["neutral", "="], no_stat_line: ["neutral", "–"],
   untracked: ["neutral", "–"], unavailable: ["neutral", "!"],
 };
+
+function decidedBy(d: NonNullable<Card["decided_by"]>): string {
+  const when = [quarter(d.period), d.clock].filter(Boolean).join(" ");
+  if (d.exact) return `Decided by the play at ${when}: ${d.text}`;
+  if (d.text) return `On or around: ${d.text}${when ? ` (${when})` : ""}.`;
+  return `Went past the line by ${when || "this point"}; the feed didn't say on which play.`;
+}
 
 function progress(card: Card): string | null {
   if (card.current === null) {
@@ -47,6 +54,7 @@ export default function ResultCard({ card, changed, crew, countUp, id }: {
         {cashed && card.returns ? <CountUp to={card.returns} run={!!countUp} /> : card.headline}
       </div>
       {detail && <div className="detail">{detail}</div>}
+      {card.decided_by && <div className="decided">{decidedBy(card.decided_by)}</div>}
       {p ? (
         <div className="detail">
           {american(p.american)} at {p.book_name}

@@ -1,8 +1,9 @@
 # Ported from parlaytracker@c3bd43c parlaytracker/ingest/nflverse.py. Changes: nflverse's
 # release CSVs are read over Juju's HTTP client instead of through nflreadpy and polars (the
 # worker has 512 MB, and only a few columns are needed); Juju's `Stat`s replace parlaytracker's
-# market types; there are no snap counts (Juju never settles a missing player to zero); and
-# `game_stats` returns every stat line of one game, for checking a whole box score at once.
+# market types; there are no snap counts (Juju never settles a missing player to zero);
+# `game_stats` returns every stat line of one game, for checking a whole box score at once; and
+# the play-by-play is new (`plays`, `play_value`), for the play that decided a bet.
 """nflverse: the next-day check of the stats Juju settles on (docs/GOALS.md sections 5 and 10).
 
 Used only by the worker. Players map through the ID columns only (ESPN id -> gsis_id), never by
@@ -13,7 +14,8 @@ goes through the `nflverse` circuit breaker.
 player in the recorded PHI @ CHI game (tests/fixtures/nflverse). Two needed care: ESPN's solo
 tackles are nflverse's `def_tackles_solo + def_tackles_with_assist`, and its total tackles add
 `def_tackle_assists`. The longest rush and reception aren't in the weekly stats, so they are not
-checked here.
+checked against the weekly stats; the play-by-play has them (`PLAY_STATS`), and adds up to the
+same totals, which is what lets `worker/deciding.py` name the exact play that decided a bet.
 """
 import csv
 import gzip
@@ -39,6 +41,7 @@ FILES = {
     "schedules": "schedules/games.csv.gz",
     "players": "players/players.csv.gz",
     "player_stats": "stats_player/stats_player_week_{season}.csv.gz",
+    "pbp": "pbp/play_by_play_{season}.csv.gz",
 }
 MAX_BYTES = 60_000_000  # a full season's play-by-play is about 30 MB gzipped
 LIMITER = RateLimiter(per_host_interval=1.0, per_minute=30)
@@ -69,12 +72,32 @@ STAT_COLUMNS: dict[Stat, tuple[tuple[str, int], ...]] = {
 }
 CHECKED_STATS = frozenset(STAT_COLUMNS)
 
+# Play-by-play: what each play added to a player's stat, for finding the play that decided a
+# bet. Checked on the recorded game: summed (or, for the longest, maxed) over the plays, these
+# give nflverse's own totals. Tackles aren't in the play-by-play in a usable form.
+_PLAY_NUMBERS = ("play_id", "qtr", "rushing_yards", "receiving_yards", "passing_yards")
+_PLAY_FLAGS = ("two_point_attempt", "rush_attempt", "complete_pass", "pass_attempt", "sack",
+               "pass_touchdown", "rush_touchdown", "touchdown", "interception")
+_PLAY_PLAYERS = ("rusher_player_id", "receiver_player_id", "passer_player_id", "td_player_id",
+                 "interception_player_id", "kicker_player_id", "sack_player_id",
+                 "half_sack_1_player_id", "half_sack_2_player_id")
+MAX_STATS = frozenset({Stat.LONGEST_RUSH, Stat.LONGEST_RECEPTION})
+PLAY_STATS = frozenset({
+    Stat.RUSHING_YARDS, Stat.RUSH_ATTEMPTS, Stat.RUSH_TDS, Stat.LONGEST_RUSH,
+    Stat.RECEPTIONS, Stat.RECEIVING_YARDS, Stat.RECEIVING_TDS, Stat.LONGEST_RECEPTION,
+    Stat.PASSING_YARDS, Stat.PASS_COMPLETIONS, Stat.PASS_ATTEMPTS, Stat.PASS_TDS,
+    Stat.INTERCEPTIONS_THROWN, Stat.TOUCHDOWNS, Stat.FIELD_GOALS, Stat.KICKING_POINTS,
+    Stat.SACKS, Stat.DEF_INTERCEPTIONS,
+})
+
 # The columns kept from each dataset. A missing one is a format change (`schema`).
 COLUMNS: dict[str, tuple[str, ...]] = {
     "schedules": ("game_id", "espn", "home_score", "away_score"),
     "players": ("gsis_id", "espn_id"),
     "player_stats": ("player_id", "game_id",
                      *sorted({c for cols in STAT_COLUMNS.values() for c, _ in cols})),
+    "pbp": ("game_id", "time", "desc", "field_goal_result", "extra_point_result",
+            *_PLAY_NUMBERS, *_PLAY_FLAGS, *_PLAY_PLAYERS),
 }
 
 Loader = Callable[[str, int], bytes]
@@ -126,16 +149,18 @@ def default_loader(dataset: str, season: int) -> bytes:
                          f"connection error: {type(e).__name__}") from e
 
 
-def read_csv(raw: bytes, columns: tuple[str, ...]) -> list[dict[str, str]]:
-    """The rows of a CSV file (gzipped or not), keeping only `columns`. Raises KeyError naming
-    the columns that are missing."""
+def read_csv(raw: bytes, columns: tuple[str, ...],
+             keep: Callable[[dict[str, str]], bool] | None = None) -> list[dict[str, str]]:
+    """The rows of a CSV file (gzipped or not) that `keep` accepts, with only `columns`. The file
+    is read as a stream, so a season's play-by-play never sits in memory whole. Raises KeyError
+    naming the columns that are missing."""
     stream = gzip.GzipFile(fileobj=io.BytesIO(raw)) if raw[:2] == b"\x1f\x8b" \
         else io.BytesIO(raw)
     reader = csv.DictReader(io.TextIOWrapper(stream, encoding="utf-8", newline=""))
     missing = set(columns) - set(reader.fieldnames or ())
     if missing:
         raise KeyError(sorted(missing))
-    return [{c: row[c] for c in columns} for row in reader]
+    return [{c: row[c] for c in columns} for row in reader if keep is None or keep(row)]
 
 
 def _number(text: str) -> Decimal:
@@ -161,6 +186,64 @@ def _score(text: str) -> int | None:
     return int(value)
 
 
+def _is(row: dict[str, str], flag: str) -> bool:
+    return row[flag] in ("1", "1.0")
+
+
+def play_value(row: dict[str, str], gsis_id: str, stat: Stat) -> Decimal | None:
+    """What one play added to a player's stat (a yardage, a count or, for the longest, the
+    play's length), or None if the play doesn't count for him. Two-point tries never count."""
+    if _is(row, "two_point_attempt"):
+        return None
+    one = Decimal(1)
+    rusher = _is(row, "rush_attempt") and row["rusher_player_id"] == gsis_id
+    caught = _is(row, "complete_pass") and row["receiver_player_id"] == gsis_id
+    threw = (_is(row, "pass_attempt") and not _is(row, "sack")
+             and row["passer_player_id"] == gsis_id)
+    scored = _is(row, "touchdown") and row["td_player_id"] == gsis_id
+    kicker = row["kicker_player_id"] == gsis_id
+    match stat:
+        case Stat.RUSHING_YARDS | Stat.LONGEST_RUSH if rusher:
+            return _number(row["rushing_yards"])
+        case Stat.RUSH_ATTEMPTS if rusher:
+            return one
+        case Stat.RUSH_TDS if scored and _is(row, "rush_touchdown"):
+            return one
+        case Stat.RECEIVING_YARDS | Stat.LONGEST_RECEPTION if caught:
+            return _number(row["receiving_yards"])
+        case Stat.RECEPTIONS if caught:
+            return one
+        case Stat.RECEIVING_TDS if scored and _is(row, "pass_touchdown"):
+            return one
+        case Stat.PASSING_YARDS if threw and _is(row, "complete_pass"):
+            return _number(row["passing_yards"])
+        case Stat.PASS_COMPLETIONS if threw and _is(row, "complete_pass"):
+            return one
+        case Stat.PASS_ATTEMPTS if threw:
+            return one
+        case Stat.PASS_TDS if threw and _is(row, "pass_touchdown"):
+            return one
+        case Stat.INTERCEPTIONS_THROWN if threw and _is(row, "interception"):
+            return one
+        case Stat.TOUCHDOWNS if scored:
+            return one
+        case Stat.FIELD_GOALS if kicker and row["field_goal_result"] == "made":
+            return one
+        case Stat.KICKING_POINTS if kicker and row["field_goal_result"] == "made":
+            return Decimal(3)
+        case Stat.KICKING_POINTS if kicker and row["extra_point_result"] == "good":
+            return one
+        case Stat.SACKS if row["sack_player_id"] == gsis_id:
+            return one
+        case Stat.SACKS if gsis_id in (row["half_sack_1_player_id"],
+                                       row["half_sack_2_player_id"]):
+            return Decimal("0.5")
+        case Stat.DEF_INTERCEPTIONS if (_is(row, "interception")
+                                        and row["interception_player_id"] == gsis_id):
+            return one
+    return None
+
+
 def stat_values(row: dict[str, str]) -> dict[Stat, Decimal]:
     """Every checked stat on one player's line. Having a line means he played, so an empty
     column is 0 (the same rule as ESPN's box score)."""
@@ -175,14 +258,32 @@ class NflverseData:
         self._breakers = breakers
         self._loader = loader
         self._rows: dict[tuple[str, int], list[dict[str, str]]] = {}
+        self._plays: dict[tuple[int, frozenset[str]], dict[str, list[dict[str, str]]]] = {}
         self._indexes: dict[tuple[str, int, str], dict] = {}
 
     # --- loading -----------------------------------------------------------------------------
 
     def load(self, dataset: str, season: int) -> list[dict[str, str]]:
         key = (dataset, 0 if "{season}" not in FILES[dataset] else season)
-        if key in self._rows:
-            return self._rows[key]
+        if key not in self._rows:
+            self._rows[key] = self._fetch(dataset, season)
+        return self._rows[key]
+
+    def plays(self, season: int, game_ids: frozenset[str]) -> dict[str, list[dict[str, str]]]:
+        """The play-by-play of these nflverse games, each in order. Other games' plays are
+        dropped while the file is read; one download per season per run."""
+        key = (season, game_ids)
+        if key not in self._plays:
+            by_game: dict[str, list[dict[str, str]]] = {g: [] for g in game_ids}
+            for row in self._fetch("pbp", season, lambda r: r["game_id"] in game_ids):
+                by_game[row["game_id"]].append(row)
+            for rows in by_game.values():
+                rows.sort(key=lambda r: _number(r["play_id"]))
+            self._plays[key] = by_game
+        return self._plays[key]
+
+    def _fetch(self, dataset: str, season: int,
+               keep: Callable[[dict[str, str]], bool] | None = None) -> list[dict[str, str]]:
         self._breakers.allow(SOURCE)  # raises ProviderOpen
         try:
             raw = self._loader(dataset, season)
@@ -191,12 +292,15 @@ class NflverseData:
         except Exception as e:
             self._fail(dataset, FailureKind.TRANSIENT, f"{type(e).__name__}: {e}"[:300])
         try:
-            rows = read_csv(raw, COLUMNS[dataset])
+            rows = read_csv(raw, COLUMNS[dataset], keep)
             for row in rows:  # every number must read as one, or none of the file is used
                 if dataset == "player_stats":
                     stat_values(row)
                 elif dataset == "schedules":
                     _score(row["home_score"]), _score(row["away_score"])
+                elif dataset == "pbp":
+                    for c in _PLAY_NUMBERS:
+                        _number(row[c])
         except KeyError as e:
             self._fail(dataset, FailureKind.SCHEMA, f"missing columns {e.args[0]}")
         except ValueError as e:
@@ -204,7 +308,6 @@ class NflverseData:
         except (OSError, EOFError, UnicodeDecodeError, csv.Error) as e:  # truncated or corrupt
             self._fail(dataset, FailureKind.TRANSIENT, f"{type(e).__name__}: {e}"[:300])
         self._breakers.success(SOURCE)
-        self._rows[key] = rows
         return rows
 
     def _fail(self, dataset: str, kind: FailureKind, detail: str) -> NoReturn:
@@ -230,6 +333,11 @@ class NflverseData:
             return None
         home, away = _score(game["home_score"]), _score(game["away_score"])
         return None if home is None or away is None else (home, away)
+
+    def game_id(self, season: int, espn_event_id: str) -> str | None:
+        """nflverse's id for the game ("2026_03_PHI_CHI")."""
+        game = self._game(season, espn_event_id)
+        return game["game_id"] if game else None
 
     def game_stats(self, season: int, espn_event_id: str) -> dict[str, dict[str, str]]:
         """Every player's line in one game, by gsis_id. Empty until nflverse publishes it."""

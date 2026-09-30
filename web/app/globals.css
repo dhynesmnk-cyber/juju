@@ -156,6 +156,7 @@ h2 { font-size: 1.05rem; margin: 22px 0 10px; }
 .status-chip.live { background: var(--live-bg); color: var(--live); }
 .status-chip.neutral { background: var(--neutral-bg); color: var(--muted); }
 .status-chip.verified { margin-left: 6px; }
+.card .decided { font-size: 0.92rem; margin: 2px 0 4px; }
 
 .waiting {
   background: var(--live-bg); color: var(--live); border-radius: 12px; padding: 12px;

@@ -152,6 +152,29 @@ def test_a_box_score_change_after_settling_is_recorded(db):
                              "feed had 65.")
 
 
+def test_a_first_box_score_after_settling_is_not_a_correction(db):
+    game_id = seeded(db)
+    with Session(db) as s:
+        s.execute(LiveStat.__table__.delete())
+        s.commit()
+    box = espn.parse_box_score(load(FIXTURES / "espn" / "nfl_summary_401872963_full.json"))
+    with Session(db) as s:
+        write_box(s, s.get(Game, game_id), box, DataSource.ESPN_WEB, FINAL_AT + timedelta(hours=1))
+        s.commit()
+        assert s.scalar(select(func.count()).select_from(StatCorrection)) == 0
+        assert s.get(Game, game_id).corrected_at is None
+    # A player first listed once the game already had a box score is one: his card changes.
+    newcomer = replace(box, appeared=box.appeared | {"999"},
+                       stats={**box.stats, Stat.RECEPTIONS: {**box.stats[Stat.RECEPTIONS],
+                                                             "999": D(1)}})
+    with Session(db) as s:
+        write_box(s, s.get(Game, game_id), newcomer, DataSource.ESPN_WEB,
+                  FINAL_AT + timedelta(hours=2))
+        s.commit()
+        c = s.scalars(select(StatCorrection).where(StatCorrection.stat == Stat.RECEPTIONS)).one()
+        assert (c.espn_athlete_id, c.old_value, c.new_value) == ("999", None, 1)
+
+
 def test_a_disputed_final_score_applies_nothing(db):
     game_id = seeded(db)
     with Session(db) as s:

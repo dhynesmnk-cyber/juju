@@ -17,7 +17,9 @@ from juju.core.card import Bet, GameState, Outcome, PlayerStat
 from juju.core.enums import DataSource, EventStatus, PlayKind, Stat
 from juju.core.live import Severity, age_seconds, freshness, game_status_text
 from juju.core.markets import BY_KEY, NO, OVER, UNDER, YES, Market, Scope
-from juju.core.models import Game, LiveStat, OddsSnapshot, Play, Player, Price, StatCorrection
+from juju.core.models import (
+    DecidingPlay, Game, LiveStat, OddsSnapshot, Play, Player, Price, StatCorrection,
+)
 from juju.core.t45 import Listing, NoPrice, Offer, Quote, Selection, select as select_price
 from juju.ingest.nflverse import CHECKED_STATS
 
@@ -90,6 +92,9 @@ class CardView:
     named: bool
     alternate: bool
     verified: bool = False  # the settled number matches the official stats
+    # The play that took it past the line: {text, period, clock, exact}. `exact` False is the
+    # live feed's "on or around" (text may be None: only the game clock is known).
+    decided_by: dict | None = None
     notes: list[str] = field(default_factory=list)
 
 
@@ -312,9 +317,33 @@ def player_check(market: Market, game: Game, rows: dict[Stat, LiveStat],
     return Check(True, row is not None and row.verified_at is not None, mine)
 
 
+# --- The play that decided it -------------------------------------------------------------------
+
+_CASHED = frozenset({Outcome.WON, Outcome.LOCKED})
+_FIRST_TD_DECIDED = frozenset({Outcome.WON, Outcome.LOCKED, Outcome.LOST, Outcome.GONE})
+
+
+def _decided(row: DecidingPlay | Play) -> dict:
+    if isinstance(row, Play):  # the game's first touchdown: ESPN lists scoring plays exactly
+        return {"text": row.label, "period": row.period, "clock": row.clock, "exact": True}
+    return {"text": row.text, "period": row.period, "clock": row.clock, "exact": row.exact}
+
+
+def deciding_plays(session: Session, game_id: int, athlete: str
+                   ) -> dict[tuple[Stat, Decimal], DecidingPlay]:
+    """By (stat, line); the exact play wins over the live feed's "on or around"."""
+    out: dict[tuple[Stat, Decimal], DecidingPlay] = {}
+    for row in session.scalars(select(DecidingPlay).where(
+            DecidingPlay.game_id == game_id, DecidingPlay.espn_athlete_id == athlete)
+            .order_by(DecidingPlay.exact)):
+        out[(row.stat, row.line)] = row
+    return out
+
+
 def _build(market: Market, sel: Selection, bet: Bet, game: Game, stat: PlayerStat | None,
            now: datetime, focus: Focus, side: str | None = None,
-           claim_seen: bool = True, check: Check = UNCHECKED) -> CardView:
+           claim_seen: bool = True, check: Check = UNCHECKED,
+           deciding_play: DecidingPlay | Play | None = None) -> CardView:
     decided = card.decide(bet, _state(game), stat, now)
     outcome = decided.outcome
     touched = plays.touches(market, focus.play)
@@ -325,6 +354,9 @@ def _build(market: Market, sel: Selection, bet: Bet, game: Game, stat: PlayerSta
             and game.status is not EventStatus.FINAL):
         outcome = Outcome.WAITING_FOR_FEED
     verified, notes = check_notes(check, game, outcome)
+    shown = _FIRST_TD_DECIDED if market.first_td else _CASHED
+    decided_by = (_decided(deciding_play) if deciding_play is not None and outcome in shown
+                  else None)
     return CardView(
         key=market.key, label=market.label, bet=_bet_text(market, bet.line, side),
         line=bet.line, outcome=outcome, outcome_text=OUTCOME_TEXT[outcome],
@@ -332,21 +364,16 @@ def _build(market: Market, sel: Selection, bet: Bet, game: Game, stat: PlayerSta
         price=_price_dict(sel.quote) if sel.quote else None,
         no_price=NO_PRICE_TEXT[sel.reason] if sel.reason else None,
         others=_other_dicts(sel), touched=touched, named=named, alternate=market.alternate,
-        verified=verified, notes=notes, **_money_fields(sel, outcome))
+        verified=verified, decided_by=decided_by, notes=notes, **_money_fields(sel, outcome))
 
 
 # --- Player -----------------------------------------------------------------------------------
 
 
-def first_td_scorer(session: Session, game_id: int) -> str | None:
-    """The athlete who scored the game's first touchdown; `card.UNKNOWN_SCORER` if a touchdown
-    happened but wasn't matched to a player; None if there hasn't been one."""
-    first = session.scalars(select(Play).where(
+def first_td_play(session: Session, game_id: int) -> Play | None:
+    return session.scalars(select(Play).where(
         Play.game_id == game_id, Play.kind == PlayKind.TOUCHDOWN.value, Play.scoring.is_(True))
         .order_by(Play.period, Play.sequence).limit(1)).first()
-    if first is None:
-        return None
-    return first.espn_athlete_id or card.UNKNOWN_SCORER
 
 
 def player_rows(session: Session, game_id: int, athlete: str) -> dict[Stat, LiveStat]:
@@ -382,7 +409,9 @@ def player_view(session: Session, game: Game, athlete: str, now: datetime,
     corrections = list(session.scalars(select(StatCorrection).where(
         StatCorrection.game_id == game.id, StatCorrection.espn_athlete_id == athlete)
         .order_by(StatCorrection.corrected_at, StatCorrection.id)))
-    scorer = first_td_scorer(session, game.id)
+    first_td = first_td_play(session, game.id)
+    scorer = None if first_td is None else first_td.espn_athlete_id or card.UNKNOWN_SCORER
+    decided = deciding_plays(session, game.id, athlete)
     claim_seen = claim_in_feed(focus, stats)
     views: list[CardView] = []
     for key in keys:
@@ -408,9 +437,15 @@ def player_view(session: Session, game: Game, athlete: str, now: datetime,
             line = focus.threshold
         value = stats.get(market.stat) if market.stat else None
         stat = PlayerStat(value, scorer, athlete)
+        play: DecidingPlay | Play | None = None
+        if market.first_td:
+            play = first_td if scorer else None  # never an unattributed touchdown
+        elif market.stat is not None and line is not None:
+            play = decided.get((market.stat, line))
         views.append(_build(market, sel, Bet(market, line), game, stat, now, focus,
                             claim_seen=claim_seen,
-                            check=player_check(market, game, rows, corrections)))
+                            check=player_check(market, game, rows, corrections),
+                            deciding_play=play))
     ranked = plays.rank([plays.Ranked(BY_KEY[v.key], v.outcome, v.touched, v.named)
                          for v in views])
     order = {(r.market.key): i for i, r in enumerate(ranked)}

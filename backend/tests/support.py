@@ -34,7 +34,8 @@ def load(path: Path):
 
 
 NFLVERSE_FILES = {"schedules": "games.csv", "players": "players.csv",
-                  "player_stats": "stats_player_week_{season}.csv"}
+                  "player_stats": "stats_player_week_{season}.csv",
+                  "pbp": "play_by_play_{season}.csv"}
 
 
 def nflverse_loader(replace: dict[str, bytes] | None = None, calls: list | None = None):
