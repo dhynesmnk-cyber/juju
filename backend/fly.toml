@@ -1,0 +1,34 @@
+# The backend: the internal API and the worker, from one image. There is no [http_service]
+# and no public IP: only juju-web reaches the API, over Fly's private network
+# (api.process.juju-backend.internal:8000). See docs/deploy.md.
+app = "juju-backend"
+primary_region = "iad"
+
+[build]
+
+[deploy]
+  release_command = "alembic upgrade head"
+
+[processes]
+  api = "uvicorn juju.api.app:app --host :: --port 8000"
+  worker = "python -m juju.worker"
+
+[[vm]]
+  processes = ["api"]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[[vm]]
+  processes = ["worker"]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[checks]
+  [checks.api_health]
+    type = "http"
+    processes = ["api"]
+    port = 8000
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"

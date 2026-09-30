@@ -22,7 +22,7 @@ its "last updated" date changes.
     and block future access."
 - **How Juju stays inside the terms:**
   - The backend has no public address. Only the site is public, through Fly's private network
-    (`web/next.config.mjs` rewrites).
+    (`web/app/api/[...path]/route.ts`, which forwards an allowlist of UI endpoints).
   - No endpoint lists prices across players or games, and none exports raw data.
   - Every response is one player's or one team's computed cards (payout, fair value, status).
   - Rate limits and Turnstile run at Cloudflare, and Juju's terms forbid scraping.

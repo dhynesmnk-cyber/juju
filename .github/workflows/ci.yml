@@ -36,3 +36,61 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: pytest
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [backend, web]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: juju
+          POSTGRES_PASSWORD: juju
+          POSTGRES_DB: juju_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U juju -d juju_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://juju:juju@localhost:5432/juju_dev
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: pip install -e .
+        working-directory: backend
+      - run: alembic upgrade head && python -m juju.cli seed live
+        working-directory: backend
+      - run: uvicorn juju.api.app:app --port 8000 &
+        working-directory: backend
+      - run: npm ci && npx playwright install --with-deps chromium && npm run build
+        working-directory: web
+      - run: |
+          BACKEND_URL=http://127.0.0.1:8000 npx next start -p 3000 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3000/about >/dev/null && break; sleep 1; done
+          npx playwright test
+        working-directory: web
