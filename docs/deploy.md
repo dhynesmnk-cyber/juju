@@ -54,6 +54,14 @@ juju-backend`, then `curl localhost:8000/health`) should show `"ok": true`.
 4. **Bot Fight Mode:** on. Juju's terms forbid scraping (docs/licensing.md).
 5. **Turnstile:** optional at launch. The rate-limit challenge covers bursts.
 
+## The worlds' kill switch
+
+The animated worlds (the shader and the Jujus) can be turned off without touching the backend:
+`fly deploy -a juju-web --build-arg NEXT_PUBLIC_WORLDS=off`. That is a build-time setting in
+Next.js, so it needs a web redeploy. The site then shows no world, and returns to the normal
+light and dark theme. Phones already fall back on their own when frames are slow, and so does
+Save-Data.
+
 ## Alerts
 
 - **Site uptime:** point a monitor (Better Stack, UptimeRobot) at `/about` on the site.
