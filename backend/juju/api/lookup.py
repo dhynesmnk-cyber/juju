@@ -5,7 +5,7 @@ last week. A clear match (90 or more, nobody else within 3 points) goes straight
 Anything less gives the person candidates to tap. Teams are matched by their aliases
 (parlaytracker's rules) when no player is named.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from juju.core.enums import EventStatus, PlayKind
 from juju.core.models import Game, Player
 from juju.ingest.llm import LlmReader
-from juju.ingest.parse import Parsed, parse_text
+from juju.ingest.parse import Parsed, for_position, parse_text
 from juju.ingest.resolve import (
     RosterEntry, is_confident, mentions, normalize_name, rank_players, team_aliases,
 )
@@ -140,9 +140,19 @@ def resolve(session: Session, text: str, now: datetime, llm: LlmReader | None = 
                 _player_choice(by_id[c.entry.espn_athlete_id], positions) for c in ranked])
         return None
 
+    def from_his_side(result: Result) -> Result:
+        """The play as the named player saw it (a defender's interception is his)."""
+        if result.kind == "player" and result.id is not None:
+            position = positions.get(result.id) or session.scalar(
+                select(Player.position).where(Player.espn_athlete_id == result.id))
+            play = for_position(result.parsed.play, position)
+            if play is not result.parsed.play:
+                result.parsed = replace(result.parsed, play=play)
+        return result
+
     found = search(parsed.name_text)
     if found is not None and found.kind == "player":
-        return found
+        return from_his_side(found)
     if found is None:
         teams = _find_team(session, parsed.text, tiers)
         if len(teams) == 1:
@@ -159,7 +169,7 @@ def resolve(session: Session, text: str, now: datetime, llm: LlmReader | None = 
                                           parsed.threshold, parsed.market_key,
                                           parsed.name_text)
                 again.path = "llm" if again.kind == "player" else "choices"
-                return again
+                return from_his_side(again)
     if found is not None:
         return found
     return Result("none", "none", parsed,

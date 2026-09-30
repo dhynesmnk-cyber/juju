@@ -2,7 +2,8 @@
 
 `normalize_name`, the team alias rules, `same_game`, the player key and the doubt thresholds are
 unchanged. Added: `match_abbreviated` for ESPN's play-by-play names ("J.Hurts"), and
-`rank_players`, the roster-index search the free-text parser uses.
+`rank_players`, the roster-index search the free-text parser uses (with its own surname and
+first-name scores).
 
 Anything ambiguous is reported as doubtful, never chosen silently.
 """
@@ -19,6 +20,9 @@ PLAYER_AUTO_SCORE = 90      # select automatically
 PLAYER_DOUBTFUL_SCORE = 75  # 75-89: offer, but ask; below: not a candidate
 AMBIGUOUS_MARGIN = 3        # a runner-up this close makes even a good match doubtful
 SURNAME_SCORE = 95.0        # the surname alone matched exactly
+# A first name alone ("Saquon TD"): offered, never picked by itself, since many first names
+# are also words ("Will", "Chance", "Case").
+FIRST_NAME_SCORE = 85.0
 
 # The Odds API's team names against ESPN's displayName. They match today (verified by
 # parlaytracker for the NFL); record any team that differs here, in normalised form.
@@ -172,6 +176,8 @@ def rank_players(text: str, roster: Iterable[RosterEntry], limit: int = 5) -> li
                 # A surname on its own: strong, but a full name beats it, so "DeVonta Smith"
                 # is clear even with another Smith in the game.
                 s = max(s, SURNAME_SCORE)
+            elif len(parts) > 1 and g == parts[0]:
+                s = max(s, FIRST_NAME_SCORE)
             elif len(g) >= 4:
                 s = max(s, fuzz.ratio(g, last) - 5)  # a typo in the surname costs a little
             score = max(score, s)

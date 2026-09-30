@@ -1,0 +1,177 @@
+{"text": "Saquon Barkley TD run", "want": ["player:3929630"], "play": "touchdown", "tags": ["full_name"]}
+{"text": "Saquon Barkley 17 yd run", "want": ["player:3929630"], "play": "run", "yards": 17, "tags": ["full_name"]}
+{"text": "Jalen Hurts 1 yard touchdown", "want": ["player:4040715"], "play": "touchdown", "yards": 1, "tags": ["full_name"]}
+{"text": "DeVonta Smith 30 yard catch", "want": ["player:4241478"], "play": "catch", "yards": 30, "tags": ["full_name"]}
+{"text": "Luther Burden touchdown catch", "want": ["player:4685278"], "play": "touchdown", "tags": ["full_name", "suffix"]}
+{"text": "Kalif Raymond 41 yard TD", "want": ["player:2973405"], "play": "touchdown", "yards": 41, "tags": ["full_name"]}
+{"text": "Case Keenum rushing touchdown", "want": ["player:15168"], "play": "touchdown", "tags": ["full_name"]}
+{"text": "Rome Odunze 22 yard catch", "want": ["player:4431299"], "play": "catch", "yards": 22, "tags": ["full_name"]}
+{"text": "Cairo Santos 48 yard field goal", "want": ["player:17427"], "play": "field_goal", "yards": 48, "tags": ["full_name", "kicker"]}
+{"text": "Jake Elliott field goal", "want": ["player:3050478"], "play": "field_goal", "tags": ["full_name", "kicker"]}
+{"text": "Cole Kmet catch", "want": ["player:4258595"], "play": "catch", "tags": ["full_name"]}
+{"text": "D'Andre Swift run", "want": ["player:4259545"], "play": "run", "tags": ["full_name", "apostrophe"]}
+{"text": "Dallas Goedert grab", "want": ["player:3121023"], "play": "catch", "tags": ["full_name"]}
+{"text": "Zach Ertz reception", "want": ["player:15835"], "play": "catch", "tags": ["full_name"]}
+{"text": "Caleb Williams throws a touchdown", "want": ["player:4431611"], "play": "pass_td", "tags": ["full_name"]}
+{"text": "Zack Baun sack", "want": ["player:3917657"], "play": "sack", "tags": ["full_name", "defense"]}
+{"text": "Montez Sweat sack", "want": ["player:3134690"], "play": "sack", "tags": ["full_name", "defense"]}
+{"text": "Kyle Monangai 12 yard run", "want": ["player:4608686"], "play": "run", "yards": 12, "tags": ["full_name"]}
+{"text": "Colston Loveland catch", "want": ["player:4723086"], "play": "catch", "tags": ["full_name"]}
+{"text": "Hollywood Brown 45 yard bomb", "want": ["player:4241372"], "play": "catch", "yards": 45, "tags": ["full_name", "slang"]}
+{"text": "Tank Bigsby touchdown", "want": ["player:4429013"], "play": "touchdown", "tags": ["full_name"]}
+{"text": "Grady Jarrett sack", "want": ["player:2576492"], "play": "sack", "tags": ["full_name", "defense"]}
+{"text": "Cooper DeJean interception", "want": ["player:4682618"], "play": "def_interception", "tags": ["full_name", "defense"]}
+{"text": "Xavier Woods pick", "want": ["player:3040572"], "play": "def_interception", "tags": ["full_name", "defense"]}
+{"text": "T.J. Edwards sack", "want": ["player:3121544"], "play": "sack", "tags": ["full_name", "defense", "initials"]}
+{"text": "Jalen Carter sack", "want": ["player:4685759"], "play": "sack", "tags": ["full_name", "defense"]}
+{"text": "Quinyon Mitchell interception", "want": ["player:4686273"], "play": "def_interception", "tags": ["full_name", "defense"]}
+{"text": "Nolan Smith sack", "want": ["player:4426331"], "play": "sack", "tags": ["full_name", "defense", "suffix"]}
+{"text": "Kyler Gordon pick", "want": ["player:4361093"], "play": "def_interception", "tags": ["full_name", "defense"]}
+{"text": "Jaylon Johnson interception", "want": ["player:4243253"], "play": "def_interception", "tags": ["full_name", "defense"]}
+{"text": "Goedert 40 yard reception", "want": ["player:3121023"], "play": "catch", "yards": 40, "tags": ["surname"]}
+{"text": "Barkley TD", "want": ["player:3929630"], "play": "touchdown", "tags": ["surname"]}
+{"text": "barkley 60 yd touchdown run", "want": ["player:3929630"], "play": "touchdown", "yards": 60, "tags": ["surname"]}
+{"text": "Hurts rushing TD", "want": ["player:4040715"], "play": "touchdown", "tags": ["surname"]}
+{"text": "Odunze catch", "want": ["player:4431299"], "play": "catch", "tags": ["surname"]}
+{"text": "Kmet TD", "want": ["player:4258595"], "play": "touchdown", "tags": ["surname"]}
+{"text": "Swift 15 yd run", "want": ["player:4259545"], "play": "run", "yards": 15, "tags": ["surname"]}
+{"text": "Keenum TD run", "want": ["player:15168"], "play": "touchdown", "tags": ["surname"]}
+{"text": "Raymond 41 yd touchdown", "want": ["player:2973405"], "play": "touchdown", "yards": 41, "tags": ["surname"]}
+{"text": "Goedert 20 yd catch", "want": ["player:3121023"], "play": "catch", "yards": 20, "tags": ["surname"]}
+{"text": "Ertz touchdown", "want": ["player:15835"], "play": "touchdown", "tags": ["surname"]}
+{"text": "Santos 29 yard FG", "want": ["player:17427"], "play": "field_goal", "yards": 29, "tags": ["surname", "kicker"]}
+{"text": "Monangai run", "want": ["player:4608686"], "play": "run", "tags": ["surname"]}
+{"text": "Loveland 18 yard catch", "want": ["player:4723086"], "play": "catch", "yards": 18, "tags": ["surname"]}
+{"text": "Baun sack", "want": ["player:3917657"], "play": "sack", "tags": ["surname", "defense"]}
+{"text": "Wicks catch", "want": ["player:4428850"], "play": "catch", "tags": ["surname"]}
+{"text": "Mundt catch", "want": ["player:3052096"], "play": "catch", "tags": ["surname"]}
+{"text": "Bigsby run", "want": ["player:4429013"], "play": "run", "tags": ["surname"]}
+{"text": "Shipley 25 yard run", "want": ["player:4431545"], "play": "run", "yards": 25, "tags": ["surname"]}
+{"text": "Lemon catch", "want": ["player:4870795"], "play": "catch", "tags": ["surname"]}
+{"text": "Covey punt return", "want": ["player:3926231"], "tags": ["surname"]}
+{"text": "Jarrett sack", "want": ["player:2576492"], "play": "sack", "tags": ["surname", "defense"]}
+{"text": "DeJean pick six", "want": ["player:4682618"], "tags": ["surname", "defense", "slang"]}
+{"text": "Thieneman interception", "want": ["player:4954445"], "play": "def_interception", "tags": ["surname", "defense"]}
+{"text": "Sweat sacked Hurts", "want": ["player:3134690", "player:4040715"], "play": "sack", "tags": ["two_players", "defense"]}
+{"text": "Saquon TD", "want": ["player:3929630"], "play": "touchdown", "tags": ["first_name"]}
+{"text": "Saquon 17 yard run", "want": ["player:3929630"], "play": "run", "yards": 17, "tags": ["first_name"]}
+{"text": "Caleb touchdown pass", "want": ["player:4431611"], "play": "pass_td", "tags": ["first_name"]}
+{"text": "Rome catch", "want": ["player:4431299"], "play": "catch", "tags": ["first_name"]}
+{"text": "Devonta 30 yd catch", "want": ["player:4241478"], "play": "catch", "yards": 30, "tags": ["first_name"]}
+{"text": "Kalif touchdown", "want": ["player:2973405"], "play": "touchdown", "tags": ["first_name"]}
+{"text": "Jalen TD run", "want": ["player:4040715"], "play": "touchdown", "tags": ["first_name", "ambiguous"]}
+{"text": "Jalen sack", "want": ["player:4685759"], "play": "sack", "tags": ["first_name", "ambiguous", "defense"]}
+{"text": "Cairo 48 yarder", "want": ["player:17427"], "yards": 48, "tags": ["first_name", "slang", "kicker"]}
+{"text": "Tank TD", "want": ["player:4429013"], "play": "touchdown", "tags": ["first_name"]}
+{"text": "Hollywood catch", "want": ["player:4241372"], "play": "catch", "tags": ["first_name"]}
+{"text": "Colston catch", "want": ["player:4723086"], "play": "catch", "tags": ["first_name"]}
+{"text": "Luther Burden 3 td", "want": ["player:4685278"], "play": "touchdown", "tags": ["suffix"]}
+{"text": "Cole Kmet 1 yd td", "want": ["player:4258595"], "play": "touchdown", "yards": 1, "tags": ["full_name"]}
+{"text": "Dandre Swift run", "want": ["player:4259545"], "play": "run", "tags": ["apostrophe"]}
+{"text": "Barkly TD", "want": ["player:3929630"], "play": "touchdown", "tags": ["typo"]}
+{"text": "Saqon Barkley run", "want": ["player:3929630"], "play": "run", "tags": ["typo"]}
+{"text": "Devonta Smtih catch", "want": ["player:4241478"], "play": "catch", "tags": ["typo"]}
+{"text": "Odunzee 22 yd catch", "want": ["player:4431299"], "play": "catch", "yards": 22, "tags": ["typo"]}
+{"text": "Kalif Ramond td", "want": ["player:2973405"], "play": "touchdown", "tags": ["typo"]}
+{"text": "Keenam TD run", "want": ["player:15168"], "play": "touchdown", "tags": ["typo"]}
+{"text": "Jalen Hurst touchdown", "want": ["player:4040715"], "play": "touchdown", "tags": ["typo"]}
+{"text": "Burdon touchdown", "want": ["player:4685278"], "play": "touchdown", "tags": ["typo"]}
+{"text": "Cole Kment catch", "want": ["player:4258595"], "play": "catch", "tags": ["typo"]}
+{"text": "Goedart catch", "want": ["player:3121023"], "play": "catch", "tags": ["typo"]}
+{"text": "Monangi run", "want": ["player:4608686"], "play": "run", "tags": ["typo"]}
+{"text": "Cario Santos field goal", "want": ["player:17427"], "play": "field_goal", "tags": ["typo", "kicker"]}
+{"text": "Deandre Swift touchdown", "want": ["player:4259545"], "play": "touchdown", "tags": ["typo"]}
+{"text": "Colsten Loveland catch", "want": ["player:4723086"], "play": "catch", "tags": ["typo"]}
+{"text": "Zach Erts catch", "want": ["player:15835"], "play": "catch", "tags": ["typo"]}
+{"text": "Barkely touchdown", "want": ["player:3929630"], "play": "touchdown", "tags": ["typo"]}
+{"text": "hurtz td", "want": ["player:4040715"], "play": "touchdown", "tags": ["typo"]}
+{"text": "Monteze Sweat sack", "want": ["player:3134690"], "play": "sack", "tags": ["typo", "defense"]}
+{"text": "saquan barkley 100+ rush yds", "want": ["player:3929630"], "threshold": "99.5", "market": "player_rush_yds", "tags": ["typo", "threshold"]}
+{"text": "S. Barkley 17-yd run", "want": ["player:3929630"], "play": "run", "yards": 17, "tags": ["initials"]}
+{"text": "D. Smith 30-yd catch", "want": ["player:4241478"], "play": "catch", "yards": 30, "tags": ["initials"]}
+{"text": "J. Hurts 1-yd TD run", "want": ["player:4040715"], "play": "touchdown", "yards": 1, "tags": ["initials"]}
+{"text": "C. Keenum TD run", "want": ["player:15168"], "play": "touchdown", "tags": ["initials"]}
+{"text": "K. Raymond 41-yd TD catch", "want": ["player:2973405"], "play": "touchdown", "yards": 41, "tags": ["initials"]}
+{"text": "L. Burden III 8-yd TD catch", "want": ["player:4685278"], "play": "touchdown", "yards": 8, "tags": ["initials", "suffix"]}
+{"text": "C. Santos 29-yd FG", "want": ["player:17427"], "play": "field_goal", "yards": 29, "tags": ["initials", "kicker"]}
+{"text": "R. Odunze 22-yd catch", "want": ["player:4431299"], "play": "catch", "yards": 22, "tags": ["initials"]}
+{"text": "Smith catch", "want": ["player:4241478"], "play": "catch", "tags": ["ambiguous"]}
+{"text": "Smith 30 yard catch", "want": ["player:4241478"], "play": "catch", "yards": 30, "tags": ["ambiguous"]}
+{"text": "Smith interception", "want": ["player:4372418", "player:4426331"], "play": "def_interception", "tags": ["ambiguous", "defense"]}
+{"text": "Smith", "want": ["player:4241478", "player:4372418", "player:4426331"], "tags": ["ambiguous"]}
+{"text": "Brown catch", "want": ["player:4241372"], "play": "catch", "tags": ["ambiguous"]}
+{"text": "Johnson run", "want": ["player:4426386"], "play": "run", "tags": ["ambiguous"]}
+{"text": "Johnson interception", "want": ["player:4243253", "player:4361748", "player:4240900"], "play": "def_interception", "tags": ["ambiguous", "defense"]}
+{"text": "Williams TD pass", "want": ["player:4431611"], "play": "pass_td", "tags": ["surname"]}
+{"text": "Moore catch", "want": ["player:4372414"], "play": "catch", "tags": ["ambiguous"]}
+{"text": "Elliott field goal", "want": ["player:3050478"], "play": "field_goal", "tags": ["ambiguous", "kicker"]}
+{"text": "Elliott 50 yard FG", "want": ["player:3050478"], "play": "field_goal", "yards": 50, "tags": ["ambiguous", "kicker"]}
+{"text": "Davis catch", "want": ["player:5065495"], "play": "catch", "tags": ["ambiguous"]}
+{"text": "Carter sack", "want": ["player:4685759"], "play": "sack", "tags": ["ambiguous", "defense"]}
+{"text": "Thomas catch", "want": ["player:4869748"], "play": "catch", "tags": ["ambiguous"]}
+{"text": "Jackson sack", "want": ["player:4241007"], "play": "sack", "tags": ["ambiguous", "defense"]}
+{"text": "Campbell sack", "want": ["player:4372051", "player:4685287"], "play": "sack", "tags": ["ambiguous", "defense"]}
+{"text": "Jones interception", "want": ["player:2971027"], "play": "def_interception", "tags": ["ambiguous", "defense"]}
+{"text": "Hurts to Smith 30 yards", "want": ["player:4040715", "player:4241478"], "yards": 30, "tags": ["two_players"]}
+{"text": "Keenum to Raymond 41 yd TD", "want": ["player:15168", "player:2973405"], "yards": 41, "tags": ["two_players"]}
+{"text": "Caleb Williams finds Odunze for 22", "want": ["player:4431611", "player:4431299"], "tags": ["two_players"]}
+{"text": "Hurts hits Goedert", "want": ["player:4040715", "player:3121023"], "tags": ["two_players"]}
+{"text": "Keenum TD pass to Burden", "want": ["player:15168", "player:4685278"], "tags": ["two_players"]}
+{"text": "Bears cover", "want": ["team:3"], "market": "spreads", "tags": ["team"]}
+{"text": "Eagles moneyline", "want": ["team:21"], "market": "h2h", "tags": ["team"]}
+{"text": "Chicago Bears to win", "want": ["team:3"], "market": "h2h", "tags": ["team"]}
+{"text": "Philadelphia Eagles spread", "want": ["team:21"], "market": "spreads", "tags": ["team"]}
+{"text": "Bears", "want": ["team:3"], "tags": ["team"]}
+{"text": "Eagles cover the spread", "want": ["team:21"], "market": "spreads", "tags": ["team"]}
+{"text": "PHI ml", "want": ["team:21"], "market": "h2h", "tags": ["team", "abbreviation"]}
+{"text": "CHI covers", "want": ["team:3"], "market": "spreads", "tags": ["team", "abbreviation"]}
+{"text": "Philly moneyline", "want": ["team:21"], "market": "h2h", "tags": ["team", "slang"]}
+{"text": "da bears", "want": ["team:3"], "tags": ["team", "slang"]}
+{"text": "Birds cover", "want": ["team:21"], "market": "spreads", "tags": ["team", "slang"]}
+{"text": "Eagles team total", "want": ["team:21"], "market": "team_totals", "tags": ["team"]}
+{"text": "Bears over 21.5", "want": ["team:3"], "threshold": "21.5", "market": "team_totals", "tags": ["team", "threshold"]}
+{"text": "game total over", "want": ["team:21", "team:3"], "market": "totals", "tags": ["team"]}
+{"text": "the bears defense", "want": ["team:3"], "tags": ["team"]}
+{"text": "Eagles D sack", "want": ["team:21"], "play": "sack", "tags": ["team", "defense"]}
+{"text": "Bears defense interception", "want": ["team:3"], "play": "def_interception", "tags": ["team", "defense"]}
+{"text": "Mahomes TD", "want": [], "play": "touchdown", "tags": ["not_playing"]}
+{"text": "Kelce catch", "want": [], "play": "catch", "tags": ["not_playing"]}
+{"text": "Josh Allen rushing touchdown", "want": [], "play": "touchdown", "tags": ["not_playing"]}
+{"text": "Justin Jefferson 50 yd catch", "want": [], "play": "catch", "yards": 50, "tags": ["not_playing"]}
+{"text": "Travis Kelce", "want": [], "tags": ["not_playing"]}
+{"text": "Lamar Jackson run", "want": [], "play": "run", "tags": ["not_playing", "ambiguous"]}
+{"text": "Derrick Henry 30 yard run", "want": [], "play": "run", "yards": 30, "tags": ["not_playing"]}
+{"text": "asdfgh", "want": [], "tags": ["noise"]}
+{"text": "what a play", "want": [], "tags": ["noise"]}
+{"text": "touchdown!!!", "want": [], "play": "touchdown", "tags": ["noise"]}
+{"text": "BARKLEY TD!!! 🔥🔥", "want": ["player:3929630"], "play": "touchdown", "tags": ["casual"]}
+{"text": "omg saquon to the house", "want": ["player:3929630"], "play": "touchdown", "tags": ["casual", "slang"]}
+{"text": "did barkley just score", "want": ["player:3929630"], "play": "touchdown", "tags": ["casual"]}
+{"text": "what would barkley td have paid", "want": ["player:3929630"], "play": "touchdown", "tags": ["casual"]}
+{"text": "hurts qb sneak td", "want": ["player:4040715"], "play": "touchdown", "tags": ["casual"]}
+{"text": "smith with the grab", "want": ["player:4241478"], "play": "catch", "tags": ["casual", "ambiguous"]}
+{"text": "that raymond 41 yard td catch tho", "want": ["player:2973405"], "play": "touchdown", "yards": 41, "tags": ["casual"]}
+{"text": "keenum punches it in", "want": ["player:15168"], "play": "touchdown", "tags": ["casual", "slang"]}
+{"text": "odunze toe tap catch", "want": ["player:4431299"], "play": "catch", "tags": ["casual"]}
+{"text": "Barkley 60yd TD", "want": ["player:3929630"], "play": "touchdown", "yards": 60, "tags": ["casual"]}
+{"text": "Hurts 20 yds scramble", "want": ["player:4040715"], "play": "run", "yards": 20, "tags": ["casual"]}
+{"text": "barkley breaks one for 45", "want": ["player:3929630"], "play": "run", "yards": 45, "tags": ["casual", "slang"]}
+{"text": "kmet big gain", "want": ["player:4258595"], "tags": ["casual"]}
+{"text": "kmet over 3.5 catches", "want": ["player:4258595"], "threshold": "3.5", "market": "player_receptions", "tags": ["threshold", "market"]}
+{"text": "hurts 250+ passing yards", "want": ["player:4040715"], "threshold": "249.5", "market": "player_pass_yds", "tags": ["threshold", "market"]}
+{"text": "swift 50+ rush yds", "want": ["player:4259545"], "threshold": "49.5", "market": "player_rush_yds", "tags": ["threshold", "market"]}
+{"text": "smith 5+ receptions", "want": ["player:4241478"], "threshold": "4.5", "market": "player_receptions", "tags": ["threshold", "market", "ambiguous"]}
+{"text": "burden first td", "want": ["player:4685278"], "play": "touchdown", "market": "player_1st_td", "tags": ["market"]}
+{"text": "Odunze 60+ receiving yards", "want": ["player:4431299"], "threshold": "59.5", "market": "player_reception_yds", "tags": ["threshold", "market"]}
+{"text": "Barkley over 72.5 rushing yards", "want": ["player:3929630"], "threshold": "72.5", "market": "player_rush_yds", "tags": ["threshold", "market"]}
+{"text": "Santos 2 field goals", "want": ["player:17427"], "market": "player_field_goals", "tags": ["market", "kicker"]}
+{"text": "Keenum longest completion", "want": ["player:15168"], "market": "player_pass_longest_completion", "tags": ["market"]}
+{"text": "Barkley longest rush", "want": ["player:3929630"], "market": "player_rush_longest", "tags": ["market"]}
+{"text": "Caleb Williams pass yards", "want": ["player:4431611"], "market": "player_pass_yds", "tags": ["market"]}
+{"text": "Hurts pass td", "want": ["player:4040715"], "play": "pass_td", "market": "player_pass_tds", "tags": ["market"]}
+{"text": "D'Andre Swift anytime touchdown", "want": ["player:4259545"], "play": "touchdown", "market": "player_anytime_td", "tags": ["market"]}
+{"text": "Burden anytime td", "want": ["player:4685278"], "play": "touchdown", "market": "player_anytime_td", "tags": ["market"]}
+{"text": "Barkley 100+ rush yds", "want": ["player:3929630"], "threshold": "99.5", "market": "player_rush_yds", "tags": ["threshold", "market"]}
+{"text": "Smith over 71.5 receiving yards", "want": ["player:4241478"], "threshold": "71.5", "market": "player_reception_yds", "tags": ["threshold", "market", "ambiguous"]}
+{"text": "Loveland 4+ catches", "want": ["player:4723086"], "threshold": "3.5", "market": "player_receptions", "tags": ["threshold", "market"]}
+{"text": "Goedert receiving yards", "want": ["player:3121023"], "market": "player_reception_yds", "tags": ["market"]}

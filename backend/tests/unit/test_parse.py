@@ -6,7 +6,7 @@ import pytest
 
 from juju.core.enums import PlayKind as P
 from juju.ingest.llm import Budget, LlmReader, parse_reply
-from juju.ingest.parse import parse_text
+from juju.ingest.parse import for_position, parse_text
 from juju.ingest.resolve import RosterEntry, is_confident, match_abbreviated, rank_players
 
 
@@ -22,11 +22,27 @@ from juju.ingest.resolve import RosterEntry, is_confident, match_abbreviated, ra
     ("Santos 48 yard field goal", P.FIELD_GOAL, 48, None, None, "santos"),
     ("Bears cover", None, None, None, "spreads", "bears"),
     ("Kelce", None, None, None, None, "kelce"),
+    ("Cairo 48 yarder", None, 48, None, None, "cairo"),
+    ("Eagles team total", None, None, None, "team_totals", "eagles"),
 ])
 def test_parse_text(text, play, yards, threshold, market, name):
     p = parse_text(text)
     assert (p.play, p.yards, p.threshold, p.market_key, p.name_text) == (
         play, yards, threshold, market, name)
+
+
+@pytest.mark.parametrize(("play", "position", "seen"), [
+    (P.INTERCEPTION, "CB", P.DEF_INTERCEPTION),  # "DeJean interception": he made it
+    (P.INTERCEPTION, "QB", P.INTERCEPTION),      # "Hurts interception": he threw it
+    (P.PASS, "WR", P.CATCH),                     # "Brown 45 yard bomb"
+    (P.PASS_TD, "TE", P.TOUCHDOWN),              # "Kmet TD pass"
+    (P.PASS_TD, "QB", P.PASS_TD),
+    (P.RUN, "RB", P.RUN),
+    (None, "WR", None),
+    (P.INTERCEPTION, None, P.INTERCEPTION),      # position unknown: left as read
+])
+def test_the_play_from_the_named_players_side(play, position, seen):
+    assert for_position(play, position) is seen
 
 
 def test_long_text_is_cut():
@@ -53,6 +69,16 @@ def test_full_name_and_typo():
     assert is_confident(rank_players("devonta smith", ROSTER))
     ranked = rank_players("barkly", ROSTER)
     assert ranked and ranked[0].entry.espn_athlete_id == "1"
+
+
+def test_a_first_name_alone_is_offered_never_picked():
+    ranked = rank_players("saquon", ROSTER)
+    assert ranked[0].entry.espn_athlete_id == "1" and not is_confident(ranked)
+    assert is_confident(rank_players("saquon barkley", ROSTER))
+    # A first name next to someone else's surname doesn't make that surname doubtful.
+    roster = ROSTER + [RosterEntry("6", "Will Shipley")]
+    ranked = rank_players("will barkley score", roster)
+    assert ranked[0].entry.espn_athlete_id == "1" and is_confident(ranked)
 
 
 def test_nobody_matches_nonsense():

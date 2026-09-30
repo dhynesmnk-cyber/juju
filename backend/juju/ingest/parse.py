@@ -36,7 +36,7 @@ _WORDS = {
     "sack": r"\b(sack|sacks|sacked)\b",
 }
 _RE = {k: re.compile(v) for k, v in _WORDS.items()}
-_YARDS = re.compile(r"\b(\d{1,3})\s*(?:yd|yds|yard|yards)\b|\b(\d{1,3})\s*y\b")
+_YARDS = re.compile(r"\b(\d{1,3})\s*(?:yd|yds|yard|yards|yarder)\b|\b(\d{1,3})\s*y\b")
 _PLUS = re.compile(r"\b(\d{1,3})\s*\+")  # checked on the raw text: normalising drops "+"
 _OVER = re.compile(r"\bover\s*(\d{1,3}(?:\.5)?)\b|\bo\s?(\d{1,3}\.5)\b")
 
@@ -54,13 +54,31 @@ _MARKETS: list[tuple[re.Pattern[str], str]] = [(re.compile(p), k) for p, k in [
     (r"\b(receptions|catches|recs)\b", "player_receptions"),
     (r"\bcompletions\b", "player_pass_completions"),
     (r"\b(field goals|fgs)\b", "player_field_goals"),
+    (r"\bteam totals?\b", "team_totals"),
     (r"\b(game total|total points|the over)\b", "totals"),
     (r"\b(spread|cover|covers|covering|ats)\b", "spreads"),
     (r"\b(moneyline|ml|to win)\b", "h2h"),
 ]]
 _FILLER = re.compile(r"\b(a|an|the|for|on|of|and|with|just|what|would|have|paid|bet|yard|"
-                     r"yards|yds|yd|over|under|from|to|in|at|by|he|his|big|huge|long|another|"
+                     r"yards|yarder|yds|yd|over|under|from|to|in|at|by|he|his|big|huge|long|another|"
                      r"line|ladder|alt|alternate|milestone|plus|longest|game|total|points?)\b")
+
+
+OFFENSE = frozenset({"QB", "RB", "FB", "WR", "TE"})
+DEFENSE = frozenset({"DE", "DT", "NT", "LB", "OLB", "ILB", "MLB", "CB", "S", "FS", "SS", "DB"})
+
+
+def for_position(play: PlayKind | None, position: str | None) -> PlayKind | None:
+    """The play from the named player's side, once we know who he is: a defender's
+    interception is one he made, and a receiver's "pass" or "TD pass" is his catch or score."""
+    if play is PlayKind.INTERCEPTION and position in DEFENSE:
+        return PlayKind.DEF_INTERCEPTION
+    if position in OFFENSE and position != "QB":
+        if play is PlayKind.PASS:
+            return PlayKind.CATCH
+        if play is PlayKind.PASS_TD:
+            return PlayKind.TOUCHDOWN
+    return play
 
 
 def parse_text(text: str) -> Parsed:
