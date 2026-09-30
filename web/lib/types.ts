@@ -40,6 +40,7 @@ export interface Card {
   touched: boolean;
   named: boolean;
   alternate: boolean;
+  verified: boolean; // the settled number matches the official stats (nflverse)
   notes: string[];
 }
 

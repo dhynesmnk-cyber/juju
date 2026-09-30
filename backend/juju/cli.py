@@ -4,6 +4,8 @@
                          history. Costs credits: about 10 per market per game, plus 1 per day.
                          Prints the estimate and asks before spending.
   unmapped               Odds API player names not matched to a roster player.
+  verify                 Check last week's final games against nflverse now (free), instead of
+                         waiting for the worker's 10:07 or 16:07 ET run.
   seed [live|final]      Development and tests only: load the recorded PHI @ CHI game.
 """
 import logging
@@ -71,6 +73,20 @@ def unmapped() -> int:
     return 0
 
 
+def verify() -> int:
+    from juju.ingest.nflverse import NflverseData
+    from juju.ingest.router import Breakers
+    from juju.worker.verify import VerifyGames
+
+    engine = _engine()
+    breakers = Breakers(engine)
+    breakers.load()
+    out = VerifyGames(engine, lambda: NflverseData(breakers))()
+    print(f"verified {out.verified} games, corrected {out.corrected} stats; "
+          f"{out.waiting} not published yet, {out.disputed} disputed")
+    return 0
+
+
 def seed(scenario: str = "live") -> int:
     from juju.dev_seed import seed_phi_chi_scenario
     with Session(_engine()) as session:
@@ -90,6 +106,8 @@ def main(argv: list[str]) -> int:
                         "--yes" in args)
     if cmd == "unmapped":
         return unmapped()
+    if cmd == "verify":
+        return verify()
     if cmd == "seed":
         return seed(args[0] if args else "live")
     print(__doc__)

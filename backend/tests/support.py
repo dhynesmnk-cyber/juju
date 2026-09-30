@@ -33,6 +33,23 @@ def load(path: Path):
     return json.loads(path.read_text())
 
 
+NFLVERSE_FILES = {"schedules": "games.csv", "players": "players.csv",
+                  "player_stats": "stats_player_week_{season}.csv"}
+
+
+def nflverse_loader(replace: dict[str, bytes] | None = None, calls: list | None = None):
+    """Serves the recorded nflverse slice (PHI @ CHI final, PIT @ CLE not played yet) as the
+    real loader would return it; `replace` swaps a dataset's bytes."""
+    def loader(dataset: str, season: int) -> bytes:
+        if calls is not None:
+            calls.append(dataset)
+        if replace and dataset in replace:
+            return replace[dataset]
+        name = NFLVERSE_FILES[dataset].format(season=season)
+        return (FIXTURES / "nflverse" / name).read_bytes()
+    return loader
+
+
 def seed_phi_chi(session: Session, now: datetime) -> Game:
     """The game, known to both The Odds API and ESPN, with both rosters."""
     events = [ApiEvent.model_validate(e) for e in load(EVENTS_FILE)]

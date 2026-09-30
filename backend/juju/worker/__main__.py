@@ -14,12 +14,14 @@ from sqlalchemy import Connection, Engine, text
 
 from juju.config import Settings, get_settings
 from juju.db import make_engine
+from juju.ingest.nflverse import NflverseData
 from juju.ingest.odds_api import OddsApiClient
 from juju.ingest.router import Breakers, EspnRouter
 from juju.worker.capture import CaptureT45, RepairGaps
 from juju.worker.jobs import check_captures, guarded, heartbeat
 from juju.worker.live import PollLive
 from juju.worker.schedule import SyncRosters, SyncSchedule
+from juju.worker.verify import VerifyGames
 
 log = logging.getLogger("juju.worker")
 
@@ -31,6 +33,8 @@ SCHEDULE_MINUTES = 30
 ROSTER_MINUTES = 60
 REPAIR_MINUTES = 5
 CHECK_MINUTES = 1
+# The next-day check, after nflverse's overnight publish; the afternoon run catches a late one.
+VERIFY_HOURS_ET = "10,16"
 
 
 def try_lock(conn: Connection) -> bool:
@@ -57,6 +61,10 @@ def build_scheduler(engine: Engine, breakers: Breakers, settings: Settings,
     add("sync_rosters", SyncRosters(engine, router), "interval", minutes=ROSTER_MINUTES)
     add("poll_live", PollLive(engine, router, odds), "interval", seconds=LIVE_SECONDS)
     add("check_captures", lambda: check_captures(engine), "interval", minutes=CHECK_MINUTES)
+    verify = VerifyGames(engine, lambda: NflverseData(breakers))
+    add("verify_games", verify, "cron", hour=VERIFY_HOURS_ET, minute=7,
+        timezone="America/New_York")
+    add("verify_games_at_startup", verify, "date")
     if odds is not None:
         add("capture_t45", CaptureT45(engine, odds, settings.books, settings.odds_api_reserve),
             "interval", seconds=CAPTURE_SECONDS)

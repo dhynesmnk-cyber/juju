@@ -38,6 +38,11 @@ export default function ResultCard({ card, changed, crew, countUp, id }: {
       <span className={`status-chip ${tone}`}>
         <span aria-hidden="true">{icon}</span> {card.outcome_text}
       </span>
+      {card.verified && (
+        <span className="status-chip neutral verified">
+          <span aria-hidden="true">☑</span> Verified
+        </span>
+      )}
       <div className="headline">
         {cashed && card.returns ? <CountUp to={card.returns} run={!!countUp} /> : card.headline}
       </div>

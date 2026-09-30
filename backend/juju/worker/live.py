@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from juju.core.enums import DataSource, EventStatus, PlayKind, Stat
-from juju.core.models import Game, HotGame, LiveStat, Play, Player
+from juju.core.models import Game, HotGame, LiveStat, Play, Player, StatCorrection
 from juju.ingest import espn, guards
 from juju.ingest.http import FetchError, RateLimited
 from juju.ingest.odds_api import OddsSource, RequestRejected
@@ -295,8 +295,9 @@ def write_box(session: Session, game: Game, box: espn.BoxScore, provider: DataSo
               now: datetime) -> int:
     """Every stat for everyone who appears in the box score (a missing stat is then a real
     zero). Players who appear nowhere get no rows: "no stat line yet". Returns rows changed.
-    A value that changes after the game has settled marks the game corrected."""
-    held = {(r.espn_athlete_id, r.stat): r.value for r in session.scalars(
+    A value that changes after the game has settled is recorded in `stat_corrections` and marks
+    the game corrected. A value the next-day check took from nflverse is never overwritten."""
+    held = {(r.espn_athlete_id, r.stat): r for r in session.scalars(
         select(LiveStat).where(LiveStat.game_id == game.id))}
     settled = (game.status is EventStatus.FINAL and game.final_at is not None
                and now >= game.final_at + RECHECK_AFTER_FINAL)
@@ -304,18 +305,23 @@ def write_box(session: Session, game: Game, box: espn.BoxScore, provider: DataSo
     for athlete in box.appeared:
         for stat in Stat:
             value = box.stats.get(stat, {}).get(athlete, Decimal(0))
-            old = held.get((athlete, stat))
-            if old is not None and old == value:
+            row = held.get((athlete, stat))
+            if row is not None and (row.value == value or row.source is DataSource.NFLVERSE):
                 continue
-            if old is not None and settled:
+            old = row.value if row is not None else None
+            if settled:
                 game.corrected_at = now
+                session.add(StatCorrection(
+                    game_id=game.id, espn_athlete_id=athlete, stat=stat, old_value=old,
+                    new_value=value, source=provider, corrected_at=now))
                 log.warning("%s: %s %s corrected from %s to %s after settling", game.label,
                             athlete, stat, old, value)
             session.execute(insert(LiveStat).values(
                 game_id=game.id, espn_athlete_id=athlete, stat=stat, value=value,
                 source=provider, updated_at=now).on_conflict_do_update(
                 index_elements=[LiveStat.game_id, LiveStat.espn_athlete_id, LiveStat.stat],
-                set_={"value": value, "source": provider, "updated_at": now}))
+                set_={"value": value, "source": provider, "updated_at": now,
+                      "verified_at": None}))  # a new value hasn't been checked
             changed += 1
     return changed
 

@@ -14,11 +14,12 @@ from sqlalchemy.orm import Session
 
 from juju.core import card, plays
 from juju.core.card import Bet, GameState, Outcome, PlayerStat
-from juju.core.enums import EventStatus, PlayKind, Stat
+from juju.core.enums import DataSource, EventStatus, PlayKind, Stat
 from juju.core.live import Severity, age_seconds, freshness, game_status_text
 from juju.core.markets import BY_KEY, NO, OVER, UNDER, YES, Market, Scope
-from juju.core.models import Game, LiveStat, OddsSnapshot, Play, Player, Price
+from juju.core.models import Game, LiveStat, OddsSnapshot, Play, Player, Price, StatCorrection
 from juju.core.t45 import Listing, NoPrice, Offer, Quote, Selection, select as select_price
+from juju.ingest.nflverse import CHECKED_STATS
 
 BOOK_NAMES = {
     "hardrockbet": "Hard Rock Bet", "draftkings": "DraftKings", "fanduel": "FanDuel",
@@ -88,6 +89,7 @@ class CardView:
     touched: bool
     named: bool
     alternate: bool
+    verified: bool = False  # the settled number matches the official stats
     notes: list[str] = field(default_factory=list)
 
 
@@ -255,9 +257,64 @@ def claim_in_feed(focus: Focus, stats: dict[Stat, Decimal]) -> bool:
     return stats.get(count_stat, Decimal(0)) >= 1
 
 
+# --- The next-day check ----------------------------------------------------------------------
+
+# Outcomes that rest on a final number the official stats can confirm (a void rests on none).
+_CHECKED_OUTCOMES = card.SETTLED - {Outcome.VOID}
+
+
+@dataclass(frozen=True)
+class Check:
+    """What the next-day check against nflverse says about the number a card settled on."""
+    checkable: bool                # nflverse has this stat at all
+    verified: bool = False         # it gave the same number (or the one now shown)
+    corrections: tuple[StatCorrection, ...] = ()
+
+
+UNCHECKED = Check(checkable=False)
+
+
+def _fmt(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def check_notes(check: Check, game: Game, outcome: Outcome) -> tuple[bool, list[str]]:
+    """(verified, notes) for a card. Nothing is said before the game has settled."""
+    if outcome not in _CHECKED_OUTCOMES:
+        return False, []
+    notes = []
+    for c in check.corrections:
+        source = ("the official stats have" if c.source is DataSource.NFLVERSE
+                  else "a later box score has")
+        was = "no stat line" if c.old_value is None else _fmt(c.old_value)
+        notes.append(f"Corrected after the game: {source} {_fmt(c.new_value)}; the live feed "
+                     f"had {was}.")
+    if check.verified:
+        notes.append("Verified against the official stats (nflverse).")
+    elif not check.checkable:
+        notes.append("The official stats don't include this stat, so it can't be verified.")
+    elif game.verified_at is None:
+        notes.append("Awaiting verification against the official stats.")
+    else:
+        notes.append("Not in the official stats, so it can't be verified.")
+    return check.verified, notes
+
+
+def player_check(market: Market, game: Game, rows: dict[Stat, LiveStat],
+                 corrections: Sequence[StatCorrection]) -> Check:
+    stat = market.stat
+    if stat is None or market.first_td or stat not in CHECKED_STATS:
+        return UNCHECKED
+    mine = tuple(c for c in corrections if c.stat is stat)
+    if not rows:  # no stat line: confirmed once nflverse, checked, had none either
+        return Check(True, game.verified_at is not None, mine)
+    row = rows.get(stat)
+    return Check(True, row is not None and row.verified_at is not None, mine)
+
+
 def _build(market: Market, sel: Selection, bet: Bet, game: Game, stat: PlayerStat | None,
            now: datetime, focus: Focus, side: str | None = None,
-           claim_seen: bool = True) -> CardView:
+           claim_seen: bool = True, check: Check = UNCHECKED) -> CardView:
     decided = card.decide(bet, _state(game), stat, now)
     outcome = decided.outcome
     touched = plays.touches(market, focus.play)
@@ -267,11 +324,7 @@ def _build(market: Market, sel: Selection, bet: Bet, game: Game, stat: PlayerSta
     if (not claim_seen and touched and outcome is Outcome.LIVE
             and game.status is not EventStatus.FINAL):
         outcome = Outcome.WAITING_FOR_FEED
-    notes = []
-    if game.corrected_at is not None and outcome in card.SETTLED:
-        notes.append("An official stat for this game changed after it settled.")
-    if outcome in card.SETTLED and market.scope is Scope.PLAYER:
-        notes.append("Awaiting verification against the official play-by-play.")
+    verified, notes = check_notes(check, game, outcome)
     return CardView(
         key=market.key, label=market.label, bet=_bet_text(market, bet.line, side),
         line=bet.line, outcome=outcome, outcome_text=OUTCOME_TEXT[outcome],
@@ -279,7 +332,7 @@ def _build(market: Market, sel: Selection, bet: Bet, game: Game, stat: PlayerSta
         price=_price_dict(sel.quote) if sel.quote else None,
         no_price=NO_PRICE_TEXT[sel.reason] if sel.reason else None,
         others=_other_dicts(sel), touched=touched, named=named, alternate=market.alternate,
-        notes=notes, **_money_fields(sel, outcome))
+        verified=verified, notes=notes, **_money_fields(sel, outcome))
 
 
 # --- Player -----------------------------------------------------------------------------------
@@ -296,9 +349,9 @@ def first_td_scorer(session: Session, game_id: int) -> str | None:
     return first.espn_athlete_id or card.UNKNOWN_SCORER
 
 
-def player_stats(session: Session, game_id: int, athlete: str) -> dict[Stat, Decimal]:
-    return dict(session.execute(select(LiveStat.stat, LiveStat.value).where(
-        LiveStat.game_id == game_id, LiveStat.espn_athlete_id == athlete)).all())
+def player_rows(session: Session, game_id: int, athlete: str) -> dict[Stat, LiveStat]:
+    return {r.stat: r for r in session.scalars(select(LiveStat).where(
+        LiveStat.game_id == game_id, LiveStat.espn_athlete_id == athlete))}
 
 
 @dataclass
@@ -324,7 +377,11 @@ def player_view(session: Session, game: Game, athlete: str, now: datetime,
     for r in _price_rows(session, game.id, keys, athlete):
         rows_by_key[r.price.market_key].append(r)
     listings = _listings(session, game.id, keys)
-    stats = player_stats(session, game.id, athlete)
+    rows = player_rows(session, game.id, athlete)
+    stats = {stat: r.value for stat, r in rows.items()}
+    corrections = list(session.scalars(select(StatCorrection).where(
+        StatCorrection.game_id == game.id, StatCorrection.espn_athlete_id == athlete)
+        .order_by(StatCorrection.corrected_at, StatCorrection.id)))
     scorer = first_td_scorer(session, game.id)
     claim_seen = claim_in_feed(focus, stats)
     views: list[CardView] = []
@@ -332,15 +389,15 @@ def player_view(session: Session, game: Game, athlete: str, now: datetime,
         market = BY_KEY.get(key)
         if market is None or market.scope is not Scope.PLAYER:
             continue
-        rows = rows_by_key[key]
+        priced = rows_by_key[key]
         if market.alternate:
             if focus.threshold is None:
                 continue  # ladders only when someone names a threshold
-            offers = _offers(rows, {OVER}, _OPPOSITE, focus.threshold, True)
+            offers = _offers(priced, {OVER}, _OPPOSITE, focus.threshold, True)
         elif market.yes_only:
-            offers = _offers(rows, _YES_NAMES, _OPPOSITE, None, False)
+            offers = _offers(priced, _YES_NAMES, _OPPOSITE, None, False)
         else:
-            offers = _offers(rows, {OVER}, _OPPOSITE, None, False)
+            offers = _offers(priced, {OVER}, _OPPOSITE, None, False)
         sel = select_price(offers, listings.get(key, []), game.commence_time, chain)
         line = None
         if sel.quote is not None:
@@ -352,7 +409,8 @@ def player_view(session: Session, game: Game, athlete: str, now: datetime,
         value = stats.get(market.stat) if market.stat else None
         stat = PlayerStat(value, scorer, athlete)
         views.append(_build(market, sel, Bet(market, line), game, stat, now, focus,
-                            claim_seen=claim_seen))
+                            claim_seen=claim_seen,
+                            check=player_check(market, game, rows, corrections)))
     ranked = plays.rank([plays.Ranked(BY_KEY[v.key], v.outcome, v.touched, v.named)
                          for v in views])
     order = {(r.market.key): i for i, r in enumerate(ranked)}
@@ -406,7 +464,9 @@ def team_view(session: Session, game: Game, team_espn_id: str, now: datetime,
         line = sel.quote.offer.point if sel.quote else None
         bet = Bet(market, line, side_is_home=is_home)
         side = (game.home_abbr if is_home else game.away_abbr) or name
-        views.append(_build(market, sel, bet, game, None, now, focus, side))
+        # The final score is checked with the rest of the game; a disputed one never is.
+        check = Check(True, game.verified_at is not None)
+        views.append(_build(market, sel, bet, game, None, now, focus, side, check=check))
     return TeamView(game_view(game, now),
                     {"espn_id": team_espn_id, "name": name,
                      "abbr": game.home_abbr if is_home else game.away_abbr}, views)

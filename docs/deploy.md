@@ -69,6 +69,11 @@ Save-Data.
   circuit breaker, the Odds API credits left, and the next captures.
 - **Missed captures:** the `check_captures` job logs an ERROR for any game past T-44 without an
   on-time price. `repair_gaps` then fills it from the vendor's history.
+- **Next-day check:** `verify_games` runs at 10:07 and 16:07 ET (and at startup). It checks
+  last week's final games against nflverse, replaces any stat the official numbers correct, and
+  logs an ERROR for a game whose final score disagrees (nothing is applied; see
+  `games.last_error`). Run it by hand with `python -m juju.cli verify`. It needs outbound HTTPS
+  to `github.com` and `release-assets.githubusercontent.com`.
 - **Logs:** ship them with Fly's log shipper, and alert on `ERROR juju.`.
 
 ## First real capture
