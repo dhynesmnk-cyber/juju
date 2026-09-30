@@ -27,3 +27,10 @@ export function secondsAgo(s: number | null): string {
   if (s < 60) return `updated ${s}s ago`;
   return `updated ${Math.floor(s / 60)} min ago`;
 }
+
+/** "Q3", or "OT" (and "2OT") after the fourth quarter. */
+export function quarter(period: number | null): string {
+  if (period === null) return "";
+  if (period <= 4) return `Q${period}`;
+  return period === 5 ? "OT" : `${period - 4}OT`;
+}

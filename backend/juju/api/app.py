@@ -22,9 +22,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from juju.api import lookup
-from juju.api.views import Focus, game_view, player_view, team_view
+from juju.api.views import Focus, game_view, parlay_view, player_view, team_view
 from juju.config import Settings, get_settings
 from juju.core.enums import EventStatus, HealthState, PlayKind
+from juju.core.parlay import parse_legs
 from juju.core.models import Game, HotGame, Lookup, OddsSnapshot, Play, SourceHealth
 from juju.db import session_factory
 from juju.ingest.llm import Budget, LlmReader
@@ -34,6 +35,12 @@ log = logging.getLogger("juju.api")
 app = FastAPI(title="Juju internal API", docs_url=None, redoc_url=None, openapi_url=None)
 
 LOOKUPS_PER_MINUTE = 30
+# Past this many lookups in the window, a client is asked to pass Cloudflare Turnstile, when
+# the site has it configured (it says so with `x-juju-challenge`, and vouches for a person who
+# passed with `x-juju-verified`). The backend is private, so only the site sets these headers.
+CHALLENGE_AFTER = 12
+CHALLENGE_WINDOW_SECONDS = 15 * 60
+CHALLENGE_TEXT = "Quick check that you're a person, then Juju will look it up."
 LIVE_CACHE = "public, s-maxage=5, stale-while-revalidate=30"
 FINAL_CACHE = "public, s-maxage=300, stale-while-revalidate=3600"
 DISCLAIMER = ("Hypothetical: what a $10 bet at the archived price would have returned. "
@@ -62,11 +69,12 @@ def respond(data, cache: str | None = None) -> JSONResponse:
 
 
 class RateLimit:
-    """Per client, a sliding minute. In-process: fine for the one or two API machines; the
-    edge rules at Cloudflare are the first line (docs/deploy.md)."""
+    """Per client, a sliding window (a minute by default). In-process: fine for the one or two
+    API machines; the edge rules at Cloudflare are the first line (docs/deploy.md)."""
 
-    def __init__(self, per_minute: int):
+    def __init__(self, per_minute: int, window_seconds: float = 60):
         self.per_minute = per_minute
+        self.window = window_seconds
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
 
@@ -74,7 +82,7 @@ class RateLimit:
         now = time.monotonic()
         with self._lock:
             hits = self._hits[client]
-            while hits and now - hits[0] > 60:
+            while hits and now - hits[0] > self.window:
                 hits.popleft()
             if len(hits) >= self.per_minute:
                 return False
@@ -83,6 +91,7 @@ class RateLimit:
 
 
 _limit = RateLimit(LOOKUPS_PER_MINUTE)
+_challenge = RateLimit(CHALLENGE_AFTER, CHALLENGE_WINDOW_SECONDS)
 _llm: LlmReader | None = None
 _llm_lock = threading.Lock()
 
@@ -219,21 +228,27 @@ class LookupIn(BaseModel):
 
 @app.post("/api/lookup")
 def do_lookup(body: LookupIn, request: Request, session: SessionDep) -> JSONResponse:
-    if not _limit.allow(client_id(request)):
+    client = client_id(request)
+    if not _limit.allow(client):
         raise HTTPException(429, "Too many lookups. Try again in a minute.")
+    if (request.headers.get("x-juju-challenge") == "turnstile"
+            and request.headers.get("x-juju-verified") != "1"
+            and not _challenge.allow(client)):
+        return JSONResponse({"detail": CHALLENGE_TEXT, "challenge": "turnstile"}, 428,
+                            headers={"Cache-Control": "no-store"})
     started = time.monotonic()
     settings = get_settings()
     result = lookup.resolve(session, body.text, _utcnow(), llm_reader(settings))
     ms = int((time.monotonic() - started) * 1000)
     p = result.parsed
     session.add(Lookup(path=result.path, text=body.text[:200], milliseconds=ms,
-                       result=f"{result.kind}:{result.id or ''}"[:80]))
+                       result=f"{result.kind}:{result.id or result.legs or ''}"[:80]))
     session.commit()
     focus = {"play": p.play, "market": p.market_key, "threshold": p.threshold,
              "expect": result.expect, "yards": p.yards}
     return respond({"kind": result.kind, "path": result.path, "game_id": result.game_id,
                     "id": result.id, "choices": result.choices, "message": result.message,
-                    "focus": focus})
+                    "legs": result.legs, "focus": focus})
 
 
 def _focus(play: str | None, market: str | None, threshold: str | None,
@@ -285,6 +300,26 @@ def team(game_id: int, team_id: str, session: SessionDep, play: str | None = Non
                      _focus(play, market, None, False))
     if view is None:
         raise HTTPException(404, "No such team in this game")
+    mark_hot(session, game.id, now)
+    return respond({**jsonable_encoder(view, custom_encoder={Decimal: lambda d: format(d, "f")}),
+                    "disclaimer": DISCLAIMER}, _cache_for(game.status))
+
+
+@app.get("/api/parlay/{game_id}")
+def parlay_card(game_id: int, session: SessionDep,
+                legs: Annotated[str, Query(max_length=600)] = "") -> JSONResponse:
+    """One same-game parlay of 2 to 6 legs the person chose (docs/GOALS.md section 5)."""
+    game = session.get(Game, game_id)
+    if game is None:
+        raise HTTPException(404, "No such game")
+    try:
+        keys = parse_legs(legs)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    now = _utcnow()
+    view = parlay_view(session, game, keys, now, get_settings().books)
+    if view is None:
+        raise HTTPException(404, "A leg names a player or team who isn't in this game")
     mark_hot(session, game.id, now)
     return respond({**jsonable_encoder(view, custom_encoder={Decimal: lambda d: format(d, "f")}),
                     "disclaimer": DISCLAIMER}, _cache_for(game.status))

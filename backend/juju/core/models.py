@@ -63,8 +63,11 @@ class Game(Base):
     last_progress_at: Mapped[datetime | None] = mapped_column(TZ)   # progress key last advanced
     last_box_at: Mapped[datetime | None] = mapped_column(TZ)        # box score last read
     live_source: Mapped[DataSource | None] = mapped_column(_enum(DataSource, "live_source"))
-    # Set when a player's stat changed after the game had settled (final + 10 min).
+    # Set when a player's stat changed after the game had settled (final + 10 min); what
+    # changed is in `stat_corrections`.
     corrected_at: Mapped[datetime | None] = mapped_column(TZ)
+    # Set when the next-day check against nflverse has run for this game (worker/verify.py).
+    verified_at: Mapped[datetime | None] = mapped_column(TZ)
     last_error: Mapped[str | None] = mapped_column(Text)
 
     @property
@@ -160,6 +163,22 @@ class LiveStat(Base):
     value: Mapped[Decimal] = mapped_column(Numeric(8, 1))
     source: Mapped[DataSource] = mapped_column(_enum(DataSource, "stat_source"))
     updated_at: Mapped[datetime] = mapped_column(TZ)
+    # Set when nflverse gave the same value (or this value replaced the feed's, see `source`).
+    verified_at: Mapped[datetime | None] = mapped_column(TZ)
+
+
+class StatCorrection(Base):
+    """A player's stat that changed after his game had settled: a later box-score read, or the
+    next-day check against nflverse. Cards say what changed (docs/GOALS.md section 5)."""
+    __tablename__ = "stat_corrections"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("games.id", ondelete="CASCADE"), index=True)
+    espn_athlete_id: Mapped[str] = mapped_column(String(20))
+    stat: Mapped[Stat] = mapped_column(_enum(Stat, "correction_stat"))
+    old_value: Mapped[Decimal | None] = mapped_column(Numeric(8, 1))  # None: no stat line
+    new_value: Mapped[Decimal] = mapped_column(Numeric(8, 1))
+    source: Mapped[DataSource] = mapped_column(_enum(DataSource, "correction_source"))
+    corrected_at: Mapped[datetime] = mapped_column(TZ)
 
 
 class Play(Base):
@@ -179,6 +198,26 @@ class Play(Base):
     espn_athlete_id: Mapped[str | None] = mapped_column(String(20))
     team_espn_id: Mapped[str | None] = mapped_column(String(10))
     scoring: Mapped[bool] = mapped_column(default=False)
+
+
+class DecidingPlay(Base):
+    """The play on which a player's stat went past an archived line (worker/deciding.py).
+    `exact` is False for the live feed's "on or around" (the play may be missing, leaving only
+    the game clock), True for nflverse's play-by-play the next day."""
+    __tablename__ = "deciding_plays"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("games.id", ondelete="CASCADE"))
+    espn_athlete_id: Mapped[str] = mapped_column(String(20))
+    stat: Mapped[Stat] = mapped_column(_enum(Stat, "deciding_stat"))
+    line: Mapped[Decimal] = mapped_column(Numeric(6, 1))
+    exact: Mapped[bool]
+    period: Mapped[int | None]
+    clock: Mapped[str | None] = mapped_column(String(8))  # the game clock, "7:42"
+    text: Mapped[str | None] = mapped_column(String(300))
+    play_id: Mapped[int | None] = mapped_column(ForeignKey("plays.id", ondelete="SET NULL"))
+    noted_at: Mapped[datetime] = mapped_column(TZ)
+
+    __table_args__ = (Index("ix_deciding_plays_lookup", "game_id", "espn_athlete_id"),)
 
 
 class HotGame(Base):

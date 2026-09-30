@@ -7,6 +7,9 @@ primary_region = "iad"
 
 [env]
   BACKEND_URL = "http://api.process.juju-backend.internal:8000"  # the api process group only
+  # The public address, for absolute share-image URLs in link previews. Set it to the domain
+  # once it exists (docs/deploy.md); until then previews point at juju-web.fly.dev.
+  SITE_URL = "https://juju-web.fly.dev"
 
 [http_service]
   internal_port = 3000

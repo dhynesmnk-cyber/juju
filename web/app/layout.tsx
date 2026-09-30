@@ -1,10 +1,18 @@
 import type { Metadata, Viewport } from "next";
+import { Big_Shoulders } from "next/font/google";
 import Link from "next/link";
 import AgeGate from "@/components/AgeGate";
 import StatusBanner from "@/components/StatusBanner";
+import { worldsEnabled } from "@/components/world/worlds";
 import "./globals.css";
 
+const display = Big_Shoulders({
+  subsets: ["latin"], weight: ["800", "900"], variable: "--font-display", display: "swap",
+});
+
 export const metadata: Metadata = {
+  // Share previews need absolute image URLs: SITE_URL is the public address (docs/deploy.md).
+  metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
   title: "Juju: what would $10 have paid?",
   description:
     "Tap or type a recent NFL play and see what a $10 bet placed 45 minutes before kickoff " +
@@ -22,9 +30,9 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${display.variable}${worldsEnabled ? " worlds" : ""}`}>
       <body>
-        <div className="wrap">
+        <div className="wrap page">
           <header className="top">
             <Link href="/" className="brand">ju<span>ju</span></Link>
             <nav aria-label="About Juju">

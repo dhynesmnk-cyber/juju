@@ -27,6 +27,8 @@ def client(db, monkeypatch):
     app_module.app.dependency_overrides[app_module.get_session] = session
     app_module._hot_written.clear()
     app_module._limit = app_module.RateLimit(app_module.LOOKUPS_PER_MINUTE)
+    app_module._challenge = app_module.RateLimit(app_module.CHALLENGE_AFTER,
+                                                 app_module.CHALLENGE_WINDOW_SECONDS)
     yield TestClient(app_module.app)
     app_module.app.dependency_overrides.clear()
     get_settings.cache_clear()
@@ -87,6 +89,13 @@ def test_a_play_that_is_not_in_the_feed_yet_waits(client, db):
     assert view["waiting_for_feed"] is True
 
 
+def test_a_named_threshold_shows_its_ladder_card(client, db):
+    game = seed(db, "final")
+    view = client.get(f"/api/player/{game}/{BARKLEY}", params={"threshold": "79.5"}).json()
+    ladder = card(view, "player_rush_yds_alternate")
+    assert ladder["bet"] == "80+ rush yards" and ladder["outcome"] == "won"  # 82
+
+
 def test_team_cards(client, db):
     game = seed(db, "final")
     view = client.get(f"/api/team/{game}/3").json()  # Chicago
@@ -116,11 +125,54 @@ def test_lookup_finds_a_team(client, db):
     assert (r["kind"], r["id"]) == ("team", "3")
 
 
+def test_several_bets_in_one_line_are_a_parlay(client, db):
+    game = seed(db, "live")
+    body = client.post("/api/lookup", json={
+        "text": "Barkley 100+ rush yds and DeVonta Smith 5+ catches"}).json()
+    assert (body["kind"], body["game_id"]) == ("parlay", game)
+    assert body["legs"] == (f"p-{BARKLEY}-player_rush_yds_alternate-99.5,"
+                            f"p-{SMITH}-player_receptions_alternate-4.5")
+    body = client.post("/api/lookup", json={
+        "text": "Barkley TD, DeVonta Smith over 71.5 receiving yards & Bears cover"}).json()
+    assert body["legs"] == (f"p-{BARKLEY}-player_anytime_td,"
+                            f"p-{SMITH}-player_reception_yds_alternate-71.5,t-3-spreads")
+    parlay = client.get(f"/api/parlay/{game}", params={"legs": body["legs"]})
+    assert parlay.status_code == 200
+
+
+@pytest.mark.parametrize("text", [
+    "Hurts and Smith connect for 30",       # one play, two players: no bets named
+    "Smith catch and Barkley TD",           # a shared surname: not certain
+    "Barkley TD and Mahomes TD",            # someone not in the game
+    "Barkley TD and Barkley touchdown",     # the same bet twice
+])
+def test_a_line_that_is_not_certainly_a_parlay_is_one_lookup(client, db, text):
+    seed(db, "live")
+    assert client.post("/api/lookup", json={"text": text}).json()["kind"] != "parlay"
+
+
 def test_lookups_are_rate_limited(client, db):
     seed(db, "live")
     app_module._limit = app_module.RateLimit(2)
     codes = [client.post("/api/lookup", json={"text": "Barkley"}).status_code for _ in range(3)]
     assert codes == [200, 200, 429]
+
+
+def test_past_the_threshold_the_site_is_asked_for_a_turnstile_check(client, db):
+    seed(db, "live")
+    app_module._challenge = app_module.RateLimit(2, 900)
+    site = {"x-juju-challenge": "turnstile"}
+    codes = [client.post("/api/lookup", json={"text": "Barkley"}, headers=site).status_code
+             for _ in range(3)]
+    assert codes == [200, 200, 428]
+    r = client.post("/api/lookup", json={"text": "Barkley"}, headers=site)
+    assert r.json()["challenge"] == "turnstile" and r.headers["cache-control"] == "no-store"
+    # A person who passed goes through, and isn't counted towards the next check.
+    verified = {**site, "x-juju-verified": "1"}
+    assert client.post("/api/lookup", json={"text": "Barkley"},
+                       headers=verified).status_code == 200
+    # Without Turnstile on the site nothing is asked: the per-minute limit still holds.
+    assert client.post("/api/lookup", json={"text": "Barkley"}).status_code == 200
 
 
 def test_suggest_prefers_players_in_play(client, db):
@@ -140,9 +192,11 @@ def test_live_lists_games_and_plays_without_prices(client, db):
 
 
 def test_there_is_no_endpoint_that_lists_prices_across_players(client):
+    # The parlay spans players but lists no price: tests/db/test_parlay.py holds it to that.
     paths = {r.path for r in app_module.app.routes}
     assert paths == {"/health", "/api/status", "/api/live", "/api/suggest", "/api/lookup",
-                     "/api/player/{game_id}/{athlete_id}", "/api/team/{game_id}/{team_id}"}
+                     "/api/player/{game_id}/{athlete_id}", "/api/team/{game_id}/{team_id}",
+                     "/api/parlay/{game_id}"}
 
 
 def test_health_reports_the_worker(client, db):

@@ -34,6 +34,8 @@ fly ips list -a juju-backend      # must list no public address; release any wit
 
 cd ../web && fly deploy
 fly certs add <your domain> -a juju-web
+# Then set SITE_URL in web/fly.toml to https://<your domain> and deploy again, so link
+# previews (the share images) point at the domain.
 ```
 
 About a minute after the worker starts, `/health` on the API (`fly ssh console -a
@@ -44,15 +46,33 @@ juju-backend`, then `curl localhost:8000/health`) should show `"ok": true`.
 1. **DNS:** add the domain, and a proxied (orange-cloud) CNAME to `juju-web.fly.dev`.
    Set SSL/TLS to **Full (strict)**.
 2. **Cache rule:**
-   - Applies to `/api/player/*`, `/api/team/*`, `/api/live` and `/api/suggest`.
+   - Applies to `/api/player/*`, `/api/team/*`, `/api/parlay/*`, `/api/live`, `/api/suggest`
+     and the share images, `/g/*/image` (a settled card's image is cached for a day, a live
+     one for 30 s).
    - Set "Eligible for cache", with the edge TTL respecting the origin.
    - The backend sends `s-maxage=5` while a game is live and `300` once it is final. A viral
      play then costs the backend about one request every 5 s per player, however many people
      look it up.
-3. **Rate-limit rule:** `POST /api/lookup`, 20 requests per 10 s per IP, then a managed
-   challenge. The API enforces its own limit of 30 a minute behind this.
+3. **Rate-limit rule:** `POST /api/lookup`, 60 requests per 10 s per IP, then **block** for
+   a minute. Not a managed challenge: lookups are a `fetch` from the search box, so a
+   challenge page would reach it as an error nobody can solve. People are checked in the page
+   instead (5). The API also allows at most 30 lookups a minute per person.
 4. **Bot Fight Mode:** on. Juju's terms forbid scraping (docs/licensing.md).
-5. **Turnstile:** optional at launch. The rate-limit challenge covers bursts.
+5. **Turnstile:** create a widget (managed mode) for the domain, then
+   `fly secrets set -a juju-web TURNSTILE_SECRET_KEY=...` and deploy the site with
+   `--build-arg NEXT_PUBLIC_TURNSTILE_SITE_KEY=<site key>`. After 12 lookups in 15 minutes,
+   the API asks for a check; the search box shows the widget and retries the lookup, and a
+   person who passes isn't asked again for an hour (a signed cookie). Without these keys
+   nothing is asked, and only the limits in (3) apply. If Cloudflare can't be reached to
+   verify a token, the lookup goes through rather than locking people out.
+
+## The worlds' kill switch
+
+The animated worlds (the shader and the Jujus) can be turned off without touching the backend:
+`fly deploy -a juju-web --build-arg NEXT_PUBLIC_WORLDS=off`. That is a build-time setting in
+Next.js, so it needs a web redeploy. The site then shows no world, and returns to the normal
+light and dark theme. Phones already fall back on their own when frames are slow, and so does
+Save-Data.
 
 ## Alerts
 
@@ -61,6 +81,11 @@ juju-backend`, then `curl localhost:8000/health`) should show `"ok": true`.
   circuit breaker, the Odds API credits left, and the next captures.
 - **Missed captures:** the `check_captures` job logs an ERROR for any game past T-44 without an
   on-time price. `repair_gaps` then fills it from the vendor's history.
+- **Next-day check:** `verify_games` runs at 10:07 and 16:07 ET (and at startup). It checks
+  last week's final games against nflverse, replaces any stat the official numbers correct, and
+  logs an ERROR for a game whose final score disagrees (nothing is applied; see
+  `games.last_error`). Run it by hand with `python -m juju.cli verify`. It needs outbound HTTPS
+  to `github.com` and `release-assets.githubusercontent.com`.
 - **Logs:** ship them with Fly's log shipper, and alert on `ERROR juju.`.
 
 ## First real capture

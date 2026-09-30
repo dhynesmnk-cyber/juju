@@ -29,6 +29,7 @@ a tool for looking back at prices.
 | 6 | Book of record (2026-09-30) | **Hard Rock Bet**, then DraftKings, then the others (`BOOKS` setting). |
 | 7 | Hosting (2026-09-30) | **Fly.io** (`iad`) for the site, API, worker and Postgres, with **Cloudflare** in front. |
 | 8 | Odds vendor | **The Odds API**. Its terms allow Juju's use (§3). |
+| 9 | The look (2026-09-30) | **Worlds that follow the bet's state**, drawn by one WebGL shader (option A, 7 KB gzipped). Three original characters, the **Jujus** (Pip, Bo and Tuft), sit on the first card and react. The price always renders first; see §7.9. |
 
 ## 3. Licensing: a design rule, not a blocker
 
@@ -162,6 +163,26 @@ Rules:
    - "Hypothetical. Juju is not a sportsbook." on each card.
    - The footer carries 1-800-GAMBLER and the data credits.
    - No sportsbook links, no "bet now" and no recommendations.
+9. **Worlds and the Jujus.**
+   - The page's world follows the first card:
+     - pregame: a night sky and a moon;
+     - live: tower lights and camera flashes;
+     - waiting: a searchlight;
+     - cashed: a gold shockwave from the card, confetti and a count-up;
+     - won: dawn;
+     - lost: grey dusk and rain;
+     - feed down: static.
+   - The Jujus doze, cheer, keep watch with binoculars, jump, hold a trophy, shelter under an
+     umbrella, or fix the antenna.
+   - Guardrails:
+     - The price is server-rendered, and the shader starts only when the browser is idle.
+     - The count-up ends exactly on the API's number.
+     - The world steps down its resolution, then falls back to CSS, when frames are slow.
+     - It pauses when the tab is hidden, and honours Save-Data.
+     - Reduced motion gives colour fades only, with the final number shown at once.
+     - The home page never celebrates.
+     - The hypothetical line stays visible through every celebration.
+     - The kill switch is `NEXT_PUBLIC_WORLDS=off`.
 
 ## 8. Still binding from parlaytracker
 
@@ -190,11 +211,11 @@ Rules:
 
 | | Scope | Status |
 |---|---|---|
-| M0 | Docs, backend skeleton, ported modules and tests, CI | this branch |
-| M1 | Archive (capture, repair, backfill), lookup engine, internal API | this branch |
-| M2 | Live overlay, deterministic parse and LLM fallback, Next.js UI, deploy config | this branch |
-| M3 | nflverse verification and corrections, the play that decided it, LLM golden set, share images, production abuse caps | next |
-| M4 | Same-game parlays | next |
+| M0 | Docs, backend skeleton, ported modules and tests, CI | done |
+| M1 | Archive (capture, repair, backfill), lookup engine, internal API | done |
+| M2 | Live overlay, deterministic parse and LLM fallback, Next.js UI, deploy config | done |
+| M3 | Worlds and the Jujus, nflverse verification and corrections, the play that decided it, lookup golden set, share images, Turnstile past a lookup threshold | done |
+| M4 | Same-game parlays: the tray and parlay page, multi-leg text, one book when possible | done |
 | M5 | Launch hardening: licensed live stats, load test, alerting, restore drill, legal review of state exposure | before launch |
 
 ## 11. Open before public launch (not before the build)

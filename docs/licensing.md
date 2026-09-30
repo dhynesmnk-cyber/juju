@@ -25,6 +25,9 @@ its "last updated" date changes.
     (`web/app/api/[...path]/route.ts`, which forwards an allowlist of UI endpoints).
   - No endpoint lists prices across players or games, and none exports raw data.
   - Every response is one player's or one team's computed cards (payout, fair value, status).
+  - A same-game parlay (M4) spans players, so it carries derived values only: the combined
+    payout, and per leg its bet, status, book and provenance. Each leg's own price stays on
+    that player's or team's card. `tests/db/test_parlay.py` checks that no price is listed.
   - Rate limits and Turnstile run at Cloudflare, and Juju's terms forbid scraping.
   - The footer credits The Odds API, which is appreciated but not required.
 
@@ -33,7 +36,7 @@ its "last updated" date changes.
 - The data repository `nflverse/nflverse-data` is licensed **CC-BY-4.0**, as shown by GitHub's
   license tag, retrieved 2026-09-30.
 - Commercial use is allowed with attribution, so the site footer credits nflverse.
-- The `nflreadpy` package is separate code under its own license.
+- Juju reads the release files directly (`juju/ingest/nflverse.py`), not through `nflreadpy`.
 
 ## ESPN (live game state, box scores, rosters): open
 

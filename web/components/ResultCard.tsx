@@ -1,12 +1,25 @@
-import { american, localAndEt } from "@/lib/format";
+import CountUp from "@/components/CountUp";
+import ParlayButton from "@/components/ParlayButton";
+import ShareButton from "@/components/ShareButton";
+import Jujus from "@/components/world/Jujus";
+import type { Mood } from "@/components/world/worlds";
+import { american, localAndEt, quarter } from "@/lib/format";
+import type { TrayLeg } from "@/lib/parlayTray";
 import type { Card, Outcome } from "@/lib/types";
 
-const TONE: Record<Outcome, [string, string]> = {
+export const TONE: Record<Outcome, [string, string]> = {
   won: ["good", "✓"], locked: ["good", "✓"], lost: ["bad", "✕"], gone: ["bad", "✕"],
   live: ["live", "●"], waiting_for_feed: ["live", "…"], pregame: ["neutral", "◷"],
   push: ["neutral", "="], void: ["neutral", "="], no_stat_line: ["neutral", "–"],
   untracked: ["neutral", "–"], unavailable: ["neutral", "!"],
 };
+
+function decidedBy(d: NonNullable<Card["decided_by"]>): string {
+  const when = [quarter(d.period), d.clock].filter(Boolean).join(" ");
+  if (d.exact) return `Decided by the play at ${when}: ${d.text}`;
+  if (d.text) return `On or around: ${d.text}${when ? ` (${when})` : ""}.`;
+  return `Went past the line by ${when || "this point"}; the feed didn't say on which play.`;
+}
 
 function progress(card: Card): string | null {
   if (card.current === null) {
@@ -19,20 +32,33 @@ function progress(card: Card): string | null {
   return `${now} so far.`;
 }
 
-export default function ResultCard({ card, changed }: { card: Card; changed?: boolean }) {
+export default function ResultCard({ card, changed, crew, countUp, id, sharePath, parlay }: {
+  card: Card; changed?: boolean; crew?: Mood; countUp?: boolean; id?: string; sharePath?: string;
+  parlay?: { game: number; leg: TrayLeg };
+}) {
   const [tone, icon] = TONE[card.outcome];
   const p = card.price;
   const detail = progress(card);
-  return (
-    <article className={`card${card.touched ? " touched" : ""}${changed ? " changed" : ""}`}
+  const cashed = card.outcome === "locked" || card.outcome === "won";
+  const article = (
+    <article id={id}
+             className={`card${card.touched ? " touched" : ""}${changed ? " changed" : ""}${cashed ? " cashed" : ""}`}
              aria-label={`${card.label}: ${card.outcome_text}`}>
       <div className="label">{card.label}</div>
       <div className="bet">{card.bet}</div>
       <span className={`status-chip ${tone}`}>
         <span aria-hidden="true">{icon}</span> {card.outcome_text}
       </span>
-      <div className="headline">{card.headline}</div>
+      {card.verified && (
+        <span className="status-chip neutral verified">
+          <span aria-hidden="true">☑</span> Verified
+        </span>
+      )}
+      <div className="headline">
+        {cashed && card.returns ? <CountUp to={card.returns} run={!!countUp} /> : card.headline}
+      </div>
       {detail && <div className="detail">{detail}</div>}
+      {card.decided_by && <div className="decided">{decidedBy(card.decided_by)}</div>}
       {p ? (
         <div className="detail">
           {american(p.american)} at {p.book_name}
@@ -63,6 +89,21 @@ export default function ResultCard({ card, changed }: { card: Card; changed?: bo
         <ul className="notes">{card.notes.map((n) => <li key={n}>{n}</li>)}</ul>
       )}
       {p && <div className="others">Source record {p.provenance}</div>}
+      {p && (sharePath || parlay) && (
+        <div className="share-row">
+          {sharePath && (
+            <ShareButton path={sharePath} text={`${card.bet}: ${card.headline} (hypothetical)`} />
+          )}
+          {parlay && <ParlayButton game={parlay.game} leg={parlay.leg} />}
+        </div>
+      )}
     </article>
+  );
+  if (!crew) return article;
+  return (
+    <div className="cardwrap">
+      <Jujus mood={crew} />
+      {article}
+    </div>
   );
 }

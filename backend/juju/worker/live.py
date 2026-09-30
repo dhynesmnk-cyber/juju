@@ -13,7 +13,8 @@ Juju differs in what it reads, because anyone can look up any player at any mome
   so no live game goes more than a minute without one;
 - The Odds API's `/scores` as an independent source for game state when ESPN can't be reached.
 
-Nothing here settles a bet. Cards decide outcomes from what is stored (`core/card.py`).
+Nothing here settles a bet. Cards decide outcomes from what is stored (`core/card.py`). Each
+box-score read also notes which archived lines a stat went past (`worker/deciding.py`).
 """
 import logging
 from collections.abc import Callable
@@ -26,8 +27,9 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from juju.core.enums import DataSource, EventStatus, PlayKind, Stat
-from juju.core.models import Game, HotGame, LiveStat, Play, Player
+from juju.core.models import Game, HotGame, LiveStat, Play, Player, StatCorrection
 from juju.ingest import espn, guards
+from juju.worker import deciding
 from juju.ingest.http import FetchError, RateLimited
 from juju.ingest.odds_api import OddsSource, RequestRejected
 from juju.ingest.resolve import (
@@ -272,15 +274,24 @@ class PollLive:
             return True
         self._score_changed.discard(game.id)
         box, raw_plays = routed.value.box, routed.value.plays
+        before = deciding.stat_values(session, game.id)
+        first_read = game.last_box_at is None
         write_box(session, game, box, routed.provider, now)
-        write_plays(session, game, raw_plays)
+        new_plays = write_plays(session, game, raw_plays)
         self._apply(game, box.status, game.period, game.clock_seconds, box.home_score,
                     box.away_score, routed.provider, now)
+        deciding.note_crossings(session, game, before, new_plays, first_read, now,
+                                settled=_settled(game, now))
         self._score_changed.discard(game.id)  # the box score just covered that change
         game.last_box_at = now
         session.commit()
         out.boxes += 1
         return True
+
+
+def _settled(game: Game, now: datetime) -> bool:
+    return (game.status is EventStatus.FINAL and game.final_at is not None
+            and now >= game.final_at + RECHECK_AFTER_FINAL)
 
 
 def _needs_recheck(game: Game, now: datetime) -> bool:
@@ -295,27 +306,34 @@ def write_box(session: Session, game: Game, box: espn.BoxScore, provider: DataSo
               now: datetime) -> int:
     """Every stat for everyone who appears in the box score (a missing stat is then a real
     zero). Players who appear nowhere get no rows: "no stat line yet". Returns rows changed.
-    A value that changes after the game has settled marks the game corrected."""
-    held = {(r.espn_athlete_id, r.stat): r.value for r in session.scalars(
+    A value that changes after the game has settled is recorded in `stat_corrections` and marks
+    the game corrected. A value the next-day check took from nflverse is never overwritten."""
+    held = {(r.espn_athlete_id, r.stat): r for r in session.scalars(
         select(LiveStat).where(LiveStat.game_id == game.id))}
-    settled = (game.status is EventStatus.FINAL and game.final_at is not None
-               and now >= game.final_at + RECHECK_AFTER_FINAL)
+    settled = _settled(game, now)
     changed = 0
     for athlete in box.appeared:
         for stat in Stat:
             value = box.stats.get(stat, {}).get(athlete, Decimal(0))
-            old = held.get((athlete, stat))
-            if old is not None and old == value:
+            row = held.get((athlete, stat))
+            if row is not None and (row.value == value or row.source is DataSource.NFLVERSE):
                 continue
-            if old is not None and settled:
+            old = row.value if row is not None else None
+            # A player first listed after settling is a correction (his card said "no stat
+            # line"), unless the game had no box score at all before: nothing was shown then.
+            if settled and (row is not None or held):
                 game.corrected_at = now
+                session.add(StatCorrection(
+                    game_id=game.id, espn_athlete_id=athlete, stat=stat, old_value=old,
+                    new_value=value, source=provider, corrected_at=now))
                 log.warning("%s: %s %s corrected from %s to %s after settling", game.label,
                             athlete, stat, old, value)
             session.execute(insert(LiveStat).values(
                 game_id=game.id, espn_athlete_id=athlete, stat=stat, value=value,
                 source=provider, updated_at=now).on_conflict_do_update(
                 index_elements=[LiveStat.game_id, LiveStat.espn_athlete_id, LiveStat.stat],
-                set_={"value": value, "source": provider, "updated_at": now}))
+                set_={"value": value, "source": provider, "updated_at": now,
+                      "verified_at": None}))  # a new value hasn't been checked
             changed += 1
     return changed
 
@@ -343,13 +361,14 @@ def play_label(name: str | None, raw: espn.RawPlay) -> str:
     return f"{who} {yards}{what}"[:80]
 
 
-def write_plays(session: Session, game: Game, raws: list[espn.RawPlay]) -> int:
+def write_plays(session: Session, game: Game, raws: list[espn.RawPlay]) -> list[Play]:
     """Store new notable plays, with the player matched to the team's roster when that is
-    certain. An unmatched play keeps no player (it can still be shown as a team play)."""
+    certain. An unmatched play keeps no player (it can still be shown as a team play).
+    Returns the plays added, with their ids."""
     known = set(session.scalars(select(Play.espn_play_id).where(Play.game_id == game.id)))
     rosters: dict[str | None, list[RosterEntry]] = {}
     names = {}
-    added = 0
+    added: list[Play] = []
     for raw in raws:
         if raw.espn_play_id in known:
             continue
@@ -364,12 +383,13 @@ def write_plays(session: Session, game: Game, raws: list[espn.RawPlay]) -> int:
         if athlete and athlete not in names:
             player = session.get(Player, athlete)
             names[athlete] = player.name if player else None
-        session.add(Play(
+        play = Play(
             game_id=game.id, espn_play_id=raw.espn_play_id, sequence=raw.sequence,
             period=raw.period, clock=raw.clock, wallclock=raw.wallclock, kind=raw.kind.value,
             label=play_label(names.get(athlete) if athlete else None, raw), yards=raw.yards,
             text=raw.text[:500], espn_athlete_id=athlete, team_espn_id=raw.team_espn_id,
-            scoring=raw.scoring))
-        added += 1
+            scoring=raw.scoring)
+        session.add(play)
+        added.append(play)
     session.flush()
     return added

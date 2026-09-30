@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import Jujus from "@/components/world/Jujus";
+import WorldStage from "@/components/world/WorldStage";
 import { dayAndTime } from "@/lib/format";
 import { playHref, resultHref } from "@/lib/links";
 import type { LiveGame, LiveResponse } from "@/lib/types";
@@ -70,8 +72,12 @@ export default function LiveNow({ initial }: { initial: LiveResponse | null }) {
   const games = data?.games ?? [];
   const live = games.filter((g) => IN_PLAY.has(g.status));
   const other = games.filter((g) => !IN_PLAY.has(g.status));
+  // The home page never celebrates: it is calm before kickoff and lit when games are on.
+  const world = live.length ? "live" : "pre";
   return (
     <div aria-live="polite">
+      <WorldStage world={world} />
+      <div className="home-crew"><Jujus mood={live.length ? "cheer" : "sleepy"} /></div>
       <h2>{live.length ? "Live now" : "No games in play right now"}</h2>
       {failed && <p className="hint" role="alert">Can&apos;t load games right now. Retrying.</p>}
       {live.map((g) => <GameBlock key={g.id} g={g} />)}
