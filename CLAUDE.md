@@ -1,8 +1,9 @@
 # Juju
 
 A public site showing what a $10 bet placed 45 minutes before kickoff (T-45) would have paid
-for a recent NFL play. **Read [docs/GOALS.md](docs/GOALS.md) first**: it holds the decisions
-and the reasons for them.
+for a recent NFL play. **Read [docs/GOALS.md](docs/GOALS.md) first** (the decisions and the reasons
+for them), then [HANDOVER.md](HANDOVER.md) (where the build stands and what to do next). Update
+HANDOVER.md before you finish a session.
 
 ## Layout
 
