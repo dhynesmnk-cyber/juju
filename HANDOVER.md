@@ -9,12 +9,12 @@ where the build stands and what to do next. Update it before you finish a sessio
 
 | | |
 |---|---|
-| Branch | `claude/happy-galileo-p7ify3`. PR #1 merged M0–M2 into `main`; everything since (M3) is on this branch only. There is no open PR: open one only if the owner asks |
-| CI | Green through the share-image commit (`d7712a8`). Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 14 Playwright tests at phone width, with Cloudflare's public Turnstile test keys) |
-| Tests | 1,105 backend tests, 3 web unit tests (`node --test`), 14 Playwright tests |
+| Branch | `claude/happy-galileo-p7ify3`. PR #1 merged M0–M2 into `main`; everything since (M3, M4) is on this branch only. There is no open PR: open one only if the owner asks |
+| CI | Green on every push this session (checked through `c8b5d56`; later runs were queued at hand-off). Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys) |
+| Tests | 1,154 backend tests, 3 web unit tests (`node --test`), 17 Playwright tests |
 | Deployed | **No.** The Fly.io config and runbook exist (`docs/deploy.md`); the owner has not created the apps yet |
 | Real data | No real capture has run. The archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
-| Milestones | M0–M3 are done. M4 (same-game parlays) is next, then M5 |
+| Milestones | M0–M4 are done. M5 (launch hardening) is next, and mostly needs the owner |
 
 ## What exists
 
@@ -25,6 +25,8 @@ where the build stands and what to do next. Update it before you finish a sessio
   - `card.py`: the outcome state machine and the money;
   - `plays.py`: card ordering;
   - `odds.py`, `settlement.py` and `live.py`, ported from parlaytracker;
+  - `parlay.py` (M4): legs in a URL, one book for every leg when one priced them all, the
+    parlay outcome (a lost leg loses it, pushes drop out, no stat line leaves it undecided);
   - `models.py`, including `StatCorrection` and `DecidingPlay` (migrations 0002, 0003).
 - `ingest/`:
   - `odds_api.py`: live, historical and scores endpoints;
@@ -47,27 +49,32 @@ where the build stands and what to do next. Update it before you finish a sessio
   - `deciding.py` (M3): the play that decided a bet. Live: "on or around", the latest notable
     play by that player among the plays in the read that saw the stat pass the line (only the
     game clock if there is none, or on a game's first read). Next day: exact, from the
-    play-by-play, kept only if the play-by-play adds up to the final stat;
+    play-by-play, kept only if the play-by-play adds up to the final stat. `check_longest`
+    confirms the longest rush and catch from the play-by-play (it never corrects them);
   - `__main__.py`: the scheduler, holding an advisory lock.
 - `api/`: FastAPI, private and reached only through the site:
   - `app.py`: the endpoints. Lookups: 30 a minute per client, and after 12 in 15 minutes a
     428 Turnstile challenge when the site has Turnstile on;
-  - `views.py`: cards, now with `verified`, `decided_by` and specific correction notes;
+  - `views.py`: cards, now with `verified`, `decided_by` and specific correction notes; and
+    `parlay_view` (M4), which prices legs exactly like single cards;
   - `lookup.py`: which player or team a lookup means; reads the play from the named player's
-    side (a defender's interception is his).
+    side (a defender's interception is his); several certain bets in one line are a parlay;
+  - `GET /api/parlay/{game}?legs=`: 2 to 6 legs, derived values only (see below).
 - `cli.py`: `backfill`, `unmapped`, `verify` (runs the nflverse check now), `seed live|final`.
 - `scripts/`: `dev_postgres.py`; `record_nflverse.py` (slices nflverse files into fixtures,
   free); `eval_lookup.py` (the golden set with or without an LLM, to choose `LLM_MODEL`).
 
 **Web** (`web/`, Next.js 16):
-- Pages: `/`, `/g/[game]/[player]`, `/g/[game]/team/[team]` and the info pages. Result pages
-  take `?card=` to put a shared card first.
+- Pages: `/`, `/g/[game]/[player]`, `/g/[game]/team/[team]`, `/g/[game]/parlay?legs=` (M4)
+  and the info pages. Result pages take `?card=` to put a shared card first.
 - `app/api/[...path]/route.ts` is the **only** way into the backend: an allowlist of paths.
   It also verifies Turnstile tokens (`lib/turnstile.ts`) and sets a signed one-hour cookie.
 - `.../image/route.tsx` under both result pages (M3): the share image, one card in its world
   with the Jujus (`lib/shareImage.tsx`, next/og). Pages emit Open Graph tags for it.
-- `components/`: `ResultCard` (Verified chip, deciding play, Share button), `ResultView`,
-  `SearchBox` (shows `TurnstileWidget` only when challenged), `world/` (option A: shader, Jujus).
+- `components/`: `ResultCard` (Verified chip, deciding play, Share and Add to parlay),
+  `ResultView`, `ParlayTray` (per game, in the viewer's browser: `lib/parlayTray.ts`),
+  `ParlayView` (a light in the sky per leg; gold only when all are lit), `SearchBox` (shows
+  `TurnstileWidget` only when challenged), `world/` (option A: shader, Jujus).
 
 **Docs**: `docs/GOALS.md` (v2, milestones updated), `docs/licensing.md`, `docs/deploy.md`
 (Fly, Cloudflare including Turnstile and the share-image cache, the worlds kill switch, the
@@ -100,6 +107,16 @@ verification job), `docs/GOALS-v1-brainstorm.md` (unchanged).
 - **A first name alone is offered, never picked** ("Will", "Chance", "Case" are players here).
 - **The edge rule for lookups is a block, not a managed challenge.** A challenge page can't be
   solved from a `fetch`; Turnstile runs in the page instead.
+- **A parlay card lists no leg's price**, only derived values (combined payout, each leg's bet,
+  status, book, provenance), because CLAUDE.md says no endpoint may list prices across
+  players. Each leg links to its own card. `tests/db/test_parlay.py` enforces it. Showing leg
+  prices would be the owner's call (the vendor's terms allow display; the rule is ours).
+- **A parlay is priced at one book** when a book in the chain priced every leg (on-time first);
+  otherwise each leg keeps its book and the card says so. Every parlay carries the GOALS §5
+  correlation note.
+- **Several bets in one line become a parlay only when every part is certain**; otherwise the
+  line is read as one lookup, as before.
+- **A card with no price has no line and is never decided** (before, it crashed the page).
 
 ## Fixtures (reuse them: the Odds API ones cost credits)
 
@@ -118,20 +135,15 @@ them without the owner's OK. parlaytracker's own handover says the key should be
 
 ## Next steps
 
-**M4, same-game parlays.**
-- `core/parlay.py`: legs are `Bet`s, combined with `parlay_decimal`, using the same book when
-  possible. A pushed or voided leg drops out. Every card carries the GOALS §5 label.
-- `GET /api/parlay/{game}?legs=…`, at most 6 legs, added to the proxy allowlist.
-- Multi-leg parsing.
-- A parlay tray in the UI. Each leg is a light in the sky, and the gold shockwave fires only when
-  all are lit.
-
 **Smaller follow-ups found this session.**
-- Check the first-TD scorer and the longest rush and reception against the play-by-play (the
-  data is already loaded by `VerifyGames`; they are shown as "can't be verified" today).
-- Exact deciding plays are found only in the run that verifies a game; a game whose
-  play-by-play was late never gets them. A later run could fill them in.
-- The golden set's 3 misses are team nicknames ("Philly", "Birds") and "game total over".
+- Check the first-TD scorer against the play-by-play (it needs somewhere to record it: a
+  column on `games`). First-TD cards say "can't be verified" today.
+- Exact deciding plays (and the longest-play check) happen only in the run that verifies a
+  game; a game whose play-by-play was late never gets them. A later run could fill them in
+  (again, a column to remember it was done).
+- A share image for a parlay (the single-card one is `lib/shareImage.tsx`).
+- Parlay lines in the golden set; the set's 3 misses are team nicknames ("Philly", "Birds")
+  and "game total over".
 - Choose `LLM_MODEL` with `scripts/eval_lookup.py --model …` once there is a key.
 
 **M5, launch hardening.**
@@ -149,8 +161,9 @@ them without the owner's OK. parlaytracker's own handover says the key should be
 3. **A domain on Cloudflare**, then `SITE_URL` in `web/fly.toml` (share previews).
 4. **Turnstile:** a widget for the domain (site key and secret, `docs/deploy.md` step 5).
 5. **Optional:** an OpenRouter key and model for the LLM fallback.
-6. **Before public launch:** the live-stats licence decision, and legal review.
-7. **FYI:** GitHub reports the parlaytracker repository as **public**, while the old goals doc
+6. **A call to make:** may a parlay card show each leg's price? Today it doesn't (see above).
+7. **Before public launch:** the live-stats licence decision, and legal review.
+8. **FYI:** GitHub reports the parlaytracker repository as **public**, while the old goals doc
    said "still private". The owner was told on 2026-09-30.
 
 ## Gotchas
@@ -184,7 +197,7 @@ them without the owner's OK. parlaytracker's own handover says the key should be
 - **Layering the world:** `.world` is `z-index: -1` inside `.page`, which has
   `position: relative; z-index: 1`. Anything else puts the world on top of the text.
 - **Migrations:** 0001 was regenerated once, before any deploy; 0002 and 0003 were added this
-  session. From now on, add new migrations and never edit an existing one.
+  session (M4 needed none). From now on, add new migrations and never edit an existing one.
 - **The "live" seed moves times.** Its prices are real but shown as if captured at T-46. That
   is demo data, which is why `dev_seed.py` reads from `tests/` and the production image doesn't
   include it. Deciding plays and corrections in `juju_dev` survive a reseed: rebuild the
