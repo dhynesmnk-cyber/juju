@@ -3,6 +3,7 @@
 // for a few seconds. The backend itself has no public address (docs/licensing.md).
 import { type NextRequest, NextResponse } from "next/server";
 import { BACKEND_URL } from "@/lib/backend";
+import { CLEARED_SECONDS, COOKIE, passIsValid, signPass, verifyToken } from "@/lib/turnstile";
 
 const GET_PATHS = [/^live$/, /^status$/, /^suggest$/, /^player\/\d+\/\d+$/, /^team\/\d+\/\d+$/];
 const POST_PATHS = [/^lookup$/];
@@ -12,12 +13,14 @@ function clientId(req: NextRequest): string {
     ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 }
 
-async function forward(req: NextRequest, path: string, init: RequestInit): Promise<Response> {
+// Only these headers reach the backend, whatever the browser sent: the backend trusts them.
+async function forward(req: NextRequest, path: string, init: RequestInit,
+                       extra: Record<string, string> = {}): Promise<NextResponse> {
   const url = `${BACKEND_URL}/api/${path}${req.nextUrl.search}`;
   try {
     const r = await fetch(url, {
       ...init, cache: "no-store",
-      headers: { "content-type": "application/json", "x-juju-client": clientId(req) },
+      headers: { "content-type": "application/json", "x-juju-client": clientId(req), ...extra },
       signal: AbortSignal.timeout(8000),
     });
     const body = await r.text();
@@ -47,5 +50,28 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   if (!POST_PATHS.some((p) => p.test(path))) return NextResponse.json({}, { status: 404 });
   const text = await req.text();
   if (text.length > 1000) return NextResponse.json({}, { status: 413 });
-  return forward(req, path, { method: "POST", body: text });
+  // Lookups past the backend's threshold need a Turnstile check, when the site has a key.
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) return forward(req, path, { method: "POST", body: text });
+  const extra: Record<string, string> = { "x-juju-challenge": "turnstile" };
+  let pass: string | null = null;
+  if (passIsValid(secret, req.cookies.get(COOKIE)?.value, Date.now())) {
+    extra["x-juju-verified"] = "1";
+  } else if (req.headers.get("x-turnstile-token")) {
+    const verdict = await verifyToken(secret, req.headers.get("x-turnstile-token") ?? "",
+                                      clientId(req));
+    if (verdict === "fail") {
+      return NextResponse.json(
+        { detail: "That check didn't go through. Try it again.", challenge: "turnstile" },
+        { status: 403, headers: { "cache-control": "no-store" } });
+    }
+    extra["x-juju-verified"] = "1";
+    if (verdict === "pass") pass = signPass(secret, Date.now());
+  }
+  const res = await forward(req, path, { method: "POST", body: text }, extra);
+  if (pass) {
+    res.cookies.set(COOKIE, pass, { httpOnly: true, secure: true, sameSite: "lax",
+                                     path: "/api/lookup", maxAge: CLEARED_SECONDS });
+  }
+  return res;
 }

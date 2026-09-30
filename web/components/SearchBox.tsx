@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import TurnstileWidget, { TURNSTILE_SITE_KEY } from "@/components/TurnstileWidget";
 import { choiceHref, resultHref } from "@/lib/links";
 import type { Choice, Focus, LookupResponse } from "@/lib/types";
 
@@ -17,6 +18,8 @@ export default function SearchBox() {
   const [focus, setFocus] = useState<Partial<Focus> | undefined>();
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [challenged, setChallenged] = useState(false);
+  const asked = useRef("");  // the text a challenge interrupted, looked up once it passes
   const listId = useId();
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -39,24 +42,29 @@ export default function SearchBox() {
     return () => clearTimeout(timer.current);
   }, [text]);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (active >= 0 && suggestions[active]) {
-      router.push(choiceHref(suggestions[active]));
-      return;
-    }
-    const q = text.trim();
-    if (!q) return;
+  const lookup = useCallback(async (q: string, token?: string) => {
     setBusy(true);
     setMessage(null);
     setChoices([]);
     try {
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (token) headers["x-turnstile-token"] = token;
       const r = await fetch("/api/lookup", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: q }),
+        method: "POST", headers, body: JSON.stringify({ text: q }),
       });
       if (r.status === 429) {
         setMessage("That's a lot of lookups. Give it a minute.");
+        return;
+      }
+      if (r.status === 428 || r.status === 403) {
+        const body = await r.json().catch(() => ({}));
+        if (body.challenge === "turnstile" && TURNSTILE_SITE_KEY) {
+          asked.current = q;
+          setChallenged(true);
+          setMessage(body.detail ?? null);
+        } else {
+          setMessage("That's a lot of lookups. Give it a few minutes.");
+        }
         return;
       }
       if (!r.ok) {
@@ -77,6 +85,25 @@ export default function SearchBox() {
     } finally {
       setBusy(false);
     }
+  }, [router]);
+
+  const passed = useCallback((token: string) => {
+    setChallenged(false);
+    void lookup(asked.current, token);
+  }, [lookup]);
+  const checkFailed = useCallback(() => {
+    setChallenged(false);
+    setMessage("The check couldn't load. Try again in a minute, or pick from Live now.");
+  }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (active >= 0 && suggestions[active]) {
+      router.push(choiceHref(suggestions[active]));
+      return;
+    }
+    const q = text.trim();
+    if (q) await lookup(q);
   }
 
   function onKey(e: React.KeyboardEvent) {
@@ -137,6 +164,7 @@ export default function SearchBox() {
         </div>
       )}
       {message && <p className="hint" role="alert">{message}</p>}
+      {challenged && <TurnstileWidget onToken={passed} onError={checkFailed} />}
     </form>
   );
 }

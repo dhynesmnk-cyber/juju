@@ -34,6 +34,12 @@ log = logging.getLogger("juju.api")
 app = FastAPI(title="Juju internal API", docs_url=None, redoc_url=None, openapi_url=None)
 
 LOOKUPS_PER_MINUTE = 30
+# Past this many lookups in the window, a client is asked to pass Cloudflare Turnstile, when
+# the site has it configured (it says so with `x-juju-challenge`, and vouches for a person who
+# passed with `x-juju-verified`). The backend is private, so only the site sets these headers.
+CHALLENGE_AFTER = 12
+CHALLENGE_WINDOW_SECONDS = 15 * 60
+CHALLENGE_TEXT = "Quick check that you're a person, then Juju will look it up."
 LIVE_CACHE = "public, s-maxage=5, stale-while-revalidate=30"
 FINAL_CACHE = "public, s-maxage=300, stale-while-revalidate=3600"
 DISCLAIMER = ("Hypothetical: what a $10 bet at the archived price would have returned. "
@@ -62,11 +68,12 @@ def respond(data, cache: str | None = None) -> JSONResponse:
 
 
 class RateLimit:
-    """Per client, a sliding minute. In-process: fine for the one or two API machines; the
-    edge rules at Cloudflare are the first line (docs/deploy.md)."""
+    """Per client, a sliding window (a minute by default). In-process: fine for the one or two
+    API machines; the edge rules at Cloudflare are the first line (docs/deploy.md)."""
 
-    def __init__(self, per_minute: int):
+    def __init__(self, per_minute: int, window_seconds: float = 60):
         self.per_minute = per_minute
+        self.window = window_seconds
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
 
@@ -74,7 +81,7 @@ class RateLimit:
         now = time.monotonic()
         with self._lock:
             hits = self._hits[client]
-            while hits and now - hits[0] > 60:
+            while hits and now - hits[0] > self.window:
                 hits.popleft()
             if len(hits) >= self.per_minute:
                 return False
@@ -83,6 +90,7 @@ class RateLimit:
 
 
 _limit = RateLimit(LOOKUPS_PER_MINUTE)
+_challenge = RateLimit(CHALLENGE_AFTER, CHALLENGE_WINDOW_SECONDS)
 _llm: LlmReader | None = None
 _llm_lock = threading.Lock()
 
@@ -219,8 +227,14 @@ class LookupIn(BaseModel):
 
 @app.post("/api/lookup")
 def do_lookup(body: LookupIn, request: Request, session: SessionDep) -> JSONResponse:
-    if not _limit.allow(client_id(request)):
+    client = client_id(request)
+    if not _limit.allow(client):
         raise HTTPException(429, "Too many lookups. Try again in a minute.")
+    if (request.headers.get("x-juju-challenge") == "turnstile"
+            and request.headers.get("x-juju-verified") != "1"
+            and not _challenge.allow(client)):
+        return JSONResponse({"detail": CHALLENGE_TEXT, "challenge": "turnstile"}, 428,
+                            headers={"Cache-Control": "no-store"})
     started = time.monotonic()
     settings = get_settings()
     result = lookup.resolve(session, body.text, _utcnow(), llm_reader(settings))

@@ -52,10 +52,18 @@ juju-backend`, then `curl localhost:8000/health`) should show `"ok": true`.
    - The backend sends `s-maxage=5` while a game is live and `300` once it is final. A viral
      play then costs the backend about one request every 5 s per player, however many people
      look it up.
-3. **Rate-limit rule:** `POST /api/lookup`, 20 requests per 10 s per IP, then a managed
-   challenge. The API enforces its own limit of 30 a minute behind this.
+3. **Rate-limit rule:** `POST /api/lookup`, 60 requests per 10 s per IP, then **block** for
+   a minute. Not a managed challenge: lookups are a `fetch` from the search box, so a
+   challenge page would reach it as an error nobody can solve. People are checked in the page
+   instead (5). The API also allows at most 30 lookups a minute per person.
 4. **Bot Fight Mode:** on. Juju's terms forbid scraping (docs/licensing.md).
-5. **Turnstile:** optional at launch. The rate-limit challenge covers bursts.
+5. **Turnstile:** create a widget (managed mode) for the domain, then
+   `fly secrets set -a juju-web TURNSTILE_SECRET_KEY=...` and deploy the site with
+   `--build-arg NEXT_PUBLIC_TURNSTILE_SITE_KEY=<site key>`. After 12 lookups in 15 minutes,
+   the API asks for a check; the search box shows the widget and retries the lookup, and a
+   person who passes isn't asked again for an hour (a signed cookie). Without these keys
+   nothing is asked, and only the limits in (3) apply. If Cloudflare can't be reached to
+   verify a token, the lookup goes through rather than locking people out.
 
 ## The worlds' kill switch
 

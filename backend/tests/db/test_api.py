@@ -27,6 +27,8 @@ def client(db, monkeypatch):
     app_module.app.dependency_overrides[app_module.get_session] = session
     app_module._hot_written.clear()
     app_module._limit = app_module.RateLimit(app_module.LOOKUPS_PER_MINUTE)
+    app_module._challenge = app_module.RateLimit(app_module.CHALLENGE_AFTER,
+                                                 app_module.CHALLENGE_WINDOW_SECONDS)
     yield TestClient(app_module.app)
     app_module.app.dependency_overrides.clear()
     get_settings.cache_clear()
@@ -121,6 +123,23 @@ def test_lookups_are_rate_limited(client, db):
     app_module._limit = app_module.RateLimit(2)
     codes = [client.post("/api/lookup", json={"text": "Barkley"}).status_code for _ in range(3)]
     assert codes == [200, 200, 429]
+
+
+def test_past_the_threshold_the_site_is_asked_for_a_turnstile_check(client, db):
+    seed(db, "live")
+    app_module._challenge = app_module.RateLimit(2, 900)
+    site = {"x-juju-challenge": "turnstile"}
+    codes = [client.post("/api/lookup", json={"text": "Barkley"}, headers=site).status_code
+             for _ in range(3)]
+    assert codes == [200, 200, 428]
+    r = client.post("/api/lookup", json={"text": "Barkley"}, headers=site)
+    assert r.json()["challenge"] == "turnstile" and r.headers["cache-control"] == "no-store"
+    # A person who passed goes through, and isn't counted towards the next check.
+    verified = {**site, "x-juju-verified": "1"}
+    assert client.post("/api/lookup", json={"text": "Barkley"},
+                       headers=verified).status_code == 200
+    # Without Turnstile on the site nothing is asked: the per-minute limit still holds.
+    assert client.post("/api/lookup", json={"text": "Barkley"}).status_code == 200
 
 
 def test_suggest_prefers_players_in_play(client, db):

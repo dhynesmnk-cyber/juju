@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "e2e": "playwright test",
+    "test": "node --test lib/*.test.ts",
     "size": "node scripts/check-world-size.mjs"
   },
   "dependencies": {
