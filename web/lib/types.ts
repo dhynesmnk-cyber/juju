@@ -133,7 +133,7 @@ export interface LookupResponse {
   focus: Focus;
 }
 
-// A same-game parlay (M4). Derived values only: each leg's own price is on its card.
+// A same-game parlay (M4). Each leg's price is the one its own card shows, at the parlay's book.
 export interface ParlayLeg {
   key: string;
   kind: "player" | "team";
@@ -146,9 +146,7 @@ export interface ParlayLeg {
   outcome_text: string;
   current: string | null;
   needed: string | null;
-  book_name: string | null;
-  timing: "on_time" | "early" | null;
-  provenance: string | null;
+  price: Price | null;
   no_price: string | null;
 }
 

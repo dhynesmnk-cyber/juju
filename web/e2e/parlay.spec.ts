@@ -38,6 +38,9 @@ test("build a parlay from two cards: two lights lit, and it has cashed", async (
   const card = page.getByRole("article", { name: /^Parlay/ });
   await expect(card).toContainText("Cashed, if the play stands");
   await expect(card).toContainText("2 legs · DraftKings");
+  // Each leg's price is the one its own card shows, at the parlay's book.
+  await expect(card).toContainText("-112 at DraftKings");  // Barkley, over 73.5 rush yards
+  await expect(card).toContainText("-120 at DraftKings");  // Smith, over 5.5 receptions
   await expect(card).toContainText(/Books adjust same-game parlays for correlation/);
   await expect(card).toContainText("$10 →");
   // Each leg's own price is on its card, one tap away.

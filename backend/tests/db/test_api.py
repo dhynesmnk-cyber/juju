@@ -192,7 +192,8 @@ def test_live_lists_games_and_plays_without_prices(client, db):
 
 
 def test_there_is_no_endpoint_that_lists_prices_across_players(client):
-    # The parlay spans players but lists no price: tests/db/test_parlay.py holds it to that.
+    # The parlay spans players: only the legs someone picked, at one book, in one game
+    # (tests/db/test_parlay.py holds it to that).
     paths = {r.path for r in app_module.app.routes}
     assert paths == {"/health", "/api/status", "/api/live", "/api/suggest", "/api/lookup",
                      "/api/player/{game_id}/{athlete_id}", "/api/team/{game_id}/{team_id}",

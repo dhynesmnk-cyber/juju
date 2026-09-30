@@ -525,9 +525,9 @@ def team_view(session: Session, game: Game, team_espn_id: str, now: datetime,
 
 # --- Parlay (M4) ------------------------------------------------------------------------------
 #
-# A parlay card is derived values only: the combined payout, and per leg its bet, status, book
-# and provenance. Each leg's own price stays on that player's or team's card, so no response
-# lists prices across players (docs/licensing.md).
+# A parlay card shows each leg's price, at the parlay's book, in the same shape as a single
+# card's: the owner allowed it on 2026-09-30 (docs/licensing.md). It is the one response that
+# spans players, and only the 2 to 6 legs someone picked, in one game.
 
 
 @dataclass
@@ -543,9 +543,7 @@ class LegView:
     outcome_text: str
     current: Decimal | None
     needed: Decimal | None
-    book_name: str | None
-    timing: str | None
-    provenance: str | None
+    price: dict | None   # as on a single card: american, book, point, when, provenance
     no_price: str | None
 
 
@@ -625,9 +623,7 @@ def parlay_view(session: Session, game: Game, legs: Sequence[parlay.LegKey], now
                           else OUTCOME_TEXT[outcome.outcome]),
             current=outcome.current,
             needed=outcome.needed,
-            book_name=BOOK_NAMES.get(quote.offer.book, quote.offer.book) if quote else None,
-            timing=quote.timing.value if quote else None,
-            provenance=quote.offer.payload_sha256[:12] if quote else None,
+            price=_price_dict(quote) if quote else None,
             no_price=None if quote else NO_PRICE_TEXT[b.sel.reason or NoPrice.NOT_LISTED]))
 
     result = parlay.parlay_outcome([o for o, _ in decided])
