@@ -1,11 +1,13 @@
 """The markets Juju captures and prices: The Odds API's key, what the bet is, the stat that
 decides it, and which kinds of play touch it (docs/GOALS.md sections 4, 5 and 7).
 
-Keys are from https://the-odds-api.com/sports-odds-data/betting-markets.html (2026-09-30).
-The main game keys and the player keys marked VERIFIED were checked against a real game by
-parlaytracker; the rest are verified by the first real capture. A wrong key makes the vendor
-reject the whole request (422), so `ingest/odds_api.py` finds and drops an unknown key rather
-than losing the capture.
+Keys are from https://the-odds-api.com/sports-odds-data/betting-markets.html. On 2026-09-30 one
+real call for PIT @ CLE with all 34 keys and all 10 books was accepted with no 422 (29 markets
+came back, 29 credits; tests/fixtures/odds_api/nfl_event_odds_2026-10-01_PIT-CLE_all_markets.json).
+Not offered for that game, so still unseen: player_rush_tds, player_reception_tds, player_sacks,
+player_tackles_assists, player_defensive_interceptions. A rejected key is found and dropped by
+`ingest/odds_api.py` and the capture jobs, so the rest of a capture never depends on one key.
+TD-scorer markets come back as "Yes" only, with no line; `player_tds_over` as "Over" only.
 """
 import enum
 from dataclasses import dataclass

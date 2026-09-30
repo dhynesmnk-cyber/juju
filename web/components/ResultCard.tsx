@@ -1,3 +1,6 @@
+import CountUp from "@/components/CountUp";
+import Jujus from "@/components/world/Jujus";
+import type { Mood } from "@/components/world/worlds";
 import { american, localAndEt } from "@/lib/format";
 import type { Card, Outcome } from "@/lib/types";
 
@@ -19,19 +22,25 @@ function progress(card: Card): string | null {
   return `${now} so far.`;
 }
 
-export default function ResultCard({ card, changed }: { card: Card; changed?: boolean }) {
+export default function ResultCard({ card, changed, crew, countUp, id }: {
+  card: Card; changed?: boolean; crew?: Mood; countUp?: boolean; id?: string;
+}) {
   const [tone, icon] = TONE[card.outcome];
   const p = card.price;
   const detail = progress(card);
-  return (
-    <article className={`card${card.touched ? " touched" : ""}${changed ? " changed" : ""}`}
+  const cashed = card.outcome === "locked" || card.outcome === "won";
+  const article = (
+    <article id={id}
+             className={`card${card.touched ? " touched" : ""}${changed ? " changed" : ""}${cashed ? " cashed" : ""}`}
              aria-label={`${card.label}: ${card.outcome_text}`}>
       <div className="label">{card.label}</div>
       <div className="bet">{card.bet}</div>
       <span className={`status-chip ${tone}`}>
         <span aria-hidden="true">{icon}</span> {card.outcome_text}
       </span>
-      <div className="headline">{card.headline}</div>
+      <div className="headline">
+        {cashed && card.returns ? <CountUp to={card.returns} run={!!countUp} /> : card.headline}
+      </div>
       {detail && <div className="detail">{detail}</div>}
       {p ? (
         <div className="detail">
@@ -64,5 +73,12 @@ export default function ResultCard({ card, changed }: { card: Card; changed?: bo
       )}
       {p && <div className="others">Source record {p.provenance}</div>}
     </article>
+  );
+  if (!crew) return article;
+  return (
+    <div className="cardwrap">
+      <Jujus mood={crew} />
+      {article}
+    </div>
   );
 }

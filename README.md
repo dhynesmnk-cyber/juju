@@ -6,4 +6,5 @@ have paid. The prices are real archived ones, never invented. Juju is not a spor
 - [docs/GOALS.md](docs/GOALS.md): the product, the decisions, and why.
 - [docs/licensing.md](docs/licensing.md): which data we rely on, and on what terms.
 - [docs/deploy.md](docs/deploy.md): running it on Fly.io behind Cloudflare.
+- [HANDOVER.md](HANDOVER.md): where the build stands, what's next, and gotchas.
 - [CLAUDE.md](CLAUDE.md): commands and rules for contributors, including coding agents.
