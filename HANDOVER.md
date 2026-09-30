@@ -9,8 +9,8 @@ where the build stands and what to do next. Update it before you finish a sessio
 
 | | |
 |---|---|
-| Branch | `main` has M0–M4: PR #1 merged M0–M2, and PR #2 merged M3 and M4 (its head `c836382`, merged as `991b306`). Two commits were pushed to `claude/happy-galileo-p7ify3` **after** PR #2 merged, so they are **not in `main`**: see "First thing to do". No PR is open |
-| CI | Green on `main` at `991b306`, and on both unmerged commits. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys) |
+| Branch | `main` has M0–M4: PR #1 merged M0–M2, and PR #2 merged M3 and M4 (its head `c836382`, merged as `991b306`). Two commits reached `claude/happy-galileo-p7ify3` **after** PR #2 merged, so they missed `main`. `claude/eager-galileo-olocx1` brings them in: the parlay leg prices (`00befec`, cherry-picked) and this file (what was right in `a133cd3`). Its PR is open |
+| CI | Green on `main` at `991b306`. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys) |
 | Tests | 1,154 backend tests (re-run on `main` on 2026-09-30), 3 web unit tests (`node --test`), 17 Playwright tests |
 | Deployed | **No.** The Fly.io config and runbook exist (`docs/deploy.md`); the owner has not created the apps yet |
 | Real data | No real capture has run. The archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
@@ -18,15 +18,9 @@ where the build stands and what to do next. Update it before you finish a sessio
 
 ## First thing to do
 
-1. **Land the parlay leg prices, or drop them.** Commit `00befec` on `claude/happy-galileo-p7ify3`
-   ("Show each leg's price on parlay cards (owner's decision, 2026-09-30)") gives each parlay
-   leg its price at the parlay's book, and makes that the one exception to "no prices across
-   players" in CLAUDE.md, `docs/licensing.md` and GOALS. It was pushed 9 minutes after PR #2
-   merged, so `main` still shows no leg price. Its message records the owner's decision; since
-   it changes a licensing rule, confirm with the owner, then cherry-pick it onto a branch from
-   `main` and open a PR. Fix one thing on the way: it adds a GOALS decision numbered 9, and
-   "The look" is already 9. The other stranded commit, `a133cd3`, rewrote this file; what in
-   it was right has been folded in here.
+1. **Look at the PR for `claude/eager-galileo-olocx1`** (the parlay leg prices and this file).
+   If it is merged, start from the latest `main`. If it is still open, fix any red CI or review
+   comments on it first.
 2. **Set up the environment** (below), and run the tests before changing anything.
 3. **Pick from "Next steps"** in order, unless the owner asks for something else. A merged PR
    is finished: start each new piece of work from the latest `main`, and give it a new PR.
@@ -97,8 +91,7 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
     428 Turnstile challenge when the site has Turnstile on. `GET /api/parlay/{game}?legs=`
     takes 2 to 6 legs;
   - `views.py`: cards with `verified`, `decided_by` and specific correction notes; and
-    `parlay_view` (M4), which prices legs exactly like single cards and returns derived values
-    only (no leg's price, until `00befec` lands);
+    `parlay_view` (M4), which prices legs exactly like single cards and shows each leg's price;
   - `lookup.py`: which player or team a lookup means; reads the play from the named player's
     side (a defender's interception is his); several certain bets in one line are a parlay.
 - `cli.py`: `backfill`, `unmapped`, `verify` (runs the nflverse check now), `seed live|final`.
@@ -114,8 +107,9 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   with the Jujus (`lib/shareImage.tsx`, next/og). Pages emit Open Graph tags for it.
 - `components/`: `ResultCard` (Verified chip, deciding play, Share and Add to parlay),
   `ResultView`, `ParlayTray` (per game, in the viewer's browser: `lib/parlayTray.ts`),
-  `ParlayView` (a light in the sky per leg; gold only when all are lit), `SearchBox` (shows
-  `TurnstileWidget` only when challenged), `world/` (option A: shader, Jujus).
+  `ParlayView` (a light in the sky per leg, each leg's price; gold only when all are lit),
+  `SearchBox` (shows `TurnstileWidget` only when challenged), `world/` (option A: shader,
+  Jujus).
 
 **Docs**: `docs/GOALS.md` (v2: decisions, milestones), `docs/licensing.md`, `docs/deploy.md`
 (Fly, Cloudflare including Turnstile and the share-image cache, the worlds kill switch, the
@@ -136,9 +130,10 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
 8. **Look:** option A, a shader world that follows the bet's state, plus the Jujus. The owner
    chose it from the mockup at https://claude.ai/artifact/E1syoBM4LP14DMPjKiLy73, which is
    private to them.
-
-Pending in `main`: **parlay leg prices shown**, the one exception to 7 (see "First thing to
-do"). Recorded as the owner's call in `00befec`, which is not merged.
+9. **Parlay leg prices are shown** (2026-09-30, GOALS decision 10): the one exception to 7. A
+   parlay card lists each leg's price at the parlay's book, exactly as that leg's own card
+   shows it, and only for the 2 to 6 legs someone picked, in one game; never the other books.
+   `tests/db/test_parlay.py` holds it to that.
 
 ## Decisions made by agents (reasons in the commits; change only with a reason)
 
@@ -153,8 +148,6 @@ do"). Recorded as the owner's call in `00befec`, which is not merged.
   solved from a `fetch`; Turnstile runs in the page instead. (GOALS §3 and `docs/licensing.md`
   still say "Turnstile runs at Cloudflare": the widget is Cloudflare's, but the check is in
   the site's proxy.)
-- **A parlay card lists no leg's price** in `main` (`tests/db/test_parlay.py` enforces it).
-  `00befec` replaces this with the owner's decision above.
 - **A parlay is priced at one book** when a book in the chain priced every leg (on-time first);
   otherwise each leg keeps its book and the card says so. Every parlay carries the GOALS §5
   correlation note.
@@ -219,8 +212,7 @@ pages and of state exposure; then a soft launch.
 
 ## Needs the owner
 
-1. **Parlay leg prices:** confirm the decision recorded in `00befec`, then merge the PR that
-   lands it.
+1. **Merge the PR for `claude/eager-galileo-olocx1`** (the parlay leg prices and this file).
 2. A **Juju-only Odds API key on the 100K plan** ($59/mo), set as a Fly secret. Real captures
    and historical repair need it: historical data is paid-only.
 3. **Fly.io:** create the apps, or give a deploy token. Then follow `docs/deploy.md`.
