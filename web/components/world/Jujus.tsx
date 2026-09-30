@@ -52,6 +52,21 @@ export function jujuSvg(kind: "pip" | "bo" | "tuft", mood: Mood): string {
     <g class="prop pennant"><path d="M50 18 v34" stroke="#d8def0" stroke-width="2"/><path d="M50 18 l16 5 l-16 5 z" fill="#ffc53d"/><text x="52" y="26" font-size="6" font-weight="700" fill="#1a1200">J</text></g>`;
 }
 
+// Which prop each mood shows (globals.css does the same with opacity).
+const PROP: Partial<Record<Mood, string>> = {
+  cheer: "pennant", look: "binos", joy: "confetti", content: "trophy", sad: "umbrella",
+  fix: "wrench",
+};
+const VIEWBOX = { pip: "0 0 60 70", bo: "0 0 44 70", tuft: "0 0 60 70" } as const;
+
+/** A standalone, still SVG document for places with no CSS (the share image): only the
+ *  mood's own prop is kept. Props hold no nested groups, so a lazy match is exact. */
+export function stillJujuSvg(kind: "pip" | "bo" | "tuft", mood: Mood): string {
+  const inner = jujuSvg(kind, mood).replace(
+    /<g class="prop (\w+)">[\s\S]*?<\/g>/g, (group, name) => (name === PROP[mood] ? group : ""));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${VIEWBOX[kind]}">${inner}</svg>`;
+}
+
 export default function Jujus({ mood }: { mood: Mood }) {
   // The markup is built from the constants above only, never from data.
   return (

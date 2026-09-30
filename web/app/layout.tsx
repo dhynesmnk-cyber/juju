@@ -11,6 +11,8 @@ const display = Big_Shoulders({
 });
 
 export const metadata: Metadata = {
+  // Share previews need absolute image URLs: SITE_URL is the public address (docs/deploy.md).
+  metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
   title: "Juju: what would $10 have paid?",
   description:
     "Tap or type a recent NFL play and see what a $10 bet placed 45 minutes before kickoff " +

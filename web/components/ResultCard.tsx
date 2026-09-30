@@ -1,4 +1,5 @@
 import CountUp from "@/components/CountUp";
+import ShareButton from "@/components/ShareButton";
 import Jujus from "@/components/world/Jujus";
 import type { Mood } from "@/components/world/worlds";
 import { american, localAndEt, quarter } from "@/lib/format";
@@ -29,8 +30,8 @@ function progress(card: Card): string | null {
   return `${now} so far.`;
 }
 
-export default function ResultCard({ card, changed, crew, countUp, id }: {
-  card: Card; changed?: boolean; crew?: Mood; countUp?: boolean; id?: string;
+export default function ResultCard({ card, changed, crew, countUp, id, sharePath }: {
+  card: Card; changed?: boolean; crew?: Mood; countUp?: boolean; id?: string; sharePath?: string;
 }) {
   const [tone, icon] = TONE[card.outcome];
   const p = card.price;
@@ -85,6 +86,9 @@ export default function ResultCard({ card, changed, crew, countUp, id }: {
         <ul className="notes">{card.notes.map((n) => <li key={n}>{n}</li>)}</ul>
       )}
       {p && <div className="others">Source record {p.provenance}</div>}
+      {p && sharePath && (
+        <ShareButton path={sharePath} text={`${card.bet}: ${card.headline} (hypothetical)`} />
+      )}
     </article>
   );
   if (!crew) return article;

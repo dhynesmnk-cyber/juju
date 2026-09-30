@@ -34,6 +34,8 @@ fly ips list -a juju-backend      # must list no public address; release any wit
 
 cd ../web && fly deploy
 fly certs add <your domain> -a juju-web
+# Then set SITE_URL in web/fly.toml to https://<your domain> and deploy again, so link
+# previews (the share images) point at the domain.
 ```
 
 About a minute after the worker starts, `/health` on the API (`fly ssh console -a
@@ -44,7 +46,8 @@ juju-backend`, then `curl localhost:8000/health`) should show `"ok": true`.
 1. **DNS:** add the domain, and a proxied (orange-cloud) CNAME to `juju-web.fly.dev`.
    Set SSL/TLS to **Full (strict)**.
 2. **Cache rule:**
-   - Applies to `/api/player/*`, `/api/team/*`, `/api/live` and `/api/suggest`.
+   - Applies to `/api/player/*`, `/api/team/*`, `/api/live`, `/api/suggest` and the share
+     images, `/g/*/image` (a settled card's image is cached for a day, a live one for 30 s).
    - Set "Eligible for cache", with the edge TTL respecting the origin.
    - The backend sends `s-maxage=5` while a game is live and `300` once it is final. A viral
      play then costs the backend about one request every 5 s per player, however many people

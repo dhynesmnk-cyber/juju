@@ -214,7 +214,7 @@ Rules:
 | M0 | Docs, backend skeleton, ported modules and tests, CI | this branch |
 | M1 | Archive (capture, repair, backfill), lookup engine, internal API | this branch |
 | M2 | Live overlay, deterministic parse and LLM fallback, Next.js UI, deploy config | this branch |
-| M3 | Worlds and the Jujus, nflverse verification and corrections, the play that decided it, lookup golden set (done); share images, production abuse caps | in progress |
+| M3 | Worlds and the Jujus, nflverse verification and corrections, the play that decided it, lookup golden set, share images (done); production abuse caps | in progress |
 | M4 | Same-game parlays | next |
 | M5 | Launch hardening: licensed live stats, load test, alerting, restore drill, legal review of state exposure | before launch |
 

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ResultCard from "@/components/ResultCard";
 import WorldStage from "@/components/world/WorldStage";
 import { MOOD, worldFor } from "@/components/world/worlds";
@@ -24,8 +24,25 @@ function isDone(v: View): boolean {
   return v.game.status === "final" && v.cards.every((c) => SETTLED.has(c.outcome) || c.price === null);
 }
 
+/** The shared card (`?card=`) first, then the rest in the backend's order. */
+function pinned(v: View, key?: string): View {
+  const i = key ? v.cards.findIndex((c) => c.key === key) : -1;
+  if (i <= 0) return v;
+  return { ...v, cards: [v.cards[i], ...v.cards.slice(0, i), ...v.cards.slice(i + 1)] } as View;
+}
+
+/** A card's own link: this page with the card first (and its line, for a ladder). */
+export function sharePath(pagePath: string, card: Card): string {
+  const q = new URLSearchParams({ card: card.key });
+  if (card.alternate && card.line) q.set("threshold", card.line);
+  return `${pagePath}?${q}`;
+}
+
 /** Shows the price straight away and keeps the status current: every 10 s until settled. */
-export default function ResultView({ initial, apiPath }: { initial: View; apiPath: string }) {
+export default function ResultView({ initial: fromServer, apiPath, pagePath, pin }: {
+  initial: View; apiPath: string; pagePath: string; pin?: string;
+}) {
+  const initial = useMemo(() => pinned(fromServer, pin), [fromServer, pin]);
   const [view, setView] = useState<View>(initial);
   const [changed, setChanged] = useState<Set<string>>(new Set());
   const [offline, setOffline] = useState(false);
@@ -53,7 +70,7 @@ export default function ResultView({ initial, apiPath }: { initial: View; apiPat
       try {
         const r = await fetch(apiPath);
         if (!r.ok) throw new Error();
-        const next: View = await r.json();
+        const next: View = pinned(await r.json(), pin);
         const moved = new Set(next.cards.filter(
           (c) => previous.current.get(c.key) !== c.outcome).map((c) => c.key));
         const top = next.cards[0];
@@ -71,7 +88,7 @@ export default function ResultView({ initial, apiPath }: { initial: View; apiPat
       }
     }, waitingNow ? 5_000 : 10_000);  // faster while the feed is catching up
     return () => clearInterval(t);
-  }, [apiPath, view, waitingNow]);
+  }, [apiPath, view, waitingNow, pin]);
 
   const { name, sub } = title(view);
   const g = view.game;
@@ -113,7 +130,7 @@ export default function ResultView({ initial, apiPath }: { initial: View; apiPat
           <ResultCard key={c.key} card={c} changed={changed.has(c.key)}
                       id={i === 0 ? "first-card" : undefined}
                       crew={i === 0 ? MOOD[world] : undefined}
-                      countUp={i === 0 && countFirst} />
+                      countUp={i === 0 && countFirst} sharePath={sharePath(pagePath, c)} />
         ))}
       </div>
       <p className="hint hypo">{view.disclaimer}</p>
