@@ -194,3 +194,26 @@ def exact_plays(session: Session, game: Game, plays: Sequence[dict[str, str]],
                   clock=_pbp_clock(row["time"]), text=_desc(row["desc"]))
             found += 1
     return found
+
+
+def check_longest(session: Session, game: Game, plays: Sequence[dict[str, str]],
+                  gsis_of: Callable[[str], str | None], now: datetime) -> int:
+    """The longest rush and catch aren't in nflverse's weekly stats, but the play-by-play has
+    every play. Where it gives the feed's number, that number is verified. Where it doesn't,
+    the feed's number stays, unverified: a longest play worked out from the play-by-play is
+    derived, not an official column, so it never corrects anything. Returns how many."""
+    if not plays:
+        return 0
+    verified = 0
+    for row in session.scalars(select(LiveStat).where(
+            LiveStat.game_id == game.id, LiveStat.stat.in_(MAX_STATS))):
+        gsis = gsis_of(row.espn_athlete_id)
+        if gsis is None:
+            continue
+        if total([play_value(p, gsis, row.stat) for p in plays], row.stat) == row.value:
+            row.verified_at = now
+            verified += 1
+        else:
+            log.info("%s: %s %s is %s in the feed but not in the play-by-play", game.label,
+                     row.espn_athlete_id, row.stat, row.value)
+    return verified

@@ -12,8 +12,8 @@ payout can be re-opened and re-labelled if the official stat changes", GOALS v1 
 The one exception is the final score: if nflverse's differs, nflverse or the match is wrong, so
 nothing is applied and the reason goes to `games.last_error`.
 
-Games verified in a run then get their exact deciding plays from the play-by-play
-(`worker/deciding.py`).
+Games verified in a run then get their exact deciding plays from the play-by-play, which also
+confirms the longest rush and catch (`worker/deciding.py`).
 """
 import logging
 from collections import defaultdict
@@ -98,6 +98,7 @@ class VerifyGames:
                 for game_id, game in by_id.items():
                     out.plays += deciding.exact_plays(session, game, plays[game_id],
                                                       data.gsis_id, now)
+                    deciding.check_longest(session, game, plays[game_id], data.gsis_id, now)
                     session.commit()
         except (NflverseError, ProviderOpen) as e:
             session.rollback()

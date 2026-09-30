@@ -17,11 +17,11 @@ from juju.core.models import Game, LiveStat, StatCorrection
 from juju.dev_seed import RECORDED_KICKOFF, seed_phi_chi_scenario
 from juju.ingest import espn
 from juju.ingest.http import FetchError
-from juju.ingest.nflverse import CHECKED_STATS, NflverseData
+from juju.ingest.nflverse import CHECKED_STATS, MAX_STATS, NflverseData
 from juju.ingest.router import Breakers
 from juju.worker.live import write_box
 from juju.worker.verify import VerifyGames
-from tests.support import FIXTURES, SMITH, load, nflverse_loader
+from tests.support import BARKLEY, FIXTURES, SMITH, load, nflverse_loader
 
 pytestmark = pytest.mark.db
 
@@ -76,9 +76,11 @@ def test_the_recorded_game_verifies_against_nflverse(db):
         assert game.verified_at == NEXT_MORNING and game.last_error is None
         rows = s.scalars(select(LiveStat).where(LiveStat.game_id == game_id)).all()
         espn_rows = [r for r in rows if r.source is not DataSource.NFLVERSE]
-        # Every ESPN value nflverse covers agreed; the longest plays aren't covered.
-        assert all(r.verified_at == NEXT_MORNING for r in espn_rows if r.stat in CHECKED_STATS)
-        assert all(r.verified_at is None for r in espn_rows if r.stat not in CHECKED_STATS)
+        # Every ESPN value nflverse covers agreed, the longest plays through the play-by-play.
+        assert all(r.verified_at == NEXT_MORNING for r in espn_rows
+                   if r.stat in CHECKED_STATS | MAX_STATS)
+        assert all(r.verified_at is None for r in espn_rows
+                   if r.stat not in CHECKED_STATS | MAX_STATS)
         corrections = s.scalars(select(StatCorrection)).all()
         assert {c.old_value for c in corrections} == {None}
         assert {c.new_value for c in corrections} == {D(0)}
@@ -219,6 +221,25 @@ def test_a_failed_download_stops_the_run_and_changes_nothing(db):
         assert s.get(Game, game_id).verified_at is None
 
 
+def test_the_longest_plays_are_confirmed_by_the_play_by_play_never_corrected(db):
+    game_id = seeded(db)
+    set_stat(db, game_id, SMITH, Stat.LONGEST_RECEPTION, D(31))  # the feed says 31; it was 30
+    run(db)
+    with Session(db) as s:
+        smith = s.get(LiveStat, (game_id, SMITH, Stat.LONGEST_RECEPTION))
+        assert (smith.value, smith.verified_at, smith.source) == (31, None, DataSource.ESPN_WEB)
+        barkley = s.get(LiveStat, (game_id, BARKLEY, Stat.LONGEST_RUSH))
+        assert barkley.verified_at == NEXT_MORNING
+        assert s.scalar(select(func.count()).select_from(StatCorrection).where(
+            StatCorrection.stat == Stat.LONGEST_RECEPTION)) == 0
+        game = s.get(Game, game_id)
+        rows = {r.stat: r for r in s.scalars(select(LiveStat).where(
+            LiveStat.game_id == game_id, LiveStat.espn_athlete_id == SMITH))}
+        check = player_check(BY_KEY["player_reception_longest"], game, rows, [])
+        assert check_notes(check, game, Outcome.WON) == (False, [
+            "The official stats don't confirm this number, so it isn't verified."])
+
+
 def test_notes_for_a_stat_the_official_stats_do_not_have(db):
     game_id = seeded(db)
     run(db)
@@ -226,8 +247,8 @@ def test_notes_for_a_stat_the_official_stats_do_not_have(db):
         game = s.get(Game, game_id)
         rows = {r.stat: r for r in s.scalars(select(LiveStat).where(
             LiveStat.game_id == game_id, LiveStat.espn_athlete_id == SMITH))}
-        check = player_check(BY_KEY["player_reception_longest"], game, rows, [])
-        assert check == Check(checkable=False)
+        check = player_check(BY_KEY["player_pass_longest_completion"], game, rows, [])
+        assert check == Check(checkable=False)  # no stat for it at all
         assert check_notes(check, game, Outcome.WON) == (
             False, ["The official stats don't include this stat, so it can't be verified."])
         assert player_check(BY_KEY["player_1st_td"], game, rows, []).checkable is False

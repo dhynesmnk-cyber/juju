@@ -21,7 +21,7 @@ from juju.core.models import (
     DecidingPlay, Game, LiveStat, OddsSnapshot, Play, Player, Price, StatCorrection,
 )
 from juju.core.t45 import Listing, NoPrice, Offer, Quote, Selection, select as select_price
-from juju.ingest.nflverse import CHECKED_STATS
+from juju.ingest.nflverse import CHECKED_STATS, MAX_STATS
 
 BOOK_NAMES = {
     "hardrockbet": "Hard Rock Bet", "draftkings": "DraftKings", "fanduel": "FanDuel",
@@ -303,15 +303,15 @@ def check_notes(check: Check, game: Game, outcome: Outcome) -> tuple[bool, list[
     elif game.verified_at is None:
         notes.append("Awaiting verification against the official stats.")
     else:
-        notes.append("Not in the official stats, so it can't be verified.")
+        notes.append("The official stats don't confirm this number, so it isn't verified.")
     return check.verified, notes
 
 
 def player_check(market: Market, game: Game, rows: dict[Stat, LiveStat],
                  corrections: Sequence[StatCorrection]) -> Check:
     stat = market.stat
-    if stat is None or market.first_td or stat not in CHECKED_STATS:
-        return UNCHECKED
+    if stat is None or market.first_td or stat not in CHECKED_STATS | MAX_STATS:
+        return UNCHECKED  # the longest plays are checked against the play-by-play
     mine = tuple(c for c in corrections if c.stat is stat)
     if not rows:  # no stat line: confirmed once nflverse, checked, had none either
         return Check(True, game.verified_at is not None, mine)
