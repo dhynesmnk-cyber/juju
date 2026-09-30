@@ -1,0 +1,26 @@
+# The public site. Cloudflare sits in front of it (docs/deploy.md). It reaches the backend over
+# Fly's private network; the backend itself has no public address.
+app = "juju-web"
+primary_region = "iad"
+
+[build]
+
+[env]
+  BACKEND_URL = "http://api.process.juju-backend.internal:8000"  # the api process group only
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "off"   # no cold starts: a lookup 30 s after a play can't wait for one
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval = "30s"
+    method = "GET"
+    path = "/about"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
