@@ -29,23 +29,28 @@ def test_a_parlay_that_won_pays_the_product_of_its_legs_at_one_book(client, db):
     view = r.json()
     assert view["outcome"] == "won" and view["book_name"] == "DraftKings"
     assert [leg["outcome"] for leg in view["legs"]] == ["won", "won", "won"]
-    assert {leg["book_name"] for leg in view["legs"]} == {"DraftKings"}
+    assert {leg["price"]["book_name"] for leg in view["legs"]} == {"DraftKings"}
     # The same prices the single cards show, multiplied: nothing new is invented.
     singles = [card(client.get(f"/api/player/{game}/{SMITH}").json(), "player_receptions"),
                card(client.get(f"/api/player/{game}/{BARKLEY}").json(), "player_rush_yds"),
                card(client.get(f"/api/team/{game}/{CHI}").json(), "spreads")]
     assert all(s["price"]["book_name"] == "DraftKings" for s in singles)
+    for leg, single in zip(view["legs"], singles, strict=True):
+        assert leg["price"] == single["price"]  # the very same row, snapshot and provenance
     expected = payout(D(10), parlay_decimal(s["price"]["american"] for s in singles))
     assert D(view["returns"]) == expected and view["headline"] == f"$10 → ${expected}"
     assert view["notes"][0] == SGP_NOTE and view["legs_counted"] == 3
     assert view["disclaimer"].startswith("Hypothetical")
 
 
-def test_no_leg_price_is_listed(client, db):  # noqa: F811
-    """docs/licensing.md: a parlay shows derived values only; each price stays on its card."""
+def test_a_parlay_lists_only_its_own_legs_prices(client, db):  # noqa: F811
+    """docs/licensing.md: each leg shows its price at the parlay's book (the owner's call,
+    2026-09-30), and nothing more: no other books, no legs nobody picked."""
     game = seed(db, "final")
     view = client.get(f"/api/parlay/{game}", params={"legs": WINNERS}).json()
-    assert not keys_in(view) & {"american", "price", "prices", "others", "point"}
+    assert [leg["key"] for leg in view["legs"]] == WINNERS.split(",")
+    assert all(leg["price"]["american"] for leg in view["legs"])
+    assert not keys_in(view) & {"others", "prices"}
 
 
 def test_one_lost_leg_loses_it(client, db):  # noqa: F811

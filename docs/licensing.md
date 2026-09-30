@@ -25,9 +25,11 @@ its "last updated" date changes.
     (`web/app/api/[...path]/route.ts`, which forwards an allowlist of UI endpoints).
   - No endpoint lists prices across players or games, and none exports raw data.
   - Every response is one player's or one team's computed cards (payout, fair value, status).
-  - A same-game parlay (M4) spans players, so it carries derived values only: the combined
-    payout, and per leg its bet, status, book and provenance. Each leg's own price stays on
-    that player's or team's card. `tests/db/test_parlay.py` checks that no price is listed.
+  - A same-game parlay (M4) is the one response that spans players. It shows each leg's price
+    at the parlay's book, exactly as that leg's own card shows it, and nothing more: only the 2
+    to 6 legs the person picked, in one game, never the other books' prices. The owner decided
+    this on 2026-09-30; it is display in a UI, which the terms permit, not a feed.
+    `tests/db/test_parlay.py` holds the parlay to it.
   - Rate limits and Turnstile run at Cloudflare, and Juju's terms forbid scraping.
   - The footer credits The Odds API, which is appreciated but not required.
 

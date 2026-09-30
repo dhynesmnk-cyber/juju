@@ -30,6 +30,7 @@ a tool for looking back at prices.
 | 7 | Hosting (2026-09-30) | **Fly.io** (`iad`) for the site, API, worker and Postgres, with **Cloudflare** in front. |
 | 8 | Odds vendor | **The Odds API**. Its terms allow Juju's use (§3). |
 | 9 | The look (2026-09-30) | **Worlds that follow the bet's state**, drawn by one WebGL shader (option A, 7 KB gzipped). Three original characters, the **Jujus** (Pip, Bo and Tuft), sit on the first card and react. The price always renders first; see §7.9. |
+| 10 | Parlay leg prices (2026-09-30) | **Shown.** A same-game parlay card lists each leg's price at the parlay's book, the one exception to "no prices across players" (§3). |
 
 ## 3. Licensing: a design rule, not a blocker
 
@@ -46,7 +47,8 @@ Juju sells the software layer, never the feed. These rules are built into the ar
 1. The FastAPI backend has **no public address**. Only the Next.js site is public, and it reaches
    the backend over Fly's private network.
 2. There are no list, bulk or export endpoints and no odds boards. A response is the computed cards
-   for **one** player or team, or a UI list with no prices in it.
+   for **one** player or team, or a UI list with no prices in it. The one exception (decision 10)
+   is a same-game parlay: the 2 to 6 legs someone picked, each at the parlay's book.
 3. Rate limits and Turnstile run at Cloudflare, and Juju's own terms forbid scraping.
 4. The historical endpoints fall under the same terms, so they are used for gap repair and backfill.
 
