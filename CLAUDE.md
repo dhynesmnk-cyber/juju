@@ -14,6 +14,7 @@ HANDOVER.md before you finish a session.
   - `api/`: internal HTTP, reached only through `web/`.
 - `web/`: Next.js, the only public surface. It proxies `/api/*` to the backend.
 - `docs/`: GOALS, licensing record, deploy runbook.
+- `deploy/laptop/`: the private preview on the owner's own machine (the `deploy-laptop` skill).
 
 ## Commands
 

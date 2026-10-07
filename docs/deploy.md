@@ -12,6 +12,12 @@ Juju runs as two Fly apps and one managed Postgres, with Cloudflare in front of 
 `juju-web` reaches the API at `api.process.juju-backend.internal:8000`, which resolves to the
 `api` process group only.
 
+Before launch, a private preview can run on a machine the owner has: see
+`deploy/laptop/README.md`. That is the same stack in Docker Compose, put online through Tailscale
+Funnel behind a shared passcode (`SITE_PASSCODE`, `web/proxy.ts`). The passcode gate works on
+Fly too: set `SITE_PASSCODE` as a `juju-web` secret, and let the `/about` health check accept a
+401 (the passcode form), or Fly will mark the site unhealthy.
+
 ## One-time setup
 
 The owner does this, or a session that has been given a `FLY_API_TOKEN`.

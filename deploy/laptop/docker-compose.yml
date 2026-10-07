@@ -1,0 +1,89 @@
+# Juju on one machine you own (deploy/laptop/README.md), for a private preview. Run it through
+# ./up.sh, which writes .env and checks every step; see .claude/skills/deploy-laptop/SKILL.md.
+#
+# Only the site is published, and only on 127.0.0.1:3000, for Tailscale Funnel to put online.
+# The API and Postgres have no published port: the site reaches the API on the compose network,
+# as it does over Fly's private network (docs/licensing.md: the backend has no public address).
+name: juju
+
+x-backend: &backend
+  image: juju-backend:local
+  environment:
+    DATABASE_URL: postgresql://juju:${POSTGRES_PASSWORD:?run ./up.sh}@db:5432/juju
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: juju
+      POSTGRES_DB: juju
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./up.sh}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U juju -d juju"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # Fly's release_command: the migrations, once, before the API and the worker start.
+  migrate:
+    <<: *backend
+    build: ../../backend
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *backend
+    command: ["uvicorn", "juju.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/status', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # Exactly one, always on (CLAUDE.md). With no key it archives nothing: it follows real games
+  # from ESPN, so their cards say "No price on file" until Juju's own key is in .env, as
+  # JUJU_ODDS_API_KEY. Not ODDS_API_KEY: a shell can have that one (parlaytracker's), and
+  # Compose would take it from the shell before .env.
+  worker:
+    <<: *backend
+    command: ["python", "-m", "juju.worker"]
+    environment:
+      DATABASE_URL: postgresql://juju:${POSTGRES_PASSWORD:?run ./up.sh}@db:5432/juju
+      ODDS_API_KEY: ${JUJU_ODDS_API_KEY:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: juju-web:local
+    build: ../../web
+    environment:
+      BACKEND_URL: http://api:8000
+      SITE_URL: ${SITE_URL:?run ./up.sh}
+      SITE_PASSCODE: ${SITE_PASSCODE:?run ./up.sh}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:  # 401 is the passcode form: the server is answering
+      test: ["CMD", "node", "-e",
+             "fetch('http://127.0.0.1:3000/about').then(r => process.exit([200, 401].includes(r.status) ? 0 : 1), () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:

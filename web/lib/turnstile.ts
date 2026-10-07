@@ -4,31 +4,21 @@
 // A person who passes the check gets a signed cookie and isn't asked again for an hour. The
 // cookie says only when it expires; it is signed with a key derived from the Turnstile secret,
 // so the site needs no other secret and no shared store.
-import { createHmac, timingSafeEqual } from "node:crypto";
+import * as signed from "./signedPass.ts";
 
 export const COOKIE = "juju_ok";
 export const CLEARED_SECONDS = 60 * 60;
 export const VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+const LABEL = "juju-turnstile-cookie";
 
 export type Verdict = "pass" | "fail" | "unavailable";
 
-function macOf(secret: string, expires: string): Buffer {
-  const key = createHmac("sha256", "juju-turnstile-cookie").update(secret).digest();
-  return createHmac("sha256", key).update(expires).digest();
-}
-
 export function signPass(secret: string, nowMs: number): string {
-  const expires = String(Math.floor(nowMs / 1000) + CLEARED_SECONDS);
-  return `${expires}.${macOf(secret, expires).toString("base64url")}`;
+  return signed.signPass(LABEL, secret, nowMs, CLEARED_SECONDS);
 }
 
 export function passIsValid(secret: string, value: string | undefined, nowMs: number): boolean {
-  const [expires, mac, extra] = (value ?? "").split(".");
-  if (!expires || !mac || extra !== undefined || !/^\d{1,12}$/.test(expires)) return false;
-  if (Number(expires) * 1000 <= nowMs) return false;
-  const want = macOf(secret, expires);
-  const got = Buffer.from(mac, "base64url");
-  return got.length === want.length && timingSafeEqual(got, want);
+  return signed.passIsValid(LABEL, secret, value, nowMs);
 }
 
 /** Ask Cloudflare about a widget's token. "fail": Cloudflare said no. "unavailable": Cloudflare
