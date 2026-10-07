@@ -10,6 +10,10 @@ export default function StatusBanner() {
     const load = async () => {
       try {
         const r = await fetch("/api/status");
+        if (r.status === 401) {  // a private preview, still locked (proxy.ts): nothing to say
+          if (alive) setMessage(null);
+          return;
+        }
         if (!r.ok) throw new Error();
         const body = await r.json();
         if (alive) setMessage(body.degraded ? body.message : null);

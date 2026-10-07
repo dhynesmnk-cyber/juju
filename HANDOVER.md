@@ -5,14 +5,14 @@ product, the owner's decisions and the reasons behind them. Then read
 [CLAUDE.md](CLAUDE.md) for the commands and the rules that are easy to break. This file says
 where the build stands and what to do next. Update it before you finish a session.
 
-## Where things stand (end of 2026-09-30)
+## Where things stand (2026-10-07)
 
 | | |
 |---|---|
 | Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 merged M3 and M4, and PR #3 merged the parlay leg prices and this file. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
 | CI | Green on every merged PR head (the last is PR #3's, `0a58a52`, whose tree `main` has). Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys) |
-| Tests | 1,161 backend tests, 3 web unit tests (`node --test`), 17 Playwright tests |
-| Deployed | **No.** The Fly.io config and runbook exist (`docs/deploy.md`); the owner has not created the apps yet |
+| Tests | 1,161 backend tests, 9 web unit tests (`node --test`), 17 Playwright tests |
+| Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07; whether the owner has run it on the laptop yet, ask. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
 | Real data | No real capture has run. The archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
 
@@ -111,6 +111,15 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   `ParlayView` (a light in the sky per leg, each leg's price; gold only when all are lit),
   `SearchBox` (shows `TurnstileWidget` only when challenged), `world/` (option A: shader,
   Jujus).
+- `proxy.ts` (Next 16's middleware): the passcode gate, only when `SITE_PASSCODE` is set
+  (`lib/passcode.ts`, `lib/unlockPage.ts`, `app/unlock/check/route.ts`). A locked page gets a
+  plain HTML form at its own address; an API call gets a JSON 401. `lib/signedPass.ts` signs
+  both this cookie and Turnstile's.
+
+**Deploy**: `deploy/laptop/` (compose, `up.sh`, the owner's README) for the private preview;
+`backend/fly.toml`, `web/fly.toml` and `docs/deploy.md` for launch.
+`.claude/skills/deploy-laptop/SKILL.md` explains the laptop setup, its invariants and its
+failure modes, and how to test it in a cloud container.
 
 **Docs**: `docs/GOALS.md` (v2: decisions, milestones), `docs/licensing.md`, `docs/deploy.md`
 (Fly, Cloudflare including Turnstile and the share-image cache, the worlds kill switch, the
@@ -135,6 +144,10 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
    parlay card lists each leg's price at the parlay's book, exactly as that leg's own card
    shows it, and only for the 2 to 6 legs someone picked, in one game; never the other books.
    `tests/db/test_parlay.py` holds it to that.
+10. **The preview runs on the owner's laptop** (2026-10-07), not Netlify (it can't run the
+    Python backend) and not yet Fly (cost): for the owner and two users, behind one shared
+    passcode, through their existing Tailscale, with the recorded demo game and no Odds API
+    key. The owner runs `deploy/laptop/up.sh` themselves.
 
 ## Decisions made by agents (reasons in the commits; change only with a reason)
 
@@ -175,8 +188,12 @@ The recorded PHI @ CHI odds have **no TD-scorer markets**; tests that need them 
 the recorded snapshot (see `tests/db/test_deciding.py`). The PIT @ CLE file has them.
 
 The Odds API key in this cloud environment (`ODDS_API_KEY`) is **parlaytracker's free-tier
-key**. It had **408 credits** left on 2026-09-30 and none were spent since. Don't spend them
-without the owner's OK. parlaytracker's own handover says the key should be rotated.
+key**. Its quota was **500** on 2026-10-07 (the free tier's monthly allowance, reset on the
+1st): nothing spent in October. Don't spend it without the owner's OK. parlaytracker's own
+handover says the key should be rotated. **It is exported in this shell**, so anything that
+reads the environment can pick it up: on 2026-10-07 a test run of the laptop stack started its
+worker with it, and the worker made one free events call before it was stopped. That is why
+`deploy/laptop/up.sh` runs Compose under `env -i` and names the key `JUJU_ODDS_API_KEY`.
 
 ## Next steps
 
@@ -213,8 +230,9 @@ pages and of state exposure; then a soft launch.
 
 ## Needs the owner
 
-1. A **Juju-only Odds API key on the 100K plan** ($59/mo), set as a Fly secret. Real captures
-   and historical repair need it: historical data is paid-only.
+1. A **Juju-only Odds API key on the 100K plan** ($59/mo): `JUJU_ODDS_API_KEY` in
+   `deploy/laptop/.env` for the preview, a Fly secret for launch. Real captures and historical
+   repair need it: historical data is paid-only.
 2. **Fly.io:** create the apps, or give a deploy token. Then follow `docs/deploy.md`.
 3. **A domain on Cloudflare**, then `SITE_URL` in `web/fly.toml` (share previews).
 4. **Turnstile:** a widget for the domain (site key and secret, `docs/deploy.md` step 5).
@@ -253,7 +271,16 @@ pages and of state exposure; then a soft launch.
   - `e2e/` is type-checked by the Next build.
   - `next/og`'s built-in font has no ✓ ✕ ◷ ☑: `lib/shareImage.tsx` draws those as SVG.
   - `tsconfig.json` allows `.ts` imports so `node --test lib/*.test.ts` runs without a
-    bundler; keep `lib/turnstile.ts` free of `@/` imports.
+    bundler; keep the tested `lib/` files (`turnstile`, `signedPass`, `passcode`,
+    `unlockPage`) free of `@/` imports, and import each other as `./x.ts`.
+  - Middleware is `proxy.ts` now. A redirect from it needs an absolute URL (a relative
+    `Location` is a 500), and a rewrite to a page also rewrites that page's link prefetches.
+    The passcode gate answers with plain HTML instead.
+  - After deleting a page, `npm run typecheck` fails on stale `.next/types` until the next
+    `npm run build`.
+- **Docker in a cloud container** works (`dockerd` starts), but needs test-only base images:
+  Docker Hub rate-limits the shared address, and TLS is intercepted.
+  `.claude/skills/deploy-laptop/SKILL.md` has the recipe.
 - **Layering the world:** `.world` is `z-index: -1`, and `html.worlds .page` has
   `position: relative; z-index: 1`. Anything else puts the world on top of the text.
 - **Migrations:** 0001 was regenerated once, before any deploy; 0002 and 0003 came with M3,
