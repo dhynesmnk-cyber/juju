@@ -14,6 +14,8 @@ nothing is applied and the reason goes to `games.last_error`.
 
 Games verified in a run then get their exact deciding plays from the play-by-play, which also
 confirms the longest rush and catch and the first touchdown's scorer (`worker/deciding.py`).
+nflverse sometimes publishes a game's play-by-play after its stats: a game verified without it
+is read on a later run (`games.plays_checked_at` still unset), until it is a week old.
 """
 import logging
 from collections import defaultdict
@@ -48,10 +50,12 @@ class VerifySummary:
     waiting: int = 0    # games nflverse hasn't published yet
     disputed: int = 0   # games whose final score disagrees: nothing applied
     plays: int = 0      # exact deciding plays found in the play-by-play
+    late: int = 0       # games verified on an earlier run whose play-by-play was read now
 
 
 class VerifyGames:
-    """Twice a day (worker/__main__.py), for final games from the last week not yet checked."""
+    """Twice a day (worker/__main__.py), for final games from the last week not yet checked,
+    and for that week's verified games whose play-by-play hasn't been read yet."""
 
     def __init__(self, engine: Engine, nflverse: Callable[[], NflverseData]):
         self._engine = engine
@@ -61,11 +65,15 @@ class VerifyGames:
         now = now or _utcnow()
         out = VerifySummary()
         with Session(self._engine, expire_on_commit=False) as session:
+            this_week = Game.commence_time >= now - VERIFY_WITHIN
             games = session.scalars(select(Game).where(
                 Game.status == EventStatus.FINAL, Game.verified_at.is_(None),
                 Game.espn_event_id.is_not(None), Game.final_at <= now - VERIFY_AFTER,
-                Game.commence_time >= now - VERIFY_WITHIN).order_by(Game.commence_time)).all()
-            if not games:
+                this_week).order_by(Game.commence_time)).all()
+            late = session.scalars(select(Game).where(
+                Game.verified_at.is_not(None), Game.plays_checked_at.is_(None),
+                Game.espn_event_id.is_not(None), this_week).order_by(Game.commence_time)).all()
+            if not games and not late:
                 return out  # nothing to do, so nothing is downloaded
             data = self._make_data()
             done: list[Game] = []
@@ -77,33 +85,45 @@ class VerifyGames:
             except (NflverseError, ProviderOpen) as e:
                 session.rollback()
                 log.warning("verify_games stopped: %s", e)
-            if done:
-                self._exact_plays(session, data, done, now, out)
+            if done or late:
+                late_ids = {game.id for game in late}
+                read = self._exact_plays(session, data, [*late, *done], now, out)
+                out.late = len(read & late_ids)
         return out
 
     @staticmethod
     def _exact_plays(session: Session, data: NflverseData, games: list[Game], now: datetime,
-                     out: VerifySummary) -> None:
-        """The play that decided each winning Over, from the play-by-play of the games just
-        verified: one download per season."""
+                     out: VerifySummary) -> set[int]:
+        """From each game's play-by-play: the play that decided each winning Over, and the
+        checks of the longest plays and the first touchdown. One download per season. A game
+        nflverse hasn't put in the play-by-play yet is left for a later run. Returns the ids of
+        the games read."""
         by_season: dict[int, dict[str, Game]] = defaultdict(dict)
-        for game in games:
-            assert game.espn_event_id is not None
-            season = nfl_season(game.commence_time)
-            if (game_id := data.game_id(season, game.espn_event_id)) is not None:
-                by_season[season][game_id] = game
+        read: set[int] = set()
         try:
+            # Inside the try: on a run that only retries late games, this is the first download.
+            for game in games:
+                assert game.espn_event_id is not None
+                season = nfl_season(game.commence_time)
+                if (game_id := data.game_id(season, game.espn_event_id)) is not None:
+                    by_season[season][game_id] = game
             for season, by_id in by_season.items():
                 plays = data.plays(season, frozenset(by_id))
                 for game_id, game in by_id.items():
-                    out.plays += deciding.exact_plays(session, game, plays[game_id],
-                                                      data.gsis_id, now)
-                    deciding.check_longest(session, game, plays[game_id], data.gsis_id, now)
-                    deciding.check_first_td(game, plays[game_id], data.espn_id, now)
+                    rows = plays[game_id]
+                    if not rows:
+                        log.info("%s: no play-by-play yet; a later run reads it", game.label)
+                        continue
+                    out.plays += deciding.exact_plays(session, game, rows, data.gsis_id, now)
+                    deciding.check_longest(session, game, rows, data.gsis_id, now)
+                    deciding.check_first_td(game, rows, data.espn_id)
+                    game.plays_checked_at = now
                     session.commit()
+                    read.add(game.id)
         except (NflverseError, ProviderOpen) as e:
             session.rollback()
             log.warning("verify_games: no play-by-play this run: %s", e)
+        return read
 
     def _verify(self, session: Session, data: NflverseData, game: Game, now: datetime,
                 out: VerifySummary) -> bool:

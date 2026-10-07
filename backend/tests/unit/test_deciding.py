@@ -133,16 +133,16 @@ def test_check_first_td_keeps_the_official_scorer_as_an_espn_id():
                             ([play("1", "")], UNKNOWN_SCORER),
                             ([play()], None)):
         game = Game(home_team="h", away_team="a")
-        check_first_td(game, plays, espn_of, NOW)
-        assert (game.first_td_official, game.first_td_checked_at) == (official, NOW)
-    game = Game(home_team="h", away_team="a")
-    check_first_td(game, [], espn_of, NOW)  # nflverse has no plays for it yet
-    assert game.first_td_checked_at is None
+        check_first_td(game, plays, espn_of)
+        assert game.first_td_official == official
+    game = Game(home_team="h", away_team="a", first_td_official="111")
+    check_first_td(game, [], espn_of)  # nflverse has no plays for it yet: nothing is guessed
+    assert game.first_td_official == "111"
 
 
 def first_td_check(official, checked, espn):
     game = Game(home_team="h", away_team="a", first_td_official=official,
-                first_td_checked_at=NOW if checked else None)
+                plays_checked_at=NOW if checked else None)
     return player_check(FIRST_TD, game, {}, [], first_td=espn)
 
 

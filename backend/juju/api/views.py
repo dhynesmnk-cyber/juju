@@ -318,14 +318,16 @@ def player_check(market: Market, game: Game, rows: dict[Stat, LiveStat],
                  corrections: Sequence[StatCorrection], *, first_td: str | None) -> Check:
     """`first_td` is ESPN's first-touchdown scorer, as the card was decided on."""
     if market.first_td:  # against the play-by-play's (worker/deciding.py `check_first_td`)
-        checked = game.first_td_checked_at is not None
+        checked = game.plays_checked_at is not None
         agrees = first_td != card.UNKNOWN_SCORER and game.first_td_official == first_td
         return Check(True, checked and agrees, checked=checked, unconfirmed=FIRST_TD_UNCONFIRMED)
     stat = market.stat
     if stat is None or stat not in CHECKED_STATS | MAX_STATS:
-        return UNCHECKED  # the longest plays are checked against the play-by-play
+        return UNCHECKED
     mine = tuple(c for c in corrections if c.stat is stat)
-    checked = game.verified_at is not None
+    # The longest plays are checked against the play-by-play, which can come later than the
+    # weekly stats; until it does, they await verification like the rest.
+    checked = (game.plays_checked_at if stat in MAX_STATS else game.verified_at) is not None
     if not rows:  # no stat line: confirmed once nflverse, checked, had none either
         return Check(True, checked, mine, checked)
     row = rows.get(stat)

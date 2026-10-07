@@ -11,7 +11,7 @@ where the build stands and what to do next. Update it before you finish a sessio
 |---|---|
 | Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 merged M3 and M4, and PR #3 merged the parlay leg prices and this file. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
 | CI | Green on every merged PR head (the last is PR #3's, `0a58a52`, whose tree `main` has). Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys) |
-| Tests | 1,161 backend tests, 9 web unit tests (`node --test`), 17 Playwright tests |
+| Tests | 1,164 backend tests, 9 web unit tests (`node --test`), 17 Playwright tests |
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07; whether the owner has run it on the laptop yet, ask. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
 | Real data | No real capture has run. The archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
@@ -61,7 +61,7 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   - `parlay.py` (M4): legs in a URL, one book for every leg when one priced them all, the
     parlay outcome (a lost leg loses it, pushes drop out, no stat line leaves it undecided);
   - `models.py`, including `StatCorrection` and `DecidingPlay` (migrations 0002, 0003), and
-    `Game.first_td_official` and `first_td_checked_at` (0004).
+    `Game.first_td_official` (0004) and `plays_checked_at` (0004, renamed in 0005).
 - `ingest/`:
   - `odds_api.py`: live, historical and scores endpoints;
   - `espn.py`: box score parsing, plus notable plays for the chips;
@@ -79,7 +79,9 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   - `verify.py` (M3): `VerifyGames`, 10:07 and 16:07 ET and at startup. It checks last week's
     final games against nflverse: agreeing stats are marked verified, a disagreeing one is
     replaced by nflverse's and recorded in `stat_corrections`, a disputed final score applies
-    nothing (`games.last_error`). Then it finds the exact deciding plays;
+    nothing (`games.last_error`). Then it reads the play-by-play: the exact deciding plays,
+    and the longest-play and first-TD checks. A game not in it yet is read on a later run
+    (`games.plays_checked_at` still unset) until the game is a week old;
   - `deciding.py` (M3): the play that decided a bet. Live: "on or around", the latest notable
     play by that player among the plays in the read that saw the stat pass the line (only the
     game clock if there is none, or on a game's first read). Next day: exact, from the
@@ -200,11 +202,6 @@ worker with it, and the worker made one free events call before it was stopped. 
 In order. None of these needs the owner, except where it says so.
 
 **1. Follow-ups from M3 and M4** (small, each a commit):
-- **Retry late play-by-play.** `VerifyGames._exact_plays` runs only in the run that verifies a
-  game, so a game whose play-by-play was published late never gets exact deciding plays, the
-  longest-play check or the first-touchdown check (its cards then await verification for
-  good). `games.first_td_checked_at` already marks a game whose play-by-play was read: retry
-  games verified in the last 7 days that lack it.
 - **A share image for a parlay:** `/g/[game]/parlay/image?legs=`, reusing `lib/shareImage.tsx`
   (the lights in the sky, the combined payout, the correlation note), and Open Graph tags on
   the parlay page.
@@ -284,7 +281,8 @@ pages and of state exposure; then a soft launch.
 - **Layering the world:** `.world` is `z-index: -1`, and `html.worlds .page` has
   `position: relative; z-index: 1`. Anything else puts the world on top of the text.
 - **Migrations:** 0001 was regenerated once, before any deploy; 0002 and 0003 came with M3,
-  0004 with the first-touchdown check.
+  0004 with the first-touchdown check, 0005 renamed its marker to `plays_checked_at` (written
+  by hand: autogenerate turns a rename into a drop and an add, losing the values).
   From now on, add new migrations and never edit an existing one. Generate against a scratch
   database at head (`alembic revision --autogenerate`), read the file, and run
   `tests/db/test_migrations.py`.

@@ -83,7 +83,8 @@ def verify() -> int:
     breakers.load()
     out = VerifyGames(engine, lambda: NflverseData(breakers))()
     print(f"verified {out.verified} games, corrected {out.corrected} stats, found "
-          f"{out.plays} deciding plays; {out.waiting} not published yet, {out.disputed} disputed")
+          f"{out.plays} deciding plays ({out.late} games' play-by-play came late); "
+          f"{out.waiting} not published yet, {out.disputed} disputed")
     return 0
 
 

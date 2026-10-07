@@ -68,11 +68,14 @@ class Game(Base):
     corrected_at: Mapped[datetime | None] = mapped_column(TZ)
     # Set when the next-day check against nflverse has run for this game (worker/verify.py).
     verified_at: Mapped[datetime | None] = mapped_column(TZ)
-    # The first touchdown in nflverse's play-by-play, once `first_td_checked_at` is set: its
-    # scorer's ESPN id, "" if he has none, or None for a game with no touchdown. The cards
-    # compare it with ESPN's; it never decides one (worker/deciding.py `check_first_td`).
+    # Set when nflverse's play-by-play for this game has been read (worker/verify.py): its exact
+    # deciding plays, longest plays and first touchdown are checked from then on. It can come a
+    # run or more after `verified_at`, when the play-by-play is published late.
+    plays_checked_at: Mapped[datetime | None] = mapped_column(TZ)
+    # The first touchdown in that play-by-play: its scorer's ESPN id, "" if he has none, or None
+    # for a game with no touchdown. The cards compare it with ESPN's; it never decides one
+    # (worker/deciding.py `check_first_td`).
     first_td_official: Mapped[str | None] = mapped_column(String(20))
-    first_td_checked_at: Mapped[datetime | None] = mapped_column(TZ)
     last_error: Mapped[str | None] = mapped_column(Text)
 
     @property

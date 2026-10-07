@@ -92,7 +92,8 @@ Save-Data.
   logs an ERROR for a game whose final score disagrees (nothing is applied; see
   `games.last_error`). From the play-by-play it confirms the longest plays and the first
   touchdown's scorer, and never corrects them (a disagreement leaves the card unverified; the
-  first touchdown's is `games.first_td_official`). Run it by hand with
+  first touchdown's is `games.first_td_official`). A game whose play-by-play nflverse publishes
+  late is read on a later run, for up to a week (`games.plays_checked_at`). Run it by hand with
   `python -m juju.cli verify`. It needs outbound HTTPS to `github.com` and
   `release-assets.githubusercontent.com`.
 - **Logs:** ship them with Fly's log shipper, and alert on `ERROR juju.`.
