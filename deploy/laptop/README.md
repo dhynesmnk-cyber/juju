@@ -16,8 +16,8 @@ sleeps or loses its connection, the site is down. For launch, use Fly.io (`docs/
   ```
 - Tailscale, logged in on this machine, with these turned on in the admin console:
   **MagicDNS** and **HTTPS certificates** (the DNS page), and **Funnel** for this machine. If
-  Funnel isn't allowed yet, the first run prints a link that turns it on.
-- Optional, so Funnel doesn't ask for sudo: `sudo tailscale set --operator=$USER`.
+  Funnel isn't allowed yet, the first run prints a link that turns it on, and waits.
+- `sudo` on this machine: changing Funnel needs it, so the script asks for your password then.
 
 ## Put it online
 
@@ -56,13 +56,14 @@ then remembers it for 30 days.
 | Update to the latest code | `git pull && deploy/laptop/up.sh` |
 | See the logs | `docker compose -f deploy/laptop/docker-compose.yml logs -f web api worker` |
 | Change the passcode | edit `SITE_PASSCODE` in `deploy/laptop/.env`, then `deploy/laptop/up.sh` (everyone enters the new one) |
-| Take it off the internet | `sudo tailscale funnel --https=443 off` (it keeps running on this machine) |
+| Take it off the internet | `sudo tailscale funnel --https=443 http://127.0.0.1:3000 off` (it keeps running on this machine; `tailscale funnel status` shows what's online) |
 | Stop it | `docker compose -f deploy/laptop/docker-compose.yml down` (keeps the data) |
 | Back up the database | `docker compose -f deploy/laptop/docker-compose.yml exec -T db pg_dump -U juju juju \| gzip > juju-$(date +%F).sql.gz` |
 | Remove it, data and all | `docker compose -f deploy/laptop/docker-compose.yml down -v` |
 
 Start and update it only with `up.sh`: it runs Docker with nothing from your shell, so a key you
-have exported for something else can't end up in Juju, and it checks everything afterwards.
+have exported for something else can't end up in Juju, and it checks everything afterwards. If
+an update ever leaves the site unlocked, `up.sh` takes it off the internet before it stops.
 
 After a reboot, Docker starts Juju again and Funnel stays on.
 

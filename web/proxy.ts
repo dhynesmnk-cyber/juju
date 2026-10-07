@@ -20,6 +20,8 @@ export function proxy(request: NextRequest) {
   });
 }
 
+// Everything but the build's own static files. `/_next/image` stays gated: it fetches pages
+// itself, so ungated it could hand out the share images.
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt).*)"],
+  matcher: ["/((?!_next/static|favicon.ico|robots.txt).*)"],
 };

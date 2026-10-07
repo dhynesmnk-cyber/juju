@@ -49,6 +49,23 @@ put() {  # set KEY=value in .env, keeping the file readable only by you
   mv "$tmp" "$ENV_FILE"
 }
 sql() { compose exec -T db psql -U juju -d juju -tAc "$1"; }
+lcurl() { curl --noproxy '*' -s "$@"; }  # this machine's own site, never through a proxy
+# Changing Funnel needs root. Its output stays visible: when Funnel isn't allowed yet, Tailscale
+# prints a link to allow it and waits.
+funnel() { sudo tailscale funnel --https=443 "$@"; }
+
+# A failed safety check fails closed. Funnel stays on between runs, so an update that broke the
+# gate would otherwise be online, unlocked: take the site off the internet first, then stop.
+unsafe() {
+  if [ "$FUNNEL" = 1 ]; then
+    if funnel "$LOCAL" off > /dev/null 2>&1; then
+      printf '\n   The site is off the internet. It comes back with the next good run.\n' >&2
+    elif tailscale funnel status 2> /dev/null | grep -q "Funnel on"; then
+      printf '\n   TAKE IT OFFLINE NOW: sudo tailscale funnel --https=443 %s off\n' "$LOCAL" >&2
+    fi
+  fi
+  die "$1"
+}
 
 # --- 1. This machine -------------------------------------------------------------------------
 step "Checking this machine"
@@ -67,8 +84,9 @@ for tool in curl openssl python3; do
 done
 mem_mb=$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo)
 [ "$mem_mb" -ge 1800 ] || note "${mem_mb} MB of memory; building the site needs about 2 GB. If the build gets killed, add swap."
-free_gb=$(df -Pk "$HERE" | awk 'NR == 2 {print int($4 / 1048576)}')
-[ "$free_gb" -ge 5 ] || die "only ${free_gb} GB free on this disk; the images need about 5 GB."
+docker_root=$(docker info --format '{{.DockerRootDir}}' 2> /dev/null || echo /var/lib/docker)
+free_gb=$(df -Pk "$docker_root" 2> /dev/null | awk 'NR == 2 {print int($4 / 1048576)}')
+[ "${free_gb:-99}" -ge 5 ] || die "only ${free_gb} GB free where Docker keeps images ($docker_root); they need about 5 GB."
 
 dns=""
 if [ "$FUNNEL" = 1 ]; then
@@ -139,31 +157,31 @@ ok "running: $(compose ps --status running --services | sort | tr '\n' ' ')"
 
 # --- 4. Check it -----------------------------------------------------------------------------
 step "Checking it works"
-code=$(curl -s -o /dev/null -w '%{http_code}' "$LOCAL/api/status")
-[ "$code" = 401 ] || die "without the passcode the site answered $code, not 401: the passcode gate is off.
-   It is not online yet (Funnel hasn't been touched). Check SITE_PASSCODE in .env, then ./up.sh again."
-page=$(curl -s "$LOCAL/about")
+code=$(lcurl -o /dev/null -w '%{http_code}' "$LOCAL/api/status")
+[ "$code" = 401 ] || unsafe "without the passcode the site answered $code, not 401: the passcode
+   gate is off. Check SITE_PASSCODE in .env, then ./up.sh again."
+page=$(lcurl "$LOCAL/about")
 [[ "$page" == *'action="/unlock/check"'* && "$page" != *"How Juju works"* ]] \
-  || die "without the passcode a page didn't ask for it. It is not online yet. See: docker compose logs web"
+  || unsafe "without the passcode a page didn't ask for it. See: docker compose logs web"
 ok "locked without the passcode"
 
 secret_file=$(mktemp "$HERE/.passcode.XXXXXX")
 trap 'rm -f "$secret_file"' EXIT
 printf '%s' "$(get SITE_PASSCODE)" > "$secret_file"
-cookie=$(curl -s -D - -o /dev/null --data-urlencode "passcode@$secret_file" -d next=/ \
+cookie=$(lcurl -D - -o /dev/null --data-urlencode "passcode@$secret_file" -d next=/ \
            "$LOCAL/unlock/check" | tr -d '\r' \
          | sed -n 's/^[Ss]et-[Cc]ookie: \(juju_pass=[^;]*\).*/\1/p')
 rm -f "$secret_file"
 [ -n "$cookie" ] || die "the passcode in .env didn't open the site. See: docker compose logs web"
 ok "the passcode opens it"
 
-status=$(curl -s -H "Cookie: $cookie" "$LOCAL/api/status")
+status=$(lcurl -H "Cookie: $cookie" "$LOCAL/api/status")
 [[ "$status" == *'"degraded"'* ]] \
   || die "the site can't reach the API ($status). See: docker compose logs api web"
 ok "the site reaches the API"
 
 game=$(sql "select id from games where espn_event_id = '$DEMO_EVENT'")
-curl -s -H "Cookie: $cookie" "$LOCAL/g/$game/$DEMO_PLAYER" | grep -q "Saquon Barkley" \
+lcurl -H "Cookie: $cookie" "$LOCAL/g/$game/$DEMO_PLAYER" | grep -q "Saquon Barkley" \
   || die "the demo game's page didn't render. See: docker compose logs web api"
 ok "the demo game renders"
 
@@ -171,7 +189,7 @@ for service in api db; do
   published=$(docker ps --filter "label=com.docker.compose.project=juju" \
                 --filter "label=com.docker.compose.service=$service" --format '{{.Ports}}')
   [[ "$published" != *"->"* ]] \
-    || die "$service has a published port ($published). Only the site may (docs/licensing.md)."
+    || unsafe "$service has a published port ($published). Only the site may (docs/licensing.md)."
 done
 ok "only the site has a port, and only on 127.0.0.1"
 
@@ -198,17 +216,14 @@ fi
 # --- 5. Online -------------------------------------------------------------------------------
 url=$LOCAL
 if [ "$FUNNEL" = 1 ]; then
-  step "Putting the site online with Tailscale Funnel"
-  if ! tailscale funnel --bg "$LOCAL" > /dev/null 2>&1; then
-    echo "   Tailscale needs sudo for this (or run 'sudo tailscale set --operator=\$USER' once)."
-    sudo tailscale funnel --bg "$LOCAL" \
-      || die "Funnel didn't start. If it printed a link, open it to allow Funnel for this machine
+  step "Putting the site online with Tailscale Funnel (it needs sudo)"
+  funnel --bg "$LOCAL" \
+    || die "Funnel didn't start. If it printed a link, open it to allow Funnel for this machine
    (or in the admin console, Access controls: give it the funnel attribute), then ./up.sh again."
-  fi
   url="https://$dns"
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url/unlock" || true)
-  if [ "$code" = 200 ]; then
-    ok "$url answers"
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url/" || true)
+  if [ "$code" = 401 ]; then
+    ok "$url answers, with the passcode form"
   else
     note "$url didn't answer from here yet ($code). The first certificate can take a minute; try it in a browser."
   fi
