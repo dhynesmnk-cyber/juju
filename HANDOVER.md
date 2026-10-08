@@ -9,7 +9,7 @@ where the build stands and what to do next. Update it before you finish a sessio
 
 | | |
 |---|---|
-| Branch | Everything up to PR #9 is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, and PR #9 Phase 1 of the tracker (below). **Phase 2 of the tracker is on `claude/eager-galileo-olocx1`, pushed, with no PR yet (2026-10-08)**: open one when the owner asks, and check it reached `main`. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). |
+| Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, PR #9 Phase 1 of the tracker (below), and PR #10 its Phase 2. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
 | CI | Green on every merged PR head. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
 | Tests | 1,913 backend tests (1,164 before the tracker), 9 web unit tests (`node --test`), 17 Playwright tests |
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. On 2026-10-08 the owner was setting it up on the laptop (the code wasn't cloned there yet); ask whether it runs. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
@@ -292,8 +292,10 @@ pages and of state exposure; then a soft launch.
 6. **Before public launch:** the live-stats licence decision, and legal review.
 7. **FYI:** GitHub reports the parlaytracker repository as **public**, while the old goals doc
    said "still private". The owner was told on 2026-09-30.
-8. **For the tracker** (`docs/plans/integrate-parlaytracker.md` §13): two usernames (Phase 3;
-   `up.sh` makes the passcodes); optionally an OpenRouter key for the screenshot reader
+8. **For the tracker** (`docs/plans/integrate-parlaytracker.md` §13): the two users are **Chris
+   and Ash** (the owner, 2026-10-08). Their passcodes are theirs to put in `deploy/laptop/.env`
+   once Phase 3 exists: never in the repo or in chat, and long enough for a page on the public
+   internet (the owner was told on 2026-10-08 that four digits are not); optionally an OpenRouter key for the screenshot reader
    (`QWEN_API_KEY`, Phase 4g); a backup destination and one restore drill (Phase 6); a real
    game weekend for acceptance; approval to archive the parlaytracker repo at the end; and
    whether the laptop gets parlaytracker's auto-update and backup timers. The 25 historical

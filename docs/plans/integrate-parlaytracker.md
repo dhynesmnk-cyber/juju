@@ -770,8 +770,10 @@ real: ship them first.
 
 1. **A Juju-only Odds API key (100K plan).** It now funds T-45 capture, repair and closing
    lines. Until then the tracker works fully with manual closing lines, PT's designed fallback.
-2. **Two usernames** (Phase 3). `up.sh` generates the passcodes, which are printed once and
-   stored in `.env`.
+2. **Two usernames** (Phase 3): **Chris and Ash** (the owner, 2026-10-08). The passcodes live
+   only in the laptop's `.env`, never in the repo; `up.sh` can generate them. They must be long
+   enough for a page on the public internet: Phase 3 should refuse short ones, as `up.sh`
+   refuses a site passcode under 10 characters.
 3. **Optional:** an OpenRouter key (`QWEN_API_KEY`, with training-permitted providers off) for
    the screenshot reader. The Log form works without it.
 4. **A backup destination** (an rclone remote) and one restore drill, now covering real bet
