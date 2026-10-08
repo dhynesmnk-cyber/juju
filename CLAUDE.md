@@ -12,8 +12,10 @@ HANDOVER.md before you finish a session.
   - `ingest/`: providers and parsing.
   - `worker/`: the only process that calls providers.
   - `api/`: internal HTTP, reached only through `web/`.
+  - `tracker/`: the owners' private bet tracker, parlaytracker folded in
+    ([docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md)).
 - `web/`: Next.js, the only public surface. It proxies `/api/*` to the backend.
-- `docs/`: GOALS, licensing record, deploy runbook.
+- `docs/`: GOALS, licensing record, deploy runbook, and `plans/` (the tracker's phases).
 - `deploy/laptop/`: the private preview on the owner's own machine (the `deploy-laptop` skill).
 
 ## Commands
@@ -49,4 +51,7 @@ for any live HTTP call through the proxy.
 - **Ported files** keep their `Ported from parlaytracker@c3bd43c …` header. Say what changed.
 - **Migrations:** after a new Alembic migration, read the generated file and run
   `tests/db/test_migrations.py`.
+- **The tracker:** slips and legs are written only through `juju/tracker/services.py`. Services
+  flush; callers commit. Its data never reaches a public response, a share image or
+  `/api/status`.
 - **Workers:** exactly one worker runs (Postgres advisory lock), and it never scales to zero.

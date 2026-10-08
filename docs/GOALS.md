@@ -4,7 +4,10 @@
 **Status:** The goals are confirmed and have been reviewed for user experience and stability. This file
 replaces `GOALS-v1-brainstorm.md`, which is kept unchanged for the record.
 **Reference code:** `dhynesmnk-cyber/parlaytracker@c3bd43c`. It is a pattern donor: files are
-copied from it with a `Ported from …` header, and parlaytracker itself is never changed.
+copied from it with a `Ported from …` header, and parlaytracker itself is never changed. Since
+2026-10-08 it is also being absorbed whole, as Juju's private `/me` section
+([plans/integrate-parlaytracker.md](plans/integrate-parlaytracker.md)); its repo is archived
+when that is done.
 
 ---
 
@@ -16,6 +19,9 @@ uses real archived prices and never invented ones.
 
 Juju **does not take bets**, hold funds or place wagers, and it does not link to sportsbooks. It is
 a tool for looking back at prices.
+
+A private section, `/me`, is the owners' own bet tracker ("Watch my parlays", decision 11). It
+records bets the two of them placed elsewhere, watches and settles them, and takes no bets.
 
 ## 2. Confirmed decisions
 
@@ -31,6 +37,7 @@ a tool for looking back at prices.
 | 8 | Odds vendor | **The Odds API**. Its terms allow Juju's use (§3). |
 | 9 | The look (2026-09-30) | **Worlds that follow the bet's state**, drawn by one WebGL shader (option A, 7 KB gzipped). Three original characters, the **Jujus** (Pip, Bo and Tuft), sit on the first card and react. The price always renders first; see §7.9. |
 | 10 | Parlay leg prices (2026-09-30) | **Shown.** A same-game parlay card lists each leg's price at the parlay's book, the one exception to "no prices across players" (§3). |
+| 11 | The owners' bet tracker (2026-10-08) | **Folded in.** parlaytracker becomes a passcode-gated `/me` section: its pages rebuilt in Next.js, its logic in the backend, per-user passcodes, fresh data. The plan and its six phases: [plans/integrate-parlaytracker.md](plans/integrate-parlaytracker.md). |
 
 ## 3. Licensing: a design rule, not a blocker
 
