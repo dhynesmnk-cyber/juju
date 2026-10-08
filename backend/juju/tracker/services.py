@@ -18,11 +18,11 @@ from juju.ingest import guards
 from juju.tracker.markets import MARKET_SPORTS, NO_AUTO_CLOSING
 from juju.tracker.models import (
     ClosingSource,
-    LegSource,
     Event,
     EventStatus,
     Leg,
     LegResult,
+    LegSource,
     MarketType,
     Slip,
     SlipStatus,
