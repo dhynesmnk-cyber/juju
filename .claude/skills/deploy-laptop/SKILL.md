@@ -5,7 +5,7 @@ description: Deploy, update or fix Juju's private preview on the owner's own Ubu
 
 # Juju on the owner's machine
 
-The owner chose this on 2026-10-07 for a private preview: their old Ubuntu laptop, $0 a month,
+The owner chose this on 2026-10-07 for a private preview: their old Ubuntu laptop, costing only electricity,
 for themselves and two users, with the recorded PHI @ CHI game as demo data. Fly.io
 (`docs/deploy.md`) stays the plan for launch.
 
