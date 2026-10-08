@@ -109,3 +109,40 @@ def test_nfl_roster_is_grouped_and_puts_unavailable_players_last():
 def test_malformed_roster_is_a_schema_error():
     with pytest.raises(espn.SchemaError):
         espn.parse_roster({"athletes": [{"items": [{"fullName": "No Id"}]}]})
+
+
+# --- The other sports (the tracker's NBA, NHL and MLB slips) ----------------------------------
+# Ported from parlaytracker@c3bd43c tests/unit/test_espn.py: these parsers came over unchanged,
+# and the tracker relies on them.
+
+
+def test_postponed_is_not_final():
+    by_id = games(Sport.MLB, "mlb_scoreboard_2026-05-05_postponed.json")
+    postponed = [g for g in by_id.values() if g.status is EventStatus.POSTPONED]
+    assert len(postponed) == 2
+    assert "401815223" in {g.espn_event_id for g in postponed}
+
+
+@pytest.mark.parametrize(
+    ("sport", "name", "count"),
+    [(Sport.NBA, "nba_scoreboard_2026-03-01.json", 11),
+     (Sport.NHL, "nhl_scoreboard_2026-03-01.json", 6)],
+)
+def test_other_sports_parse(sport, name, count):
+    by_id = games(sport, name)
+    assert len(by_id) == count
+    assert all(g.sport is sport and g.status is EventStatus.FINAL for g in by_id.values())
+
+
+def test_nba_roster_is_a_flat_list():
+    players = espn.parse_roster(load("nba_roster_18.json"))
+    assert len(players) == 17
+    assert {p.group for p in players} == {""}
+    assert all(p.position for p in players)
+
+
+@pytest.mark.parametrize("name", ["nhl_roster_16.json", "mlb_roster_10.json"])
+def test_grouped_rosters_for_other_sports(name):
+    players = espn.parse_roster(load(name))
+    assert players and all(p.espn_athlete_id and p.name for p in players)
+    assert len({p.espn_athlete_id for p in players}) == len(players)
