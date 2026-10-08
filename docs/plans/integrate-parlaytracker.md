@@ -1,7 +1,7 @@
 # Plan: fold ParlayTracker into Juju as "Watch my parlays"
 
-**Status:** approved direction (owner, 2026-10-08). **Phase 1 is done** (see §10); Phases 2–6
-are not started.
+**Status:** approved direction (owner, 2026-10-08). **Phases 1 and 2 are done** (see §10);
+Phases 3–6 are not started.
 **Source:** `parlaytracker@c3bd43c`, its current HEAD and the commit Juju's ported files
 already cite.
 **Target:** `juju@ef6fa70` and onward.
@@ -273,16 +273,16 @@ module went:
 | `core/odds.py` | `juju.core.odds` | identical apart from the header |
 | `core/db.py` | `juju.db` | same engine and `session_scope` machinery |
 | `ingest/http.py` | `juju.ingest.http` | 2-line diff (User-Agent `Juju/1.0`, import); keep Juju's UA: one honest identity |
-| `ingest/espn.py` | `juju.ingest.espn` | scoreboards, rosters and status mapping are identical and multi-sport already (Phase 1 added PT's NBA/NHL/MLB tests and fixtures). The box score is NFL-only, keyed by `Stat`: the tracker needs PT's `MarketType` stats for four sports, **Phase 2** (see its notes). PT's web-app fetch helpers became `tracker/fetch.py` |
-| `ingest/router.py` | `juju.ingest.router` | identical apart from NFL-only box scores. Phase 1 added an optional `sport` to `scoreboard()` and `roster()`; a box score for other sports is Phase 2 |
-| `ingest/guards.py` | `juju.ingest.guards` | identical, except the plausibility bounds: Juju keys them by `Stat`, PT by `MarketType`. Phase 2 adds a `MarketType`-keyed table beside Juju's |
-| `ingest/odds_api.py` | `juju.ingest.odds_api` | the models are a superset (closing uses them, **done**). The client differs: Juju asks for its `bookmakers`, PT for `regions=us`. Phase 2 decides (see its notes) |
-| `ingest/nflverse.py` | Juju's streaming client; drop nflreadpy | Juju deliberately avoids polars and pandas (the worker has 512 MB). Its release-CSV reader covers schedule, players, weekly stats and play-by-play. Map `MarketType` to `Stat` for leg verification, Phase 2. This removes PT's heaviest dependency |
+| `ingest/espn.py` | `juju.ingest.espn` | scoreboards, rosters and status mapping are identical and multi-sport already (Phase 1 added PT's NBA/NHL/MLB tests and fixtures). The box-score parser takes a column table; the tracker's (`tracker/feed.py`) reads its markets in four sports, the NFL's through Juju's own `Stat` columns (**done, Phase 2**). PT's web-app fetch helpers became `tracker/fetch.py` |
+| `ingest/router.py` | `juju.ingest.router` | identical apart from NFL-only box scores. Phase 1 added an optional `sport` to `scoreboard()` and `roster()`; Phase 2 added `box_score(…, sport=, columns=)` for the tracker |
+| `ingest/guards.py` | `juju.ingest.guards` | identical, except the plausibility bounds: Juju keys them by `Stat`, PT by `MarketType`. The tracker's table is in `tracker/feed.py` (**done**) |
+| `ingest/odds_api.py` | `juju.ingest.odds_api` | the models are a superset (closing uses them). The client gained an optional `sport_key`; the tracker asks for Juju's book chain, not `regions=us` (**done**, see Phase 2) |
+| `ingest/nflverse.py` | Juju's streaming client; drop nflreadpy | Juju deliberately avoids polars and pandas (the worker has 512 MB). Its release-CSV reader covers schedule, players, weekly stats and play-by-play, and now snap counts and PFR ids for the tracker (`tracker/nflverse.py`, **done**). This removes PT's heaviest dependency |
 | `ingest/resolve.py` | `tracker/resolve.py`, importing Juju's name matching | **done.** Juju's `normalize_name`, `same_team`, `same_game`, `player_key`, `team_aliases`, `mentions` and `match_roster_player` are the same rules; Juju's `PlayerMatch` says `espn_athlete_id` |
 | `ingest/{closing,slip_import}.py` | `tracker/*` | tracker-only. **Done**, and the importer runs from `juju.cli` |
 | `ingest/extraction.py` | `tracker/extraction.py` | Phase 4g, with the screenshot route |
-| `worker/settle.py`, `worker/live.py`, the closing part of `worker/jobs.py` | `tracker/worker/*` | registered into Juju's single scheduler (6.4). `heartbeat` and `guarded` are identical to Juju's: reuse those |
-| `cli.py` (import-slips, check-import, backfill, export-recording, export-sample, read-slip) | subcommands of `juju.cli` | one CLI. **import-slips and check-import are done.** The rest come with their jobs (Phase 2) and the reader (4g). PT's `backfill` becomes `tracker-backfill`: Juju's `backfill` is a different job |
+| `worker/settle.py`, `worker/live.py`, the closing part of `worker/jobs.py` | `tracker/worker/*` | registered into Juju's single scheduler (6.4), as `tracker_*` jobs (**done**). `heartbeat` and `guarded` are identical to Juju's, which are used |
+| `cli.py` (import-slips, check-import, backfill, export-recording, export-sample, read-slip) | subcommands of `juju.cli` | one CLI. **import-slips, check-import, tracker-backfill, export-sample and export-recording are done.** `read-slip` comes with the reader (4g). PT's `backfill` is `tracker-backfill`: Juju's `backfill` is a different job |
 | `app/**` (Streamlit), `.streamlit/`, `Dockerfile`, `deploy/` (except backup/restore), `tests/app/**` | not ported | replaced by Next.js and Juju's stack. Their logic is listed in the checklists under Phases 3–4 |
 
 Every ported file keeps Juju's convention: a `Ported from parlaytracker@c3bd43c <path>` header,
@@ -389,7 +389,7 @@ worker and app. Each one arrives with the phase that reads it:
 
 | Setting | Phase | Notes |
 |---|---|---|
-| `record_event_ids` | 2 | |
+| `record_event_ids` | 2 | done: `RECORD_EVENT_IDS` |
 | `display_tz` | 3 | IANA-validated, PT's semantics. Give it a default (ET): PT required it, which would break Juju's existing deploys |
 | `min_sample` | 3 | default 30 |
 | `tracker_users` | 3 | §7 |
@@ -540,58 +540,71 @@ void, or a result entered by hand). It was fixed in the port, with a test.
 - No web, deploy or worker change.
 - The public route census is unchanged.
 
-### Phase 2: worker integration
+### Phase 2: worker integration. Done, 2026-10-08
 
-- Register the tracker jobs in Juju's scheduler.
-- One `Breakers` and one `source_health`.
-- A unified Odds reserve and a closing-capture guard.
-- nflverse leg verification on Juju's streaming client (drop nflreadpy).
-- The canary, the prune job, and the `record_event_ids` plumbing.
-- Port PT's worker tests: settle jobs, live recording and simulation, `poll_nfl_live`, the
-  canary/prune/CLI cases, and the four end-to-end import cases that settle.
+**What shipped:**
+- The tracker's jobs in Juju's one scheduler (`juju/tracker/worker/`), named `tracker_*`:
+  - the live poll for pending legs, finals, settlement and the 24-hour recheck;
+  - nflverse verification at 10:00 ET;
+  - the canary at 09:00 ET and at startup;
+  - pruning, and closing-line capture when there is a key.
+- One router, so one ESPN rate limit and one set of breakers. One Odds API client, so one key
+  and one reserve.
+- `RECORD_EVENT_IDS`, and a raw-sample sink on the shared router.
+- `tracker-backfill` (it takes Juju's worker lock), `export-sample` and `export-recording`.
+- PT's worker tests: settlement, the live poll, closing capture, verification, the live
+  simulation and recording replay, canary/prune/CLI, the worker, the new markets and box
+  scores, and the four settling import cases. All green, with no network in any test.
 
-**Exit:**
-- The worker runs the union of jobs against the dev DB with fixtures.
-- No new network paths.
-- Heartbeat and canary rows appear in `source_health`.
-- Memory stays inside 512 MB (watch the nflverse CSV reads).
-
-**Estimate:** 1–2 sessions.
-
-**Notes from the Phase 1 reading:**
-- **Box scores.**
-  - Juju's parser is NFL-only and keyed by `Stat`. Its values for PT's 8 NFL markets are the
-    same.
-  - The tracker needs a `MarketType`→`Stat` map for the NFL, plus PT's NBA (points) and NHL
-    (goals + assists) columns for the other sports, with a router `box_score(…, sport=)` that
-    skips plays.
-  - **Never add a member to Juju's `Stat`:** `write_box` writes every `Stat` for every player,
-    and `live_stats`' CHECK lists exactly the 20 current values.
-  - Juju's parser is also stricter: it needs 20 stats' columns, and it records `appeared` (a
-    listed player has 0 for a stat he lacks). PT's rule is the opposite: absent is neither zero
-    nor void. Keep PT's rule for legs.
+**How the Phase 1 notes were settled:**
+- **Box scores: one parser.**
+  - Juju's `espn.parse_box_score` takes a column table (Juju's `STAT_COLUMNS` by default), and
+    the router's new `box_score(…, sport=, columns=, check_stats=)` reads any sport, without
+    plays.
+  - The tracker's table (`tracker/feed.py`) uses, for its 8 NFL markets, exactly the columns of
+    the matching Juju `Stat`: one definition, not two. It adds NBA points and NHL goals +
+    assists.
+  - Its values are identical to PT's own parser on all 7 recorded box scores (NFL, NBA, NHL,
+    the cdn wrapper, overtime). PT's rule holds: a player absent from the tables has no value.
+  - `Stat` is untouched.
+- **The jobs keep PT's calls.** Two thin adapters give them PT's interface over Juju's shared
+  code: `EspnFeed` (`scoreboard(sport, day)`, `box_score(sport, event)`) and `OddsFeed`. So the
+  jobs and their tests ported nearly verbatim.
 - **nflverse.**
-  - Juju has no snap counts and no `pfr_id`, which PT's "played, no stat" rule
-    (`offense_snaps`) reads. Add them under their own dataset key, never in Juju's `players`
-    columns: a missing column there would open the nflverse breaker and stop `VerifyGames`.
-  - Rebuild `stat_value` on `game_stats()` with PT's rule (every column empty means no stat
-    line; Juju counts empty as 0), cached per game.
-  - `warm()` must skip the play-by-play file on the 512 MB worker.
+  - Juju's client gained two datasets of its own: `snap_counts`, and `player_ids` (espn_id →
+    pfr_id, read from the players file under its own key, so a change there can't stop
+    `VerifyGames`).
+  - `tracker/nflverse.py` (`NflverseLegs`) has PT's `stat_value`, with its "every column empty
+    is no stat line" rule, and `offense_snaps`. nflreadpy and polars are gone.
+  - The fixture is a real slice recorded today (`scripts/record_nflverse.py --tracker`).
+    PT's own slice had 0 in 21 values of the four markets it added on 2026-09-29 (completions,
+    touchdowns, field goals); nflverse has the real numbers, which match ESPN. No test depended
+    on those zeros.
 - **The Odds API.**
-  - Juju's client asks for `bookmakers=<its chain>`; PT's asked for `regions=us`. That changes
-    which books a closing line comes from. Decide; if `regions` is kept, add it as a
-    keyword-only option without changing Juju's own requests.
-  - One shared client. The tracker's captures are not priority (only T-45 may spend below the
-    reserve).
-- **ESPN budget.** Juju's live loop already uses most of the 20 requests a minute on busy
-  windows. PT's `PollNflLive` duplicates it for NFL games, so read Juju's `games` and
-  `live_stats` where possible; mind the zero-fill rule above. Phase 5 merges the loops.
-- **Locks and rows.**
-  - One worker and one lock key: PT's `try_lock` key retires.
-  - Both heartbeats and both `Breakers` write the same `source_health` rows, so only one
-    process may run them.
-  - Adding a sample sink to the shared router also saves Juju's own failures to `raw_samples`.
-    Decide whether that's wanted.
+  - Closing capture asks for Juju's book chain (Hard Rock first, at most 10 books: the cost of
+    one region), not PT's `regions=us`, which never returned Hard Rock.
+  - The client gained an optional `sport_key`; Juju's own requests are unchanged.
+  - The capture is not priority: it stops at Juju's reserve (1000).
+- **Raw samples.**
+  - The sink is on the shared router, so Juju's own parse failures are kept too: the last 5 per
+    provider, pruned daily.
+  - Every response is recorded only for the games in `RECORD_EVENT_IDS`.
+- **Locks and rows.** One worker, Juju's lock. PT's key retired. The heartbeat and `guarded` are
+  Juju's, which were the same code.
+- **ESPN budget.** The tracker's live poll makes no request unless a pending leg is on an active
+  NFL game. Merging it with Juju's loop is still Phase 5.
+
+**Checked:**
+- The real worker ran for 150 s against a scratch database, with no Odds API key, while
+  TB @ DAL was about to start.
+- Every job ran without error, and the startup log line `up.sh` checks is unchanged.
+- The canary parsed the latest finished NFL game from all three ESPN hosts and loaded all five
+  nflverse datasets: every provider `ok` in `source_health`.
+- Peak memory for the canary and Juju's nflverse check together: 98 MB, against the worker's
+  512 MB.
+
+**Not ported, on purpose:** PT's `tests/live/` (two `-m live` tests that call real services).
+Juju's tests block the network, and the canary is the same check, run by the worker.
 
 ### Phase 3: auth + `/api/me`
 
