@@ -1,5 +1,6 @@
-# Ported from parlaytracker@c3bd43c parlaytracker/ingest/slip_import.py. Changes: imports, and
-# Juju's PlayerMatch names the matched id `espn_athlete_id`.
+# Ported from parlaytracker@c3bd43c parlaytracker/ingest/slip_import.py. Changes: imports; Juju's
+# PlayerMatch names the matched id `espn_athlete_id`; and `check_import` no longer crashes on a
+# disagreeing leg with no final value (a void, or a result entered by hand).
 """Loading slips transcribed into a CSV, for `cli import-slips` and `cli check-import`.
 
 One row per leg. The plan step matches each slip to its ESPN game and each player to a roster
@@ -459,11 +460,12 @@ def check_import(session: Session, slips: list[CsvSlip]) -> CheckReport:
             elif leg.result is RESULTS[csv_leg.result]:
                 report.legs_agree += 1
             else:
+                # A void, or a result entered by hand, has no final value.
+                at = "" if leg.final_value is None else f" at {leg.final_value.normalize():f}"
                 report.mismatches.append(Mismatch(
                     csv_slip.slip_id,
                     f"leg {csv_leg.seq} {csv_leg.player} {csv_leg.market} over {csv_leg.line}: "
-                    f"the slip says {csv_leg.result}, we settled {leg.result.value} at "
-                    f"{leg.final_value.normalize():f}"))
+                    f"the slip says {csv_leg.result}, we settled {leg.result.value}{at}"))
         if row.status is SLIP_STATUS.get(csv_slip.status):
             report.slips_agree += 1
             if row.status is SlipStatus.WIN and csv_slip.paid is not None \

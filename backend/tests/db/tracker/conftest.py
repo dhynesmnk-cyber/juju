@@ -1,6 +1,6 @@
 # Ported from parlaytracker@c3bd43c tests/db/conftest.py. Changes: imports; `seeded_books` is new,
 # because Juju's `db` fixture empties every table after its tests, sportsbooks included; and
-# `clean` waits for the worker's tests (Phase 2), where Juju's `db` fixture does its job.
+# `clean` is Juju's `db` fixture under parlaytracker's name.
 """Fixtures for the tracker's tests against the real PostgreSQL the migrations build."""
 from datetime import UTC, datetime
 
@@ -81,3 +81,9 @@ def tag(session: Session) -> Tag:
     session.add(t)
     session.flush()
     return t
+
+
+@pytest.fixture
+def clean(db: Engine) -> None:
+    """For tests whose code commits for real: Juju's `db` fixture empties every table after."""
+    return None

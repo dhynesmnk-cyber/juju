@@ -1,5 +1,6 @@
-# Ported from parlaytracker@c3bd43c parlaytracker/ingest/router.py. Changes: imports, NFL only,
-# and `summary` returns the box score together with its notable plays (one request, both uses).
+# Ported from parlaytracker@c3bd43c parlaytracker/ingest/router.py. Changes: imports; box scores are
+# NFL only (`summary` returns the box score together with its notable plays: one request, both
+# uses); scoreboards and rosters default to the NFL, and take another sport for the tracker.
 """Per-provider circuit breakers and the ESPN router (SPEC.md section 8.3).
 
 `Breakers` keeps one breaker per provider and persists it to `source_health`. `EspnRouter`
@@ -308,11 +309,10 @@ class EspnRouter:
 
     # --- public requests -------------------------------------------------------------------
 
-    def scoreboard(self, day: date, max_wait: float = 0.0, *,
-                   only: DataSource | None = None) -> Routed[espn.ScoreboardResult]:
+    def scoreboard(self, day: date, max_wait: float = 0.0, *, only: DataSource | None = None,
+                   sport: Sport = Sport.NFL) -> Routed[espn.ScoreboardResult]:
         """A day's scoreboard from the first working provider, or from `only` (the frozen-feed
-        probe asks the other provider, section 8.3)."""
-        sport = Sport.NFL
+        probe asks the other provider, section 8.3). Another sport is for the tracker's slips."""
         path = f"{espn.SPORT_PATHS[sport]}/scoreboard"
 
         def check(result: espn.ScoreboardResult) -> None:
@@ -356,9 +356,9 @@ class EspnRouter:
         return self._route(_BOX_PROVIDERS, fetch, parse, check, max_wait,
                            recording_id=espn_event_id, only=only)
 
-    def roster(self, team_id: str, max_wait: float = 0.0
+    def roster(self, team_id: str, max_wait: float = 0.0, *, sport: Sport = Sport.NFL
                ) -> Routed[list[espn.RosterPlayer]]:
-        path = f"{espn.SPORT_PATHS[Sport.NFL]}/teams/{team_id}/roster"
+        path = f"{espn.SPORT_PATHS[sport]}/teams/{team_id}/roster"
         return self._route(_SCORE_PROVIDERS, lambda p, w: self._get_site(p, path, None, w),
                            espn.parse_roster, lambda _: None, max_wait, recording_id=None)
 

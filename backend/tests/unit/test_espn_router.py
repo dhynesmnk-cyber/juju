@@ -10,7 +10,7 @@ import httpx
 import pytest
 import respx
 
-from juju.core.enums import DataSource, EventStatus, FailureKind
+from juju.core.enums import DataSource, EventStatus, FailureKind, Sport
 from juju.ingest.http import RateLimited, RateLimiter
 from juju.ingest.router import (
     AllProvidersFailed,
@@ -293,3 +293,18 @@ def test_a_scoreboard_showing_a_watched_event_is_recorded(samples):
         200, json=load("nfl_scoreboard_2026-09-28_scheduled.json")))
     watching.scoreboard(date(2026, 9, 28))  # a day without the event
     assert samples == []
+
+
+# --- Other sports (the tracker's slips) -------------------------------------------------------
+
+
+@respx.mock
+def test_a_scoreboard_and_a_roster_for_another_sport_use_that_sports_path(router):
+    nba = "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba"
+    respx.get(f"{nba}/scoreboard", params={"dates": "20260301"}).mock(
+        return_value=httpx.Response(200, json=load("nba_scoreboard_2026-03-01.json")))
+    respx.get(f"{nba}/teams/18/roster").mock(
+        return_value=httpx.Response(200, json=load("nba_roster_18.json")))
+    board = router.scoreboard(date(2026, 3, 1), sport=Sport.NBA).value
+    assert len(board.games) == 11 and all(g.sport is Sport.NBA for g in board.games)
+    assert len(router.roster("18", sport=Sport.NBA).value) == 17
