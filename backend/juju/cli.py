@@ -7,12 +7,21 @@
   verify                 Check last week's final games against nflverse now (free), instead of
                          waiting for the worker's 10:07 or 16:07 ET run.
   seed [live|final]      Development and tests only: load the recorded PHI @ CHI game.
+
+The tracker's (the private section: docs/plans/integrate-parlaytracker.md):
+  import-slips CSV --user NAME [--apply] [--include-doubtful]
+                         Plan the slips a CSV transcribes against ESPN and, with --apply, log
+                         the sound ones as NAME's. A dry run without --apply. CSV may be `-`
+                         for standard input (the laptop's containers can't see its files).
+  check-import CSV       Compare the settled slips with what the CSV says the sportsbook paid;
+                         exits 1 on any mismatch.
 """
 import logging
 import sys
 from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from juju.config import get_settings
@@ -96,6 +105,86 @@ def seed(scenario: str = "live") -> int:
     return 0
 
 
+# --- The tracker's commands (ported from parlaytracker@c3bd43c parlaytracker/cli.py; changes:
+# ESPN through Juju's router, with in-memory breakers so a run never touches the worker's) ----
+
+
+def _read(path: Path) -> str:
+    """A file, or standard input for `-`: the laptop's containers can't see its files."""
+    return sys.stdin.read() if str(path) == "-" else path.read_text()
+
+
+def import_slips(engine: Engine, path: Path, user: str, apply: bool, include_doubtful: bool,
+                 games_for=None, roster_for=None) -> int:
+    """Plan the CSV's slips against ESPN and, with `apply`, write the ones that are sound."""
+    from juju.ingest.router import Breakers, EspnRouter
+    from juju.tracker import fetch, slip_import
+
+    wait = 30.0  # a run of requests may have to wait for ESPN's one-per-2-seconds slots
+    router = EspnRouter(Breakers(engine=None), default_max_wait=wait)
+    games_for = games_for or (lambda sport, day: fetch.scoreboard(router, sport, day, wait).games)
+    roster_for = roster_for or (lambda sport, team: fetch.roster(router, sport, team, wait))
+    try:
+        slips = slip_import.parse_csv(_read(path))
+    except (OSError, slip_import.CsvError) as e:
+        print(f"can't read {path}: {e}", file=sys.stderr)
+        return 1
+    with Session(engine) as session:
+        plans = slip_import.plan_import(session, slips, games_for=games_for,
+                                        roster_for=roster_for)
+        print(slip_import.summarize(plans))
+        if not apply:
+            print("\ndry run: nothing was written. Add --apply to import the ok slips"
+                  + (" (and, with --include-doubtful, the doubtful ones)." if not include_doubtful
+                     else "."))
+            return 0
+        report = slip_import.apply_plans(session, plans, user, include_doubtful=include_doubtful)
+        session.commit()
+    print(f"\nimported {len(report.imported)} slip(s); skipped "
+          f"{len(report.skipped)}: {report.skipped or 'none'}")
+    return 0
+
+
+def check_import(engine: Engine, path: Path) -> int:
+    from juju.tracker import slip_import
+
+    try:
+        slips = slip_import.parse_csv(_read(path))
+    except (OSError, slip_import.CsvError) as e:
+        print(f"can't read {path}: {e}", file=sys.stderr)
+        return 1
+    with Session(engine) as session:
+        report = slip_import.check_import(session, slips)
+    print(f"{report.slips} slips in the database; legs: {report.legs_agree} agree, "
+          f"{report.legs_pending} not settled yet, {report.legs_review} in Review; "
+          f"slips agreeing: {report.slips_agree}")
+    if report.not_imported:
+        print(f"not imported: {', '.join(report.not_imported)}")
+    for m in report.mismatches:
+        print(f"MISMATCH {m.slip_id}: {m.what}")
+    for note in report.payout_notes:
+        print(f"payout: {note}")
+    return 1 if report.mismatches else 0
+
+
+def _option(args: list[str], name: str) -> str | None:
+    """The value after `name` in `args`, if both are there."""
+    if name in args and args.index(name) + 1 < len(args):
+        return args[args.index(name) + 1]
+    return None
+
+
+def _positional(args: list[str]) -> list[str]:
+    """`args` without the --flags and the value after --user (`-` is standard input)."""
+    out, skip = [], False
+    for arg in args:
+        if skip or arg == "--user":
+            skip = not skip
+        elif not arg.startswith("--"):
+            out.append(arg)
+    return out
+
+
 def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     if not argv:
@@ -111,6 +200,12 @@ def main(argv: list[str]) -> int:
         return verify()
     if cmd == "seed":
         return seed(args[0] if args else "live")
+    files, user = _positional(args), _option(args, "--user")
+    if cmd == "import-slips" and len(files) == 1 and user:
+        return import_slips(_engine(), Path(files[0]), user, "--apply" in args,
+                            "--include-doubtful" in args)
+    if cmd == "check-import" and len(files) == 1:
+        return check_import(_engine(), Path(files[0]))
     print(__doc__)
     return 2
 

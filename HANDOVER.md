@@ -9,12 +9,13 @@ where the build stands and what to do next. Update it before you finish a sessio
 
 | | |
 |---|---|
-| Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, and PR #8 the CI time limits. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
+| Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, and PR #9 Phase 1 of the tracker (below). PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
 | CI | Green on every merged PR head. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
-| Tests | 1,164 backend tests, 9 web unit tests (`node --test`), 17 Playwright tests |
-| Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07, and the owner has it running on the laptop (2026-10-08). Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
+| Tests | 1,695 backend tests (1,164 before the tracker; 520 of the new ones are the tracker's), 9 web unit tests (`node --test`), 17 Playwright tests |
+| Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. On 2026-10-08 the owner was setting it up on the laptop (the code wasn't cloned there yet); ask whether it runs. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
 | Real data | No real capture has run. The archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
+| The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phase 1 (the backend core) is done**; Phase 2 (the worker) is next. Nothing user-visible yet: no routes, no jobs, and the web code is unchanged |
 
 ## First thing to do
 
@@ -97,7 +98,20 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
     `parlay_view` (M4), which prices legs exactly like single cards and shows each leg's price;
   - `lookup.py`: which player or team a lookup means; reads the play from the named player's
     side (a defender's interception is his); several certain bets in one line are a parlay.
-- `cli.py`: `backfill`, `unmapped`, `verify` (runs the nflverse check now), `seed live|final`.
+- `tracker/` (Phase 1 of the plan above): parlaytracker@c3bd43c's core, ported with
+  `Ported from` headers. Nothing calls it yet:
+  - `models.py`: slips, legs, events (any of four sports), tags, sportsbooks, raw samples, on
+    Juju's `Base` (migration 0006). Leg sources are `LegSource`, PT's `DataSource`: Juju's has
+    `odds_api` and no `manual`;
+  - `services.py`: the **only** write path for slips and legs (services flush, callers commit);
+  - `settlement.py`, `live.py` (the Watch read model), `analytics.py`, `closing.py`,
+    `markets.py`, `schemas.py`: PT's rules. Where Juju has the same rule, the tracker uses
+    Juju's (odds, `settle_over`/`settle_spread`, freshness and status text, name matching);
+  - `resolve.py` (the slip resolver), `slip_import.py` (the CSV importer), `fetch.py` (ESPN
+    scoreboards and rosters for any sport, through Juju's router).
+- `cli.py`: `backfill`, `unmapped`, `verify` (runs the nflverse check now), `seed live|final`,
+  and the tracker's `import-slips CSV --user NAME [--apply]` (a dry run without `--apply`;
+  `-` reads standard input) and `check-import CSV`.
 - `scripts/`: `dev_postgres.py`; `record_nflverse.py` (slices nflverse files into fixtures,
   free); `eval_lookup.py` (the golden set with or without an LLM, to choose `LLM_MODEL`).
 
@@ -123,7 +137,9 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
 `.claude/skills/deploy-laptop/SKILL.md` explains the laptop setup, its invariants and its
 failure modes, and how to test it in a cloud container.
 
-**Docs**: `docs/GOALS.md` (v2: decisions, milestones), `docs/licensing.md`, `docs/deploy.md`
+**Docs**: `docs/plans/integrate-parlaytracker.md` (the tracker: the owner's plan, corrected
+after Phase 1, with checklists of what only PT's Streamlit pages held), `docs/GOALS.md` (v2:
+decisions, milestones), `docs/licensing.md`, `docs/deploy.md`
 (Fly, Cloudflare including Turnstile and the share-image cache, the worlds kill switch, the
 verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
 
@@ -150,6 +166,11 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
     Python backend) and not yet Fly (cost): for the owner and two users, behind one shared
     passcode, through their existing Tailscale, with the recorded demo game and no Odds API
     key. The owner runs `deploy/laptop/up.sh` themselves.
+11. **parlaytracker is folded into Juju** (2026-10-08) as a private `/me` section, "Watch my
+    parlays" (`docs/plans/integrate-parlaytracker.md` §2). All six Streamlit pages are rebuilt
+    in Next.js, and its Python logic moves into the backend. Per-user passcodes extend the
+    passcode gate. Fresh data: nothing is migrated, but the CSV importer is kept. At the end the
+    parlaytracker repo is archived. The Fly launch plan is unchanged; `/me` stays private.
 
 ## Decisions made by agents (reasons in the commits; change only with a reason)
 
@@ -174,6 +195,15 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
 - **Several bets in one line become a parlay only when every part is certain**; otherwise the
   line is read as one lookup, as before.
 - **A card with no price has no line and is never decided** (before, it crashed the page).
+- **The tracker shares Juju's code only where the rule is identical** (checked line by line in
+  Phase 1). Otherwise it keeps parlaytracker's version in `tracker/`: Juju's cards and lookups
+  depend on Juju's. Its tables keep parlaytracker's names (`events`, `slips`, …), beside
+  Juju's `games`.
+- **The migration test now compares catalogs** (columns, constraints including CHECK text,
+  indexes) between the migrated schema and `create_all`, as parlaytracker's did: Alembic's
+  comparison doesn't see CHECKs, and the tracker's integrity lives in them.
+- **`check-import` no longer crashes** on a disagreeing leg with no final value (a void, or a
+  result entered by hand). That was a parlaytracker bug, found by a new test.
 
 ## Fixtures (reuse them: the Odds API ones cost credits)
 
@@ -184,6 +214,7 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
 | `espn/nfl_summary_401872963_full.json` | The full PHI @ CHI summary, used by the plays parser and the seed |
 | `espn/nfl_roster_{21,3,23,5}.json`, `espn/nfl_scoreboard_*.json` | Rosters and scoreboards for both recorded games (`nfl_roster_22.json`, Arizona, is only for a parser test). ESPN is free |
 | `nflverse/*.csv` | **Recorded 2026-09-30, free**: PHI @ CHI (final 27–7) and PIT @ CLE (not played) from nflverse's schedule, its 65 stat lines and players, and its 155 plays. Re-record with `scripts/record_nflverse.py` |
+| `espn/{nba,nhl}_scoreboard_2026-03-01.json`, `espn/mlb_scoreboard_2026-05-05_postponed.json`, `espn/{nba_roster_18,nhl_roster_16,mlb_roster_10}.json` | From parlaytracker (free): the other sports' scoreboards and rosters, for the tracker's slips. Its ten files that share a path with Juju's are byte-identical |
 | `lookups/golden.jsonl` | 177 lookups about the recorded game with their right answers (`tests/lookups.py`): 125 exact, 49 asked, 3 missed, 0 wrong without the LLM |
 
 The recorded PHI @ CHI odds have **no TD-scorer markets**; tests that need them add a price to
@@ -200,6 +231,11 @@ worker with it, and the worker made one free events call before it was stopped. 
 ## Next steps
 
 In order. None of these needs the owner, except where it says so.
+
+**0. The tracker, Phase 2: the worker** (`docs/plans/integrate-parlaytracker.md` §10). First
+read that phase's "Notes from the Phase 1 reading": box scores by `MarketType` for four sports
+without touching Juju's `Stat`, nflverse snap counts, the Odds API's books, ESPN's request
+budget, one lock. Then Phases 3–6 in order. The owner may interleave M5 (below).
 
 **1. Follow-ups from M3 and M4** (small, each a commit):
 - **A share image for a parlay:** `/g/[game]/parlay/image?legs=`, reusing `lib/shareImage.tsx`
@@ -237,6 +273,12 @@ pages and of state exposure; then a soft launch.
 6. **Before public launch:** the live-stats licence decision, and legal review.
 7. **FYI:** GitHub reports the parlaytracker repository as **public**, while the old goals doc
    said "still private". The owner was told on 2026-09-30.
+8. **For the tracker** (`docs/plans/integrate-parlaytracker.md` §13): two usernames (Phase 3;
+   `up.sh` makes the passcodes); optionally an OpenRouter key for the screenshot reader
+   (`QWEN_API_KEY`, Phase 4g); a backup destination and one restore drill (Phase 6); a real
+   game weekend for acceptance; approval to archive the parlaytracker repo at the end; and
+   whether the laptop gets parlaytracker's auto-update and backup timers. The 25 historical
+   Hard Rock slips are on the owner's side as a CSV: never in the repo.
 
 ## Gotchas
 
@@ -293,5 +335,11 @@ pages and of state exposure; then a soft launch.
   is demo data, which is why `dev_seed.py` reads from `tests/` and the production image doesn't
   include the fixtures. Deciding plays and corrections in `juju_dev` survive a reseed: rebuild
   the schema for a clean slate.
+- **The tracker's tests** live in `tests/unit/tracker/` and `tests/db/tracker/`, with helpers in
+  `tests/tracker_support.py`. Its database tests run in a rolled-back savepoint (`session`), and
+  an autouse fixture puts back migration 0006's four sportsbooks, because Juju's `db` fixture
+  empties every table after its tests. A "SPEC.md" in a tracker docstring is parlaytracker's.
+  To read parlaytracker itself: `git clone --depth 1
+  https://github.com/dhynesmnk-cyber/parlaytracker` (public; read only, never change it).
 - **ESPN and nflverse clocks differ:** ESPN's play clock is after the play (8:47), nflverse's is
   at the snap (8:56). Don't compare them.

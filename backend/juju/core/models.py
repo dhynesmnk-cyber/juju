@@ -263,3 +263,8 @@ class SourceHealth(Base):
     errors_last_hour: Mapped[int] = mapped_column(default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
     quota_remaining: Mapped[int | None]
+
+
+# The tracker's tables share this metadata: one database, one Alembic history. Imported last, so
+# anything that reads Base.metadata (migrations, tests, the TRUNCATE between tests) sees them too.
+import juju.tracker.models  # noqa: E402, F401
