@@ -1,6 +1,7 @@
-# Ported from parlaytracker@c3bd43c parlaytracker/ingest/router.py. Changes: imports; box scores are
-# NFL only (`summary` returns the box score together with its notable plays: one request, both
-# uses); scoreboards and rosters default to the NFL, and take another sport for the tracker.
+# Ported from parlaytracker@c3bd43c parlaytracker/ingest/router.py. Changes: imports; Juju's box
+# scores are NFL only (`summary` returns the box score together with its notable plays: one
+# request, both uses); `box_score` reads the tracker's markets in any sport; and scoreboards and
+# rosters default to the NFL, and take another sport for the tracker.
 """Per-provider circuit breakers and the ESPN router (SPEC.md section 8.3).
 
 `Breakers` keeps one breaker per provider and persists it to `source_health`. `EspnRouter`
@@ -10,9 +11,10 @@ next one in the same run, classifies every failure, and saves raw samples.
 import logging
 import threading
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Engine
@@ -330,14 +332,7 @@ class EspnRouter:
                 only: DataSource | None = None) -> Routed[Summary]:
         """The box score and notable plays from the first working provider, or from `only`."""
         sport = Sport.NFL
-        path = f"{espn.SPORT_PATHS[sport]}/summary"
-
-        def fetch(provider: DataSource, wait: float) -> tuple[str, JsonResponse]:
-            if provider is DataSource.ESPN_CDN:
-                url = espn.CDN_URL.format(league=espn.CDN_LEAGUES[sport])
-                params = {"xhr": "1", "gameId": espn_event_id}
-                return url, get_json_response(url, params, self._limiter, wait)
-            return self._get_site(provider, path, {"event": espn_event_id}, wait)
+        fetch = self._summary_fetch(sport, espn_event_id)
 
         def parse(payload: Any) -> Summary:
             box = espn.parse_box_score(payload)
@@ -356,6 +351,22 @@ class EspnRouter:
         return self._route(_BOX_PROVIDERS, fetch, parse, check, max_wait,
                            recording_id=espn_event_id, only=only)
 
+    def box_score(self, espn_event_id: str, max_wait: float = 0.0, *, sport: Sport,
+                  columns: Mapping[Any, tuple[espn.Source, ...]],
+                  check_stats: Callable[[dict[Any, dict[str, Decimal]]], None] | None = None,
+                  only: DataSource | None = None) -> Routed[espn.BoxScore]:
+        """A box score in any sport with the stats `columns` names, and no plays: the tracker's
+        legs. The scores are checked as always; `check_stats` checks the stats."""
+        def check(box: espn.BoxScore) -> None:
+            guards.check_score(sport, box.home_score)
+            guards.check_score(sport, box.away_score)
+            if check_stats is not None:
+                check_stats(box.stats)
+
+        return self._route(_BOX_PROVIDERS, self._summary_fetch(sport, espn_event_id),
+                           lambda payload: espn.parse_box_score(payload, sport, columns),
+                           check, max_wait, recording_id=espn_event_id, only=only)
+
     def roster(self, team_id: str, max_wait: float = 0.0, *, sport: Sport = Sport.NFL
                ) -> Routed[list[espn.RosterPlayer]]:
         path = f"{espn.SPORT_PATHS[sport]}/teams/{team_id}/roster"
@@ -363,6 +374,19 @@ class EspnRouter:
                            espn.parse_roster, lambda _: None, max_wait, recording_id=None)
 
     # --- internals -------------------------------------------------------------------------
+
+    def _summary_fetch(self, sport: Sport, espn_event_id: str
+                       ) -> Callable[[DataSource, float], tuple[str, JsonResponse]]:
+        """How each provider is asked for one game's summary (the cdn wraps the same one)."""
+        path = f"{espn.SPORT_PATHS[sport]}/summary"
+
+        def fetch(provider: DataSource, wait: float) -> tuple[str, JsonResponse]:
+            if provider is DataSource.ESPN_CDN:
+                url = espn.CDN_URL.format(league=espn.CDN_LEAGUES[sport])
+                params = {"xhr": "1", "gameId": espn_event_id}
+                return url, get_json_response(url, params, self._limiter, wait)
+            return self._get_site(provider, path, {"event": espn_event_id}, wait)
+        return fetch
 
     def _get_site(self, provider: DataSource, path: str, params: dict[str, str] | None,
                   wait: float) -> tuple[str, JsonResponse]:

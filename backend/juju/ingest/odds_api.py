@@ -2,8 +2,8 @@
 
 After parlaytracker@c3bd43c parlaytracker/ingest/odds_api.py. Added: the `bookmakers`
 parameter, market-level `last_update` (kept for provenance), the historical endpoints (gap repair
-and backfill), `/scores`, and the raw body of every odds response (hashed and stored with the
-snapshot).
+and backfill), `/scores`, the raw body of every odds response (hashed and stored with the
+snapshot), and a `sport_key` on `events` and `event_odds` for the tracker's other sports.
 
 Every call goes through the shared HTTP layer and the `odds_api` circuit breaker. The API key is
 a query parameter, so nothing here may log a URL with its parameters.
@@ -142,14 +142,15 @@ class OddsApiClient:
         self.calls = 0
         self._raw = ""
 
-    def events(self) -> list[ApiEvent]:
-        """Upcoming games. Costs 0 credits."""
-        return self._parse(_EVENTS, self._get(f"/sports/{SPORT}/events", {}))
+    def events(self, *, sport_key: str = SPORT) -> list[ApiEvent]:
+        """Upcoming games (the NFL's unless the tracker asks for another sport). Costs 0
+        credits."""
+        return self._parse(_EVENTS, self._get(f"/sports/{sport_key}/events", {}))
 
-    def event_odds(self, event_id: str, markets: Sequence[str],
-                   bookmakers: Sequence[str]) -> OddsResponse:
+    def event_odds(self, event_id: str, markets: Sequence[str], bookmakers: Sequence[str], *,
+                   sport_key: str = SPORT) -> OddsResponse:
         """One game's odds. Costs (markets returned) x (1 per 10 books) credits."""
-        data = self._get(f"/sports/{SPORT}/events/{event_id}/odds",
+        data = self._get(f"/sports/{sport_key}/events/{event_id}/odds",
                          self._odds_params(markets, bookmakers))
         return OddsResponse(self._parse(_EVENT_ODDS, data), self._raw, self.last_cost)
 

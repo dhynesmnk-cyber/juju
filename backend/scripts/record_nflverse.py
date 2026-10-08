@@ -1,11 +1,16 @@
 """Record a slice of nflverse's release files for tests: the rows for a few games, unchanged.
 
     python scripts/record_nflverse.py 2026 401872963 401872964
+    python scripts/record_nflverse.py --tracker 2026 401872954 401872958
 
 Downloads the schedule, players, weekly player stats and play-by-play for the season, and writes
 the rows for those ESPN event ids to tests/fixtures/nflverse/ as plain CSV with every column.
 Players are the ones with a stat line in those games. nflverse is free: this costs nothing, but
 it uses the network, so it is a script and never part of the tests.
+
+`--tracker` writes the tracker's slice to tests/fixtures/nflverse/tracker/ instead: the snap
+counts too (the tracker's "played, no stat" rule reads them), the players who took a snap as
+well as those with a stat line, and no play-by-play (the tracker doesn't read it).
 """
 import csv
 import gzip
@@ -28,9 +33,9 @@ def _rows(url: str) -> tuple[list[str], list[dict[str, str]]]:
     return list(reader.fieldnames or ()), list(reader)
 
 
-def _write(name: str, fields: list[str], rows: list[dict[str, str]]) -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    with (OUT / name).open("w", newline="", encoding="utf-8") as f:
+def _write(name: str, fields: list[str], rows: list[dict[str, str]], out: Path = OUT) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    with (out / name).open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
@@ -55,7 +60,31 @@ def main(season: int, espn_ids: list[str]) -> None:
     _write(f"play_by_play_{season}.csv", fields, [p for p in pbp if p["game_id"] in game_ids])
 
 
+def main_tracker(season: int, espn_ids: list[str]) -> None:
+    out = OUT / "tracker"
+    fields, games = _rows(f"{BASE_URL}/schedules/games.csv.gz")
+    games = [g for g in games if g["espn"] in espn_ids]
+    _write("games.csv", fields, games, out)
+    game_ids = {g["game_id"] for g in games}
+
+    fields, stats = _rows(f"{BASE_URL}/stats_player/stats_player_week_{season}.csv.gz")
+    stats = [r for r in stats if r["game_id"] in game_ids]
+    _write(f"stats_player_week_{season}.csv", fields, stats, out)
+
+    fields, snaps = _rows(f"{BASE_URL}/snap_counts/snap_counts_{season}.csv.gz")
+    snaps = [r for r in snaps if r["game_id"] in game_ids]
+    _write(f"snap_counts_{season}.csv", fields, snaps, out)
+
+    fields, players = _rows(f"{BASE_URL}/players/players.csv.gz")
+    gsis, pfr = {r["player_id"] for r in stats}, {r["pfr_player_id"] for r in snaps}
+    _write("players.csv", fields,
+           [p for p in players if p["gsis_id"] in gsis or p["pfr_id"] in pfr], out)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
+    args = sys.argv[1:]
+    tracker = "--tracker" in args
+    args = [a for a in args if a != "--tracker"]
+    if len(args) < 2:
         sys.exit(__doc__)
-    main(int(sys.argv[1]), sys.argv[2:])
+    (main_tracker if tracker else main)(int(args[0]), args[1:])

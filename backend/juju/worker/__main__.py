@@ -4,6 +4,10 @@ After parlaytracker@c3bd43c parlaytracker/worker/__main__.py: a Postgres advisor
 one worker: two would spend Odds API credits twice), a BlockingScheduler with
 coalesce=True, max_instances=1, and every job wrapped by `guarded`. On Fly.io this process
 never scales to zero (docs/deploy.md).
+
+The tracker's jobs (`juju/tracker/worker/`) run here too, on the same router and Odds API client.
+The router keeps raw samples (`raw_samples`): the last few failures per provider, and every
+response for the games in RECORD_EVENT_IDS.
 """
 import logging
 import signal
@@ -17,6 +21,8 @@ from juju.db import make_engine
 from juju.ingest.nflverse import NflverseData
 from juju.ingest.odds_api import OddsApiClient
 from juju.ingest.router import Breakers, EspnRouter
+from juju.tracker import worker as tracker
+from juju.tracker.worker.settle import sample_sink
 from juju.worker.capture import CaptureT45, RepairGaps
 from juju.worker.jobs import check_captures, guarded, heartbeat
 from juju.worker.live import PollLive
@@ -48,7 +54,8 @@ def build_scheduler(engine: Engine, breakers: Breakers, settings: Settings,
     scheduler = BlockingScheduler(
         timezone="UTC",
         job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 30})
-    router = EspnRouter(breakers)
+    router = EspnRouter(breakers, sample_sink=sample_sink(engine),
+                        record_event_ids=frozenset(settings.record_event_ids))
 
     def add(name: str, job, trigger: str, **when) -> None:
         scheduler.add_job(guarded(engine, name, job), trigger, id=name, name=name, **when)
@@ -70,6 +77,8 @@ def build_scheduler(engine: Engine, breakers: Breakers, settings: Settings,
             "interval", seconds=CAPTURE_SECONDS)
         add("repair_gaps", RepairGaps(engine, odds, settings.books, settings.odds_api_reserve,
                                       settings.repair_days), "interval", minutes=REPAIR_MINUTES)
+    for name, job, trigger, when in tracker.jobs(engine, router, breakers, odds, settings):
+        add(name, job, trigger, **when)
     return scheduler
 
 

@@ -1,9 +1,9 @@
-# Ported from parlaytracker@c3bd43c tests/db/test_import_end_to_end.py. Changes: imports; the four
-# cases that settle through the worker's jobs (CheckFinals, Settle, the backfill) wait for those
-# jobs (Phase 2); and one new case settles a leg by hand to show check-import's exit code.
+# Ported from parlaytracker@c3bd43c tests/db/test_import_end_to_end.py. Changes: imports; the
+# backfill is `tracker-backfill`; and one new case settles a leg by hand, which has no final
+# value to quote (parlaytracker's check-import crashed on it).
 """Importing transcribed slips end to end: written through `services`, settled by the same jobs
 as any slip, then compared with what the sportsbook said (ARI @ SF, recorded)."""
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal as D
 from pathlib import Path
 
@@ -27,12 +27,23 @@ from juju.tracker.models import (
     Sport,
     Sportsbook,
 )
-from tests.tracker_support import HEADER, ROSTERS, csv_text, row, two_legs
+from juju.tracker.worker.settle import CheckFinals, Settle
+from tests.tracker_support import (
+    ARI_SF,
+    FINAL_AT,
+    HEADER,
+    ROSTERS,
+    FakeRouter,
+    ari_sf_box,
+    csv_text,
+    nflverse_loader,
+    row,
+    two_legs,
+)
 
 pytestmark = pytest.mark.db
 
-ARI_SF = "401872958"  # ESPN's id for the recorded ARI @ SF game
-WEEKS_LATER = datetime(2026, 10, 17, tzinfo=UTC)
+WEEKS_LATER = FINAL_AT + timedelta(days=20)
 BOARD = espn.parse_scoreboard(
     Sport.NFL, load(FIXTURES / "espn" / "nfl_scoreboard_2026-09-27_final.json"))
 USER = "user1@example.com"
@@ -139,6 +150,14 @@ def test_one_slip_the_database_rejects_does_not_stop_the_rest(engine, clean):
     assert report.skipped["dup"].startswith("rejected:")
 
 
+def settle_all(engine):
+    router = FakeRouter()
+    router.boards[(Sport.NFL, datetime(2026, 9, 27).date())] = BOARD
+    router.boxes[ARI_SF] = ari_sf_box()
+    CheckFinals(engine, router)(WEEKS_LATER, force=True, backfill=True)
+    Settle(engine, router)(WEEKS_LATER)
+
+
 def sportsbook_rows():
     # McBride 9 receptions, Kittle 2 TDs, Brissett 38 completions, Ryland 3 FGs (ESPN's box)
     return [
@@ -154,6 +173,36 @@ def sportsbook_rows():
         row(slip_id="b", leg_seq="2", player="Chad Ryland", market="field_goals_made",
             line="2.5", result="won", raw_text="CHAD RYLAND - FIELD GOALS MADE", leg_count="2"),
     ]
+
+
+def test_settled_results_are_compared_with_what_the_sportsbook_said(engine, clean):
+    rows = sportsbook_rows()
+    with Session(engine) as s:
+        slip_import.apply_plans(s, planned(s, rows), USER)
+        s.commit()
+    settle_all(engine)
+    with Session(engine) as s:
+        report = slip_import.check_import(s, slip_import.parse_csv(csv_text(rows)))
+    assert (report.slips, report.legs_agree, report.slips_agree) == (2, 4, 2)
+    assert report.mismatches == [] and report.not_imported == []
+    # 40 at +450 pays 220.00; the sportsbook paid 220.10: a note, not a mismatch.
+    assert report.payout_notes == ["a: paid 220.10, computed 220.00"]
+
+
+def test_a_result_that_differs_from_the_sportsbooks_is_reported_with_the_value(engine, clean):
+    rows = sportsbook_rows()
+    rows[0]["line"] = "9.5"  # the sportsbook said won, but McBride had 9 receptions
+    with Session(engine) as s:
+        slip_import.apply_plans(s, planned(s, rows), USER, include_doubtful=True)
+        s.commit()
+    settle_all(engine)
+    with Session(engine) as s:
+        report = slip_import.check_import(s, slip_import.parse_csv(csv_text(rows)))
+    assert [m.slip_id for m in report.mismatches] == ["a", "a"]
+    assert report.mismatches[0].what == (
+        "leg 1 Trey McBride receptions over 9.5: the slip says won, we settled loss at 9")
+    assert report.mismatches[1].what == "the slip says won, we have loss"
+    assert report.legs_agree == 3
 
 
 def test_legs_not_yet_settled_are_counted_not_reported(engine, clean):
@@ -211,9 +260,8 @@ def test_a_dash_reads_the_csv_from_standard_input(engine, clean, monkeypatch, ca
     assert "OK        111" in capsys.readouterr().out
 
 
-def test_check_import_exits_nonzero_on_a_mismatch(engine, clean, tmp_path, capsys):
-    """New in Juju: the leg is settled by hand here (parlaytracker's case settles it through the
-    worker's jobs, which arrive in Phase 2)."""
+def test_check_import_reports_a_leg_settled_by_hand(engine, clean, tmp_path, capsys):
+    """New in Juju: a leg settled by hand has no final value to quote."""
     path = write_csv(tmp_path, two_legs())  # the sportsbook said lost
     assert cli.import_slips(engine, path, USER, True, False, games_for, roster_for) == 0
     assert cli.check_import(engine, path) == 0  # nothing settled yet: nothing to disagree with
@@ -242,3 +290,32 @@ def test_the_commands_are_reached_from_the_command_line(monkeypatch):
         ("import", "engine", Path("-"), "bob", False, True),
         ("check", "engine", Path("slips.csv")),
     ]
+
+
+def test_check_import_exits_nonzero_on_a_mismatch(engine, clean, tmp_path, capsys):
+    rows = sportsbook_rows()
+    rows[0]["line"] = "9.5"
+    path = write_csv(tmp_path, rows)
+    cli.import_slips(engine, path, USER, True, True, games_for, roster_for)
+    settle_all(engine)
+    assert cli.check_import(engine, path) == 1
+    assert "MISMATCH a: leg 1 Trey McBride" in capsys.readouterr().out
+    good = write_csv(tmp_path, sportsbook_rows())
+    assert cli.check_import(engine, good) == 1  # the wrong-line slip is still what's stored
+
+
+def test_backfill_stops_and_says_so_when_a_game_cannot_be_reached(engine, clean, capsys):
+    from juju.ingest.router import Breakers
+    from juju.tracker.nflverse import NflverseLegs
+
+    with Session(engine) as s:
+        slip_import.apply_plans(s, planned(s, two_legs()), USER)
+        s.commit()
+    router = FakeRouter()  # nothing registered: ESPN is down for every request
+    code = cli.tracker_backfill(engine, router, lambda: NflverseLegs(Breakers(engine=None),
+                                                                    nflverse_loader()))
+    assert code == 1
+    assert "not reachable on ESPN: nothing settled" in capsys.readouterr().err
+    with Session(engine) as s:
+        legs = s.scalars(select(Slip)).one().legs
+        assert all(leg.result is LegResult.PENDING and not leg.needs_review for leg in legs)

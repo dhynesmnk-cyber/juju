@@ -308,3 +308,27 @@ def test_a_scoreboard_and_a_roster_for_another_sport_use_that_sports_path(router
     board = router.scoreboard(date(2026, 3, 1), sport=Sport.NBA).value
     assert len(board.games) == 11 and all(g.sport is Sport.NBA for g in board.games)
     assert len(router.roster("18", sport=Sport.NBA).value) == 17
+
+
+@respx.mock
+def test_a_box_score_in_another_sport_reads_the_columns_it_is_given(router):
+    nba = "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/summary"
+    respx.get(nba, params={"event": "401810723"}).mock(
+        return_value=httpx.Response(200, json=load("nba_summary_401810723_final.json")))
+    columns = {"points": ((("",), (("points", 0, "sum"),)),)}
+    checked = []
+    routed = router.box_score("401810723", sport=Sport.NBA, columns=columns,
+                              check_stats=checked.append)
+    assert routed.provider is DataSource.ESPN_WEB and routed.value.status is EventStatus.FINAL
+    assert routed.value.stats["points"] and checked == [routed.value.stats]
+
+
+@respx.mock
+def test_the_cdn_is_asked_for_the_sports_own_league(router):
+    open_earlier_providers(router, "espn_cdn")
+    doc = {"gamepackageJSON": load("nba_summary_401810723_final.json")}
+    respx.get("https://cdn.espn.com/core/nba/game",
+              params={"xhr": "1", "gameId": "401810723"}).mock(
+        return_value=httpx.Response(200, json=doc))
+    routed = router.box_score("401810723", sport=Sport.NBA, columns={})
+    assert routed.provider is DataSource.ESPN_CDN and routed.value.home_score is not None
