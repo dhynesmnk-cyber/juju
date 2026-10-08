@@ -15,6 +15,12 @@ The tracker's (the private section: docs/plans/integrate-parlaytracker.md):
                          for standard input (the laptop's containers can't see its files).
   check-import CSV       Compare the settled slips with what the CSV says the sportsbook paid;
                          exits 1 on any mismatch.
+  tracker-backfill       Settle everything logged before the worker could: which old games
+                         finished, their legs, then NFL against nflverse (free). Stop the
+                         worker first; it refuses to run beside it.
+  export-sample ID PATH  Write a saved raw response (raw_samples.id) out as a test fixture.
+  export-recording EVENT DIR
+                         Write a game recorded with RECORD_EVENT_IDS out for replay in tests.
 """
 import logging
 import sys
@@ -106,7 +112,9 @@ def seed(scenario: str = "live") -> int:
 
 
 # --- The tracker's commands (ported from parlaytracker@c3bd43c parlaytracker/cli.py; changes:
-# ESPN through Juju's router, with in-memory breakers so a run never touches the worker's) ----
+# ESPN through Juju's router: in-memory breakers for the importer, so a run never touches the
+# worker's, and the worker's own for the backfill, which takes its lock; and `backfill` is
+# `tracker-backfill`, because Juju's `backfill` is the odds archive's) -----------------------
 
 
 def _read(path: Path) -> str:
@@ -167,6 +175,99 @@ def check_import(engine: Engine, path: Path) -> int:
     return 1 if report.mismatches else 0
 
 
+def tracker_backfill(engine: Engine, router, nflverse) -> int:
+    """Find out which old games finished, settle their legs, then check NFL against nflverse.
+
+    A game found final long after the fact is dated to its expected end, so the ten-minute
+    gate holds honestly. Safe to run more than once: settled legs are never touched.
+    """
+    from juju.tracker.worker.settle import CheckFinals, Settle, VerifyNfl
+
+    finals = CheckFinals(engine, router)(force=True, backfill=True)
+    if finals.skipped:
+        # Settling now would flag a game "not final 8 hours after its start" that ESPN simply
+        # couldn't be asked about. Nothing has been settled or flagged: run it again.
+        print(f"{finals.skipped} game(s) not reachable on ESPN: nothing settled. Run the "
+              "backfill again in a few minutes.", file=sys.stderr)
+        return 1
+    settled = Settle(engine, router)()
+    verified = VerifyNfl(engine, nflverse)()
+    print(f"games not yet reachable: {finals.skipped}")
+    print(f"settled from ESPN: {settled.settled}, flagged for Review: {settled.flagged}")
+    print(f"NFL: settled from nflverse {verified.settled}, verified {verified.verified}, "
+          f"flagged {verified.flagged}, left unverified {verified.skipped}")
+    return 0
+
+
+def _tracker_backfill() -> int:
+    """`tracker-backfill` with the worker's lock, router and breakers."""
+    from juju.ingest.router import Breakers, EspnRouter
+    from juju.tracker.feed import EspnFeed
+    from juju.tracker.nflverse import NflverseLegs
+    from juju.tracker.worker.settle import sample_sink
+    from juju.worker.__main__ import try_lock
+
+    engine = _engine()
+    lock_conn = engine.connect()  # the worker's lock: two writers would poll ESPN twice
+    if not try_lock(lock_conn):
+        print("the worker is running: stop it first (`docker compose -f "
+              "deploy/laptop/docker-compose.yml stop worker`), run the backfill, then start "
+              "it again", file=sys.stderr)
+        return 1
+    breakers = Breakers(engine)
+    breakers.load()
+    router = EspnRouter(breakers, sample_sink=sample_sink(engine), default_max_wait=30.0)
+    try:
+        return tracker_backfill(engine, EspnFeed(router), lambda: NflverseLegs(breakers))
+    finally:
+        breakers.persist()
+        lock_conn.close()
+
+
+def export_sample(engine: Engine, sample_id: int, path: Path) -> int:
+    """Write `raw_samples.body` to `path`, ready to drop into tests/fixtures/."""
+    from juju.tracker.models import RawSample
+
+    with Session(engine) as session:
+        sample = session.get(RawSample, sample_id)
+        if sample is None:
+            print(f"no raw sample with id {sample_id}", file=sys.stderr)
+            return 1
+        path.write_text(sample.body)
+        print(f"wrote {len(sample.body)} bytes ({sample.source}, {sample.reason}, "
+              f"{sample.fetched_at:%Y-%m-%d %H:%M}) to {path}")
+    return 0
+
+
+def export_recording(engine: Engine, espn_event_id: str, directory: Path) -> int:
+    """Write every recording of one game, in the order it was saved, as `NNNN_source_kind.json`
+    plus an `index.json`: a real game to replay through the tracker's live poll."""
+    import json
+
+    from juju.tracker.models import RawSample
+
+    with Session(engine) as session:
+        samples = session.scalars(
+            select(RawSample).where(RawSample.reason == "recording",
+                                    RawSample.espn_event_id == espn_event_id)
+            .order_by(RawSample.id)).all()
+        if not samples:
+            print(f"no recordings for event {espn_event_id}: set RECORD_EVENT_IDS before the "
+                  "game and restart the worker", file=sys.stderr)
+            return 1
+        directory.mkdir(parents=True, exist_ok=True)
+        index = []
+        for n, sample in enumerate(samples, start=1):
+            kind = "scoreboard" if sample.url.rstrip("/").endswith("scoreboard") else "summary"
+            name = f"{n:04d}_{sample.source}_{kind}.json"
+            (directory / name).write_text(sample.body)
+            index.append({"file": name, "source": sample.source, "kind": kind,
+                          "url": sample.url, "fetched_at": sample.fetched_at.isoformat()})
+        (directory / "index.json").write_text(json.dumps(index, indent=2))
+        print(f"wrote {len(samples)} responses to {directory}")
+    return 0
+
+
 def _option(args: list[str], name: str) -> str | None:
     """The value after `name` in `args`, if both are there."""
     if name in args and args.index(name) + 1 < len(args):
@@ -206,6 +307,12 @@ def main(argv: list[str]) -> int:
                             "--include-doubtful" in args)
     if cmd == "check-import" and len(files) == 1:
         return check_import(_engine(), Path(files[0]))
+    if cmd == "tracker-backfill":
+        return _tracker_backfill()
+    if cmd == "export-sample" and len(args) == 2 and args[0].isdigit():
+        return export_sample(_engine(), int(args[0]), Path(args[1]))
+    if cmd == "export-recording" and len(args) == 2:
+        return export_recording(_engine(), args[0], Path(args[1]))
     print(__doc__)
     return 2
 
