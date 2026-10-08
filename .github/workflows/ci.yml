@@ -4,9 +4,13 @@ on:
   push:
   pull_request:
 
+# Each job has a time limit, about five times its slowest green run (backend 175 s, web 75 s,
+# e2e 244 s over 30 runs to 2026-10-08), so a hung runner fails in minutes, not GitHub's six
+# hours. On 2026-10-08 an e2e job hung in apt-get for 18 minutes before it was cancelled.
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -39,6 +43,7 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: web
@@ -58,6 +63,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [backend, web]
     services:
       postgres:
