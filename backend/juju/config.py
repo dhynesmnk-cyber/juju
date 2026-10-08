@@ -41,13 +41,16 @@ class Settings(BaseSettings):
     llm_daily_budget: int = 2000  # calls per UTC day, across the API process
     # How far back repair_gaps looks for games with no on-time price.
     repair_days: int = 14
+    # ESPN event ids whose every response is kept in raw_samples, to replay a game in tests
+    # (the tracker's `export-recording`). Comma-separated; empty records nothing.
+    record_event_ids: Annotated[list[str], NoDecode] = []
 
     @field_validator("database_url")
     @classmethod
     def _normalize_url(cls, v: str) -> str:
         return normalize_database_url(v)
 
-    @field_validator("books", mode="before")
+    @field_validator("books", "record_event_ids", mode="before")
     @classmethod
     def _split_list(cls, v: object) -> object:
         if isinstance(v, str):

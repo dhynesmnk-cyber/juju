@@ -1,7 +1,8 @@
 # Ported from parlaytracker@c3bd43c parlaytracker/ingest/nflverse.py. Changes: nflverse's
 # release CSVs are read over Juju's HTTP client instead of through nflreadpy and polars (the
 # worker has 512 MB, and only a few columns are needed); Juju's `Stat`s replace parlaytracker's
-# market types; there are no snap counts (Juju never settles a missing player to zero);
+# market types; Juju itself reads no snap counts (it never settles a missing player to zero),
+# though the tracker does (`snap_counts`, `player_ids`);
 # `game_stats` returns every stat line of one game, for checking a whole box score at once; and
 # the play-by-play is new (`plays`, `play_value`, `first_td_scorer`), for the play that decided a
 # bet and the first touchdown.
@@ -43,6 +44,11 @@ FILES = {
     "players": "players/players.csv.gz",
     "player_stats": "stats_player/stats_player_week_{season}.csv.gz",
     "pbp": "pbp/play_by_play_{season}.csv.gz",
+    # The tracker's, for its "played, no stat" rule: snap counts, keyed by Pro Football
+    # Reference's id, and that id for each ESPN id. A separate dataset from "players", so a
+    # change to these columns can't stop Juju's own check.
+    "snap_counts": "snap_counts/snap_counts_{season}.csv.gz",
+    "player_ids": "players/players.csv.gz",
 }
 MAX_BYTES = 60_000_000  # a full season's play-by-play is about 30 MB gzipped
 LIMITER = RateLimiter(per_host_interval=1.0, per_minute=30)
@@ -99,6 +105,8 @@ COLUMNS: dict[str, tuple[str, ...]] = {
                      *sorted({c for cols in STAT_COLUMNS.values() for c, _ in cols})),
     "pbp": ("game_id", "time", "desc", "field_goal_result", "extra_point_result",
             *_PLAY_NUMBERS, *_PLAY_FLAGS, *_PLAY_PLAYERS),
+    "snap_counts": ("game_id", "pfr_player_id", "offense_snaps"),
+    "player_ids": ("espn_id", "pfr_id"),
 }
 
 Loader = Callable[[str, int], bytes]
@@ -311,6 +319,8 @@ class NflverseData:
                 elif dataset == "pbp":
                     for c in _PLAY_NUMBERS:
                         _number(row[c])
+                elif dataset == "snap_counts":
+                    _number(row["offense_snaps"])
         except KeyError as e:
             self._fail(dataset, FailureKind.SCHEMA, f"missing columns {e.args[0]}")
         except ValueError as e:

@@ -1,6 +1,7 @@
 # Ported from parlaytracker@c3bd43c parlaytracker/ingest/espn.py. Changes: NFL stats are keyed by
 # Juju's Stat (with longest-play and made/attempted columns), the web-app fetch helpers are gone
-# (the API never calls ESPN), and `parse_plays` reads notable plays from the same summary.
+# (the API never calls ESPN), `parse_plays` reads notable plays from the same summary, and
+# `parse_box_score` takes the columns to read, so the tracker can read its markets in any sport.
 """ESPN client and parsers (SPEC.md section 6.1).
 
 Nothing outside this module touches ESPN's raw JSON: parsers validate the parts they use
@@ -9,6 +10,7 @@ only; a malformed document raises SchemaError.
 """
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -114,8 +116,9 @@ class BoxScore:
     away_espn_team_id: str
     home_score: int | None
     away_score: int | None
-    # stat -> ESPN athlete id -> value so far
-    stats: dict[Stat, dict[str, Decimal]]
+    # stat -> ESPN athlete id -> value so far. Juju's are keyed by Stat; a box score parsed with
+    # the tracker's columns is keyed by its market types.
+    stats: dict[Any, dict[str, Decimal]]
     did_not_play: frozenset[str]  # athletes ESPN says didn't play (NBA `didNotPlay`)
     # Everyone listed anywhere in the box score: they have played, so a stat they lack is 0.
     appeared: frozenset[str] = frozenset()
@@ -409,8 +412,13 @@ def _team_id(c: _BoxCompetitorRaw) -> str:
     return team_id
 
 
-def parse_box_score(payload: Any, sport: Sport = Sport.NFL) -> BoxScore:
-    """Parse a summary or cdn document. Raises SchemaError if it isn't one we understand."""
+def parse_box_score(payload: Any, sport: Sport = Sport.NFL,
+                    columns: Mapping[Any, tuple[Source, ...]] | None = None) -> BoxScore:
+    """Parse a summary or cdn document. Raises SchemaError if it isn't one we understand.
+
+    `columns` are the stats to read, and only those columns must exist: Juju's `STAT_COLUMNS`
+    by default, or the tracker's market table for its sport (`juju/tracker/feed.py`)."""
+    columns = STAT_COLUMNS if columns is None else columns
     try:
         doc = _BoxDocRaw.model_validate(unwrap_cdn(payload))
         header = doc.header
@@ -421,7 +429,7 @@ def parse_box_score(payload: Any, sport: Sport = Sport.NFL) -> BoxScore:
         if set(sides) != {"home", "away"}:
             raise ValueError("expected one home and one away competitor")
         state = comp.status.type.state
-        stats: dict[Stat, dict[str, Decimal]] = {m: {} for m in STAT_COLUMNS}
+        stats: dict[Any, dict[str, Decimal]] = {m: {} for m in columns}
         did_not_play: set[str] = set()
         appeared: set[str] = set()
         for team in doc.boxscore.players:
@@ -431,12 +439,12 @@ def parse_box_score(payload: Any, sport: Sport = Sport.NFL) -> BoxScore:
                         did_not_play.add(a.athlete.id)
                     elif a.stats:
                         appeared.add(a.athlete.id)
-                for stat, sources in STAT_COLUMNS.items():
-                    for groups, columns in sources:
+                for stat, sources in columns.items():
+                    for groups, cols in sources:
                         if (group.name or _NO_NAME) not in groups:
                             continue
                         idx = [(group.keys.index(key), part, how)  # ValueError if one is gone
-                               for key, part, how in columns]
+                               for key, part, how in cols]
                         for a in group.athletes:
                             if a.didNotPlay or not a.stats:
                                 continue
