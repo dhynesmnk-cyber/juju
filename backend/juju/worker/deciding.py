@@ -221,18 +221,18 @@ def check_longest(session: Session, game: Game, plays: Sequence[dict[str, str]],
 
 
 def check_first_td(game: Game, plays: Sequence[dict[str, str]],
-                   espn_of: Callable[[str], str | None], now: datetime) -> None:
+                   espn_of: Callable[[str], str | None]) -> None:
     """The first touchdown's scorer in the play-by-play, kept on the game for the cards to
     compare with ESPN's (api/views.py `player_check`). Like the longest plays, it only
     confirms: ESPN's scorer still decides the card, so a disagreement leaves it unverified and
     never corrects it."""
     if not plays:
-        return
+        return  # not published yet: "no touchdown" would be a guess
     gsis = first_td_scorer(plays)
     if gsis is None:
         official = None  # no touchdown in the game
     else:
         official = (espn_of(gsis) if gsis else None) or UNKNOWN_SCORER
-    game.first_td_official, game.first_td_checked_at = official, now
+    game.first_td_official = official
     log.info("%s: the play-by-play's first touchdown: gsis %r, ESPN %r", game.label, gsis,
              official)

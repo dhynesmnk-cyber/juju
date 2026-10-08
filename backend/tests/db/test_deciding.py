@@ -12,10 +12,11 @@ import respx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from juju.api.views import FIRST_TD_UNCONFIRMED, player_view
+from juju.api.views import FIRST_TD_UNCONFIRMED, check_notes, player_check, player_view
 from juju.config import DEFAULT_BOOK_CHAIN
 from juju.core.card import Outcome
 from juju.core.enums import EventStatus, FailureKind, Stat
+from juju.core.markets import BY_KEY
 from juju.core.models import DecidingPlay, Game, LiveStat, OddsSnapshot, Play, Price
 from juju.dev_seed import RECORDED_KICKOFF, seed_phi_chi_scenario
 from juju.ingest.http import FetchError, RateLimiter
@@ -23,7 +24,7 @@ from juju.ingest.nflverse import NflverseData
 from juju.ingest.router import Breakers, EspnRouter
 from juju.worker import deciding
 from juju.worker.live import PollLive
-from juju.worker.verify import VerifyGames
+from juju.worker.verify import VerifyGames, VerifySummary
 from tests.support import BARKLEY, FIXTURES, KICKOFF, SMITH, load, nflverse_loader
 
 pytestmark = pytest.mark.db
@@ -255,7 +256,7 @@ def test_the_first_touchdown_is_verified_against_the_play_by_play(db):
     verify(db)
     with Session(db) as s:
         game = s.get(Game, game_id)
-        assert (game.first_td_official, game.first_td_checked_at) == (BURDEN, NEXT_MORNING)
+        assert (game.first_td_official, game.plays_checked_at) == (BURDEN, NEXT_MORNING)
     for athlete, outcome in ((BURDEN, Outcome.WON), (SMITH, Outcome.LOST)):
         c = card(db, game_id, athlete, "player_1st_td", NEXT_MORNING)
         assert c.outcome is outcome and c.verified is True
@@ -294,7 +295,88 @@ def test_the_first_touchdown_awaits_the_play_by_play(db):
         return fixture(dataset, season)
     assert verify(db, loader).verified == 1
     with Session(db) as s:
-        assert s.get(Game, game_id).first_td_checked_at is None
+        assert s.get(Game, game_id).plays_checked_at is None
     won = card(db, game_id, BURDEN, "player_1st_td", NEXT_MORNING)
     assert won.verified is False
     assert won.notes == ["Awaiting verification against the official stats."]
+
+
+# --- A play-by-play published late ---------------------------------------------------------------
+
+LATER = NEXT_MORNING + timedelta(hours=6)  # the 16:07 ET run
+
+
+def pbp_before_the_game() -> bytes:
+    """The play-by-play file as nflverse publishes it before this game is in it."""
+    path = FIXTURES / "nflverse" / "play_by_play_2026.csv"
+    return (path.read_text().splitlines()[0] + "\n").encode()
+
+
+def run_at(db, now, calls=None, replace=None, loader=None) -> VerifySummary:
+    return VerifyGames(db, lambda: NflverseData(
+        Breakers(engine=None), loader or nflverse_loader(replace=replace, calls=calls)))(now)
+
+
+def longest_catch_notes(db, game_id, now):
+    with Session(db) as s:
+        game = s.get(Game, game_id)
+        rows = {r.stat: r for r in s.scalars(select(LiveStat).where(
+            LiveStat.game_id == game_id, LiveStat.espn_athlete_id == SMITH))}
+        return check_notes(player_check(BY_KEY["player_reception_longest"], game, rows, [],
+                                        first_td=None), Outcome.WON)
+
+
+def test_a_play_by_play_published_late_is_read_on_a_later_run(db):
+    game_id = seeded(db)
+    add_first_td_prices(db, game_id)
+    out = verify(db, nflverse_loader(replace={"pbp": pbp_before_the_game()}))
+    assert (out.verified, out.plays, out.late) == (1, 0, 0)
+    with Session(db) as s:
+        game = s.get(Game, game_id)
+        assert game.verified_at == NEXT_MORNING and game.plays_checked_at is None
+    # Until it is read, the cards it checks await verification; nothing says it disagrees.
+    awaiting = ["Awaiting verification against the official stats."]
+    assert card(db, game_id, BURDEN, "player_1st_td", NEXT_MORNING).notes == awaiting
+    assert longest_catch_notes(db, game_id, NEXT_MORNING) == (False, awaiting)
+    assert rows(db, SMITH, Stat.RECEPTIONS, exact=True) == {}
+
+    # The next run finds it. The stats aren't checked again, so they aren't downloaded again.
+    calls = []
+    out = run_at(db, LATER, calls)
+    assert (out.verified, out.late) == (0, 1) and out.plays > 0
+    assert "player_stats" not in calls and "pbp" in calls
+    with Session(db) as s:
+        game = s.get(Game, game_id)
+        assert (game.verified_at, game.plays_checked_at) == (NEXT_MORNING, LATER)
+        assert game.first_td_official == BURDEN
+    verified = ["Verified against the official stats (nflverse)."]
+    assert card(db, game_id, BURDEN, "player_1st_td", LATER).notes == verified
+    assert longest_catch_notes(db, game_id, LATER) == (True, verified)
+    assert rows(db, SMITH, Stat.RECEPTIONS, exact=True)[D("5.5")].clock == "1:11"
+
+    # Read once: the run after downloads nothing.
+    calls = []
+    assert run_at(db, LATER + timedelta(hours=18), calls) == VerifySummary() and calls == []
+
+
+def test_a_play_by_play_still_missing_after_a_week_is_left_alone(db):
+    seeded(db)
+    verify(db, nflverse_loader(replace={"pbp": pbp_before_the_game()}))
+    calls = []
+    still_missing = {"pbp": pbp_before_the_game()}
+    assert run_at(db, LATER, calls, still_missing).late == 0 and "pbp" in calls  # tried
+    calls = []
+    a_week_on = RECORDED_KICKOFF + timedelta(days=7, minutes=1)
+    assert run_at(db, a_week_on, calls) == VerifySummary() and calls == []
+
+
+def test_a_retry_while_nflverse_is_down_waits_for_the_next_run(db):
+    game_id = seeded(db)
+    verify(db, nflverse_loader(replace={"pbp": pbp_before_the_game()}))
+
+    def down(dataset, season):
+        raise FetchError("https://github.com/x", FailureKind.TRANSIENT, "timeout")
+    assert run_at(db, LATER, loader=down) == VerifySummary()  # logged, not raised
+    with Session(db) as s:
+        assert s.get(Game, game_id).plays_checked_at is None
+    assert run_at(db, LATER + timedelta(hours=1)).late == 1
