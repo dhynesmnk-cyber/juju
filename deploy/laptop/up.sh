@@ -129,6 +129,42 @@ elif [ -z "$(get SITE_URL)" ]; then
 fi
 ok "passcode, database password and address are set"
 
+# "Watch my parlays" (/me) is off until TRACKER_USERS names its users. Write the names alone,
+# TRACKER_USERS=Chris,Ash, and each gets a passcode made up here, shown once at the end; or give
+# your own as Chris:<passcode>, 10 or more letters, digits, - _ or . (the site is public).
+new_tracker=""
+if [ -n "$(get TRACKER_USERS)" ]; then
+  checked=$(TRACKER_USERS="$(get TRACKER_USERS)" python3 -c '
+import os, re, secrets, sys
+alphabet = "abcdefghjkmnpqrstuvwxyz23456789"
+entries = [e.strip() for e in os.environ["TRACKER_USERS"].split(",") if e.strip()]
+users, made, seen = [], [], set()
+for n, entry in enumerate(entries, start=1):
+    name, colon, code = (part.strip() for part in entry.partition(":"))
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,31}", name):
+        sys.exit(f"TRACKER_USERS entry {n}: a name is a letter, then up to 31 letters, digits, "
+                 "- or _, then a colon and the passcode")
+    if name.lower() in seen:
+        sys.exit(f"TRACKER_USERS names {name} twice")
+    seen.add(name.lower())
+    if not colon:
+        code = "-".join("".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3))
+        made.append(f"{name}: {code}")
+    elif not re.fullmatch(r"[A-Za-z0-9._-]{10,200}", code):
+        sys.exit(f"TRACKER_USERS: {name}\x27s passcode needs 10 or more characters, all letters, "
+                 "digits, - _ or . (the site is on the public internet)")
+    users.append(f"{name}:{code}")
+print(",".join(users))
+print("; ".join(made))
+') || die "fix TRACKER_USERS in deploy/laptop/.env, then ./up.sh again."
+  put TRACKER_USERS "$(printf '%s\n' "$checked" | sed -n 1p)"
+  new_tracker=$(printf '%s\n' "$checked" | sed -n 2p)
+  ok "Watch my parlays is on for: $(get TRACKER_USERS | tr ',' '\n' | cut -d: -f1 | paste -sd' ')"
+  [ -z "$new_tracker" ] || note "new tracker passcodes are in .env; they are shown once, at the end"
+else
+  note "Watch my parlays (/me) is off. To turn it on, add TRACKER_USERS=Chris,Ash to .env."
+fi
+
 # --- 3. Build and start ----------------------------------------------------------------------
 step "Building the images (the first time takes several minutes)"
 compose build
@@ -174,6 +210,33 @@ cookie=$(lcurl -D - -o /dev/null --data-urlencode "passcode@$secret_file" -d nex
 rm -f "$secret_file"
 [ -n "$cookie" ] || die "the passcode in .env didn't open the site. See: docker compose logs web"
 ok "the passcode opens it"
+
+# Watch my parlays: locked for everyone but its users, each with their own passcode.
+if [ -n "$(get TRACKER_USERS)" ]; then
+  code=$(lcurl -o /dev/null -w '%{http_code}' -H "Cookie: $cookie" "$LOCAL/api/me/health")
+  [ "$code" = 401 ] || unsafe "without signing in, /api/me answered $code, not 401. See: docker compose logs web"
+  page=$(lcurl -H "Cookie: $cookie" "$LOCAL/me")
+  [[ "$page" == *'action="/me/unlock/check"'* ]] \
+    || unsafe "without signing in, /me didn't ask for a name and passcode. See: docker compose logs web"
+  IFS=, read -r -a entries <<< "$(get TRACKER_USERS)"
+  for entry in "${entries[@]}"; do
+    name=${entry%%:*}
+    printf '%s' "${entry#*:}" > "$secret_file"
+    # The site passcode comes first, the sign-in form's own address included.
+    mine=$(lcurl -D - -o /dev/null -H "Cookie: $cookie" --data-urlencode "name=$name" \
+             --data-urlencode "passcode@$secret_file" -d next=/me "$LOCAL/me/unlock/check" \
+           | tr -d '\r' | sed -n 's/^[Ss]et-[Cc]ookie: \(juju_tracker=[^;]*\).*/\1/p')
+    rm -f "$secret_file"
+    [ -n "$mine" ] || die "$name's passcode in .env didn't sign in to /me. See: docker compose logs web"
+    lcurl -H "Cookie: $cookie; $mine" "$LOCAL/api/me/health" | grep -q "\"user\":\"$name\"" \
+      || die "signed in as $name, /api/me didn't answer as $name. See: docker compose logs web api"
+  done
+  ok "Watch my parlays is locked, and each user's passcode signs them in"
+else
+  code=$(lcurl -o /dev/null -w '%{http_code}' -H "Cookie: $cookie" "$LOCAL/api/me/health")
+  [ "$code" = 404 ] || unsafe "with no TRACKER_USERS, /api/me answered $code, not 404. See: docker compose logs web"
+  ok "Watch my parlays is off: /me and /api/me don't exist"
+fi
 
 status=$(lcurl -H "Cookie: $cookie" "$LOCAL/api/status")
 [[ "$status" == *'"degraded"'* ]] \
@@ -240,6 +303,12 @@ else
   echo "   Passcode:  the one in deploy/laptop/.env"
 fi
 echo "   Share both with your two users. Each browser asks once, then remembers for 30 days."
+if [ -n "$(get TRACKER_USERS)" ]; then
+  echo "   Watch my parlays: $url/me   (each signs in with their own name and passcode)"
+  if [ -n "$new_tracker" ]; then
+    echo "   Their passcodes, made up just now and kept in deploy/laptop/.env: $new_tracker"
+  fi
+fi
 echo "   Update:    git pull && deploy/laptop/up.sh"
 echo "   Logs:      docker compose -f deploy/laptop/docker-compose.yml logs -f web api worker"
 echo "   More, including taking it offline: deploy/laptop/README.md"

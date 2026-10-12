@@ -1,22 +1,24 @@
-// The passcode page of a private preview (proxy.ts): plain HTML and one form, no app code. It
-// is served at whatever address was asked for, so there is no redirect (which, from proxy.ts,
-// needs an absolute URL a tunnel can get wrong) and nothing for the app's router to prefetch.
+// The passcode page of a private preview, and the sign-in page of "Watch my parlays" (proxy.ts):
+// plain HTML and one form, no app code. Each is served at whatever address was asked for, so
+// there is no redirect (which, from proxy.ts, needs an absolute URL a tunnel can get wrong) and
+// nothing for the app's router to prefetch.
 // No "@/" imports: `npm test` runs the lib tests with Node's own test runner.
 import { CHECK_PATH } from "./passcode.ts";
+import { TRACKER_CHECK_PATH } from "./trackerUsers.ts";
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-export function unlockHtml(next: string, wrong: boolean): string {
+function page(title: string, main: string): string {
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Private preview | Juju</title>
+<title>${title} | Juju</title>
 <style>
   :root { color-scheme: light dark; --bg: #f6f7f9; --fg: #14171c; --muted: #555d6b;
           --field: #ffffff; --line: #c9ced8; --accent: #2f5bd3; --accent-fg: #ffffff; --bad: #a8261b; }
@@ -33,6 +35,8 @@ export function unlockHtml(next: string, wrong: boolean): string {
   h1 { font-size: 1.5rem; margin: 28px 0 8px; }
   p { margin: 0 0 16px; color: var(--muted); }
   label { display: block; font-weight: 700; margin-bottom: 6px; }
+  .field { margin-bottom: 16px; }
+  .field input { width: 100%; }
   .row { display: flex; gap: 8px; }
   input { flex: 1; min-width: 0; min-height: 48px; padding: 0 12px; font: inherit; color: var(--fg);
           background: var(--field); border: 1px solid var(--line); border-radius: 10px; }
@@ -46,7 +50,18 @@ export function unlockHtml(next: string, wrong: boolean): string {
 <body>
 <main>
   <div class="brand" aria-label="Juju">ju<span>ju</span></div>
-  <h1>Private preview</h1>
+  ${main}
+  <footer>
+    <p>Juju is not a sportsbook. 21+ only. Gambling problem? Call 1-800-GAMBLER.</p>
+  </footer>
+</main>
+</body>
+</html>
+`;
+}
+
+export function unlockHtml(next: string, wrong: boolean): string {
+  return page("Private preview", `<h1>Private preview</h1>
   <p>Juju isn't open to the public yet. Enter the passcode you were given.</p>
   <form method="post" action="${CHECK_PATH}">
     <input type="hidden" name="next" value="${escapeHtml(next)}">
@@ -57,12 +72,27 @@ export function unlockHtml(next: string, wrong: boolean): string {
       <button type="submit">Open</button>
     </div>
     ${wrong ? '<p class="wrong" role="alert">That passcode didn\'t work. Try it again.</p>' : ""}
-  </form>
-  <footer>
-    <p>Juju is not a sportsbook. 21+ only. Gambling problem? Call 1-800-GAMBLER.</p>
-  </footer>
-</main>
-</body>
-</html>
-`;
+  </form>`);
+}
+
+/** "Watch my parlays": each of its users signs in with their own name and passcode. */
+export function trackerUnlockHtml(next: string, wrong: boolean): string {
+  return page("Watch my parlays", `<h1>Watch my parlays</h1>
+  <p>This part of Juju is for the two of you. Enter your name and your passcode.</p>
+  <form method="post" action="${TRACKER_CHECK_PATH}">
+    <input type="hidden" name="next" value="${escapeHtml(next)}">
+    <div class="field">
+      <label for="name">Name</label>
+      <input id="name" name="name" type="text" autocomplete="username" autocapitalize="words"
+             required maxlength="40" autofocus>
+    </div>
+    <div class="field">
+      <label for="passcode">Passcode</label>
+      <input id="passcode" name="passcode" type="password" autocomplete="current-password"
+             required maxlength="200">
+    </div>
+    <button type="submit">Sign in</button>
+    ${wrong ? '<p class="wrong" role="alert">That name and passcode don\'t match. Try them ' +
+              'again.</p>' : ""}
+  </form>`);
 }

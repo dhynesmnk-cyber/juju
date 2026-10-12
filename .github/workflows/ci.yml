@@ -85,6 +85,9 @@ jobs:
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: 1x00000000000000000000AA
       TURNSTILE_SECRET_KEY: 1x0000000000000000000000000000000AA
       TURNSTILE_E2E: "1"
+      # A test user for "Watch my parlays", so e2e/tracker.spec.ts runs: the API, the site and
+      # Playwright all read it. A CI-only passcode, like the Turnstile test keys.
+      TRACKER_USERS: "E2e:e2e-tracker-passcode"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
