@@ -1,19 +1,20 @@
 """The internal HTTP API. It is reached only through the Next.js site over Fly's private network
 and has no public address (docs/licensing.md).
 
-Every endpoint reads Postgres; none calls a data provider. The optional LLM fallback in
-`/api/lookup` is the one outbound call.
+Every public endpoint reads Postgres; none calls a data provider. The optional LLM fallback in
+`/api/lookup` is the one outbound call. The tracker's private routes, `/api/me/*`, are in
+`juju/api/me.py`; its Log form's game and roster pickers are the other exception (that file says
+how they are bounded).
 """
 import logging
 import threading
 import time
 from collections import defaultdict, deque
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -21,18 +22,29 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from juju.api import lookup
+from juju.api import lookup, me
+from juju.api.deps import SessionDep, get_session, respond  # noqa: F401 (tests override get_session)
 from juju.api.views import Focus, game_view, parlay_view, player_view, team_view
 from juju.config import Settings, get_settings
 from juju.core.enums import EventStatus, HealthState, PlayKind
 from juju.core.parlay import parse_legs
 from juju.core.models import Game, HotGame, Lookup, OddsSnapshot, Play, SourceHealth
-from juju.db import session_factory
 from juju.ingest.llm import Budget, LlmReader
 
 log = logging.getLogger("juju.api")
 
 app = FastAPI(title="Juju internal API", docs_url=None, redoc_url=None, openapi_url=None)
+app.include_router(me.router)
+
+
+@app.middleware("http")
+async def private_answers_are_never_cached(request: Request, call_next):
+    """Every /api/me answer is no-store, its errors and FastAPI's own 404, 405 and 422 too:
+    slips carry stakes (docs/plans/integrate-parlaytracker.md section 7)."""
+    response = await call_next(request)
+    if request.url.path == "/api/me" or request.url.path.startswith("/api/me/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 LOOKUPS_PER_MINUTE = 30
 # Past this many lookups in the window, a client is asked to pass Cloudflare Turnstile, when
@@ -49,20 +61,6 @@ DISCLAIMER = ("Hypothetical: what a $10 bet at the archived price would have ret
 
 def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
-
-
-def get_session() -> Iterator[Session]:
-    with session_factory()() as session:
-        yield session
-
-
-SessionDep = Annotated[Session, Depends(get_session)]
-
-
-def respond(data, cache: str | None = None) -> JSONResponse:
-    body = jsonable_encoder(data, custom_encoder={Decimal: lambda d: format(d, "f")})
-    headers = {"Cache-Control": cache or "no-store"}
-    return JSONResponse(body, headers=headers)
 
 
 # --- Abuse control ---------------------------------------------------------------------------

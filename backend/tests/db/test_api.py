@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from juju.api import app as app_module
+from juju.api import me
 from juju.config import get_settings
 from juju.dev_seed import seed_phi_chi_scenario
 from tests.support import BARKLEY, HURTS, SMITH
@@ -193,11 +194,31 @@ def test_live_lists_games_and_plays_without_prices(client, db):
 
 def test_there_is_no_endpoint_that_lists_prices_across_players(client):
     # The parlay spans players: only the legs someone picked, at one book, in one game
-    # (tests/db/test_parlay.py holds it to that).
-    paths = {r.path for r in app_module.app.routes}
-    assert paths == {"/health", "/api/status", "/api/live", "/api/suggest", "/api/lookup",
-                     "/api/player/{game_id}/{athlete_id}", "/api/team/{game_id}/{team_id}",
-                     "/api/parlay/{game_id}"}
+    # (tests/db/test_parlay.py holds it to that). Every route is in the OpenAPI listing (it is
+    # built, never served), the tracker's included router's too.
+    assert all(getattr(r, "include_in_schema", True) for r in app_module.app.routes)
+    assert all(r.include_in_schema for r in me.router.routes)
+    routes = {(path, method.upper()) for path, methods in app_module.app.openapi()["paths"].items()
+              for method in methods}
+    public = {r for r in routes if not r[0].startswith("/api/me/")}
+    assert public == {
+        ("/health", "GET"), ("/api/status", "GET"), ("/api/live", "GET"), ("/api/suggest", "GET"),
+        ("/api/lookup", "POST"), ("/api/player/{game_id}/{athlete_id}", "GET"),
+        ("/api/team/{game_id}/{team_id}", "GET"), ("/api/parlay/{game_id}", "GET")}
+    # The tracker's private routes (docs/plans/integrate-parlaytracker.md section 7): only for
+    # its signed-in users, about their own slips; none lists closing lines
+    # (tests/db/tracker/test_me_api.py holds them to that and to needing a user).
+    assert routes - public == {
+        ("/api/me/health", "GET"), ("/api/me/live", "GET"), ("/api/me/slips", "GET"),
+        ("/api/me/slips", "POST"), ("/api/me/slips/preview", "POST"),
+        ("/api/me/slips/{slip_id}/payout", "POST"), ("/api/me/slips/{slip_id}/cash-out", "POST"),
+        ("/api/me/legs/{leg_id}", "PATCH"), ("/api/me/legs/{leg_id}/closing", "POST"),
+        ("/api/me/review", "GET"), ("/api/me/analytics", "GET"), ("/api/me/games", "GET"),
+        ("/api/me/roster/{event_id}", "GET"), ("/api/me/settings/tags", "GET"),
+        ("/api/me/settings/tags", "POST"), ("/api/me/settings/tags/{tag_id}", "PATCH"),
+        ("/api/me/settings/tags/{tag_id}/merge", "POST"), ("/api/me/settings/sportsbooks", "GET"),
+        ("/api/me/settings/sportsbooks", "POST"),
+        ("/api/me/settings/sportsbooks/{book_id}", "PATCH")}
 
 
 def test_health_reports_the_worker(client, db):

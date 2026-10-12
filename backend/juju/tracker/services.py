@@ -1,5 +1,6 @@
 # Ported from parlaytracker@c3bd43c parlaytracker/core/services.py. Changes: imports, LegSource for
-# PT's DataSource, and its Live page is now the Watch page.
+# PT's DataSource, its Live page is now the Watch page, and `set_leg_tags` is new (/api/me can
+# retag a leg after it is logged).
 """The only functions that write slips and legs (SPEC.md sections 2.2 and 5).
 
 Service functions flush but never commit: wrap calls in db.session_scope().
@@ -580,6 +581,17 @@ def set_tag_retired(session: Session, tag: Tag, retired: bool) -> Tag:
     tag.retired = retired
     session.flush()
     return tag
+
+
+def set_leg_tags(session: Session, leg: Leg, tag_ids: Sequence[int]) -> Leg:
+    """Replace a leg's tags. A retired tag it already has may stay, as on old legs."""
+    wanted = set(tag_ids)
+    tags = {t.id: t for t in session.scalars(select(Tag).where(Tag.id.in_(wanted)))}
+    if missing := wanted - tags.keys():
+        raise ServiceError(f"unknown tag(s) {sorted(missing)}")
+    leg.tags = [tags[t] for t in sorted(wanted)]
+    session.flush()
+    return leg
 
 
 def tag_choices(session: Session) -> list[Tag]:

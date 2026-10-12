@@ -1,9 +1,15 @@
 """Settings: the only place environment variables are read. Keys are SecretStr, never logged."""
+import re
 from functools import lru_cache
 from typing import Annotated
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# A tracker user's name: it is `logged_by` on their slips, and the site's cookie puts it before a
+# dot, so it has none (web/lib/trackerUsers.ts has the same rule).
+TRACKER_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,31}")
 
 # Display order of books (docs/GOALS.md, "book of record"): the first book in this chain that
 # has a price on time wins. Hard Rock first, as the owner chose on 2026-09-30.
@@ -44,6 +50,15 @@ class Settings(BaseSettings):
     # ESPN event ids whose every response is kept in raw_samples, to replay a game in tests
     # (the tracker's `export-recording`). Comma-separated; empty records nothing.
     record_event_ids: Annotated[list[str], NoDecode] = []
+    # The tracker's users (/me), from TRACKER_USERS: "Chris:<passcode>,Ash:<passcode>", the
+    # variable the site reads. Only the names are kept: the site checks the passcodes and names
+    # the signed-in user in `x-juju-user`. None configured: /api/me answers 404.
+    tracker_users: Annotated[list[str], NoDecode] = []
+    # The time zone the tracker shows times in. Its analytics' days and months stay US Eastern,
+    # as ESPN files games.
+    display_tz: str = "America/New_York"
+    # A tracker analytics group with fewer decided legs than this is marked low sample.
+    min_sample: int = 30
 
     @field_validator("database_url")
     @classmethod
@@ -55,6 +70,40 @@ class Settings(BaseSettings):
     def _split_list(cls, v: object) -> object:
         if isinstance(v, str):
             return [part.strip() for part in v.split(",") if part.strip()]
+        return v
+
+    @field_validator("tracker_users", mode="before")
+    @classmethod
+    def _tracker_names(cls, v: object) -> object:
+        """Keep each entry's name, the part before its first colon; the passcode is dropped
+        here and never stored, logged or echoed in an error."""
+        if not isinstance(v, str):
+            return v
+        names = [entry.split(":", 1)[0].strip() for entry in v.split(",") if entry.strip()]
+        # By position only: a missing colon would put the passcode in the name.
+        bad = [str(n) for n, name in enumerate(names, start=1)
+               if not TRACKER_NAME.fullmatch(name)]
+        if bad:
+            raise ValueError(f"TRACKER_USERS entry {', '.join(bad)}: a name is a letter, then up "
+                             "to 31 letters, digits, - or _, then a colon and the passcode")
+        if len({n.lower() for n in names}) != len(names):
+            raise ValueError("TRACKER_USERS names the same user twice")
+        return names
+
+    @field_validator("display_tz")
+    @classmethod
+    def _real_zone(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError) as e:
+            raise ValueError(f"DISPLAY_TZ {v!r} is not an IANA time zone") from e
+        return v
+
+    @field_validator("min_sample")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("MIN_SAMPLE must be at least 1")
         return v
 
     @field_validator("books")
