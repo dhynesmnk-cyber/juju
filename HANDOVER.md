@@ -5,16 +5,17 @@ product, the owner's decisions and the reasons behind them. Then read
 [CLAUDE.md](CLAUDE.md) for the commands and the rules that are easy to break. This file says
 where the build stands and what to do next. Update it before you finish a session.
 
-## Where things stand (2026-10-08)
+## Where things stand (2026-10-12)
 
 | | |
 |---|---|
 | Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, PR #9 Phase 1 of the tracker (below), and PR #10 its Phase 2. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
 | CI | Green on every merged PR head. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
 | Tests | 1,913 backend tests (1,164 before the tracker), 9 web unit tests (`node --test`), 17 Playwright tests |
-| Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. On 2026-10-08 the owner was setting it up on the laptop (the code wasn't cloned there yet); ask whether it runs. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
-| Real data | No real capture has run. The archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
+| Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. It runs: the owner used it through real games on 2026-10-11, with a free Odds API key in `deploy/laptop/.env`. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
+| Real data | The laptop may have captured real prices on 2026-10-11, on the free key; Stage 0 of the live-test plan reads its database to find out. Otherwise the archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
+| The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **Waiting for the owner's go-ahead; nothing built yet** |
 | The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**; Phase 3 (passcode users and `/api/me`) is next. Nothing user-visible yet: no routes and no web change. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
 
 ## First thing to do
@@ -181,6 +182,14 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
     in Next.js, and its Python logic moves into the backend. Per-user passcodes extend the
     passcode gate. Fresh data: nothing is migrated, but the CSV importer is kept. At the end the
     parlaytracker repo is archived. The Fly launch plan is unchanged; `/me` stays private.
+12. **After the live test** (2026-10-12, `docs/plans/live-test-fixes.md`):
+    - **Prices:** build everything and test it on the free key first; a paid plan comes
+      later. So the capture rations credits on a small quota (one capture per game, the
+      most-asked bets first) and captures everything on a large one.
+    - **A lookup that names nobody** ("what just happened", "that TD") offers the latest
+      plays to tap, newest first, and never picks one by itself.
+    - **The UI gets a bigger redesign**, with mockups for the owner to choose from before
+      it is built.
 
 ## Decisions made by agents (reasons in the commits; change only with a reason)
 
@@ -251,7 +260,12 @@ worker with it, and the worker made one free events call before it was stopped. 
 
 In order. None of these needs the owner, except where it says so.
 
-**0. The tracker, Phase 3: passcode users and `/api/me`** (`docs/plans/integrate-parlaytracker.md`
+**0. The live-test fixes** ([docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md)),
+once the owner says go: Stage 0 (the owner pastes the laptop's evidence), then Stage 1
+(prices) before the next game day, Stage 2 (lookups and live plays), Stage 3 (mockups, the
+owner's choice, then the redesign). These come before the tracker's Phase 3.
+
+**0b. The tracker, Phase 3: passcode users and `/api/me`** (`docs/plans/integrate-parlaytracker.md`
 §7 and §10). Read that phase's checklist of what only parlaytracker's Streamlit pages held. It
 needs the owner's two usernames before deploy, not before the code. Then Phases 4–6 in order.
 The owner may interleave M5 (below).
