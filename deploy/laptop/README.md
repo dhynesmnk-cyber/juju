@@ -40,6 +40,22 @@ then puts it online and prints:
 Send the address and the passcode to your two users. Each browser asks for the passcode once,
 then remembers it for 30 days.
 
+## Watch my parlays (`/me`)
+
+The bet tracker that is replacing ParlayTracker lives at `/me`, behind a second lock: each of its
+users signs in with their own name and passcode. It is off until you name them. Add one line to
+`deploy/laptop/.env`, then run `deploy/laptop/up.sh` again:
+
+```bash
+TRACKER_USERS=Chris,Ash
+```
+
+`up.sh` makes up a passcode for each name, keeps it in `.env` and shows it once at the end: send
+each person their own. To choose them yourselves, write `TRACKER_USERS=Chris:<passcode>,Ash:<passcode>`
+instead. A passcode needs 10 or more letters, digits, `-`, `_` or `.`: the site is on the public
+internet, so `up.sh` refuses shorter ones (four digits won't do). The tracker's pages are still
+being built: for now `/me` says who is signed in.
+
 ## What you'll see
 
 - **The demo game:** real prices recorded about two hours before kickoff, so each card flags
@@ -56,6 +72,7 @@ then remembers it for 30 days.
 | Update to the latest code | `git pull && deploy/laptop/up.sh` |
 | See the logs | `docker compose -f deploy/laptop/docker-compose.yml logs -f web api worker` |
 | Change the passcode | edit `SITE_PASSCODE` in `deploy/laptop/.env`, then `deploy/laptop/up.sh` (everyone enters the new one) |
+| Change one person's tracker passcode | edit their entry in `TRACKER_USERS` in `deploy/laptop/.env` (or remove `:<passcode>` to have one made up), then `deploy/laptop/up.sh` (only that person signs in again) |
 | Take it off the internet | `sudo tailscale funnel --https=443 http://127.0.0.1:3000 off` (it keeps running on this machine; `tailscale funnel status` shows what's online) |
 | Stop it | `docker compose -f deploy/laptop/docker-compose.yml down` (keeps the data) |
 | Back up the database | `docker compose -f deploy/laptop/docker-compose.yml exec -T db pg_dump -U juju juju \| gzip > juju-$(date +%F).sql.gz` |

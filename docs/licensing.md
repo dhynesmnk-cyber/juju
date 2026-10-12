@@ -32,6 +32,11 @@ its "last updated" date changes.
     `tests/db/test_parlay.py` holds the parlay to it.
   - Rate limits and Turnstile run at Cloudflare, and Juju's terms forbid scraping.
   - The footer credits The Odds API, which is appreciated but not required.
+  - The owners' private tracker, "Watch my parlays" (`/api/me/*`, since 2026-10-12), is not on
+    that allowlist. It has its own route, which needs one of its users signed in. It shows
+    their own slips, and never a leg's closing line or odds (Odds API prices): only whether one
+    was captured, and closing-line value inside averages. `tests/db/test_api.py` lists its
+    routes, and `tests/db/tracker/test_me_api.py` holds them to that.
 
 ## nflverse (next-day verification, M3)
 
@@ -48,5 +53,8 @@ its "last updated" date changes.
   - single dates only;
   - at most 1 request every 2 s per host and 20 a minute overall;
   - backing off on 403 and 429.
+- Only the worker calls ESPN, with one exception: the tracker's Log form looks up a day's games
+  and a game's rosters for its two users (`juju/tracker/pickers.py`). It goes through the same
+  router and limits, is cached for 10 minutes and 12 hours, and waits at most 5 s for a slot.
 - **Decide before public launch:** keep ESPN, or buy a licensed stats feed behind the same
   interface (`juju/ingest/router.py`, `worker/live.py`).

@@ -20,7 +20,8 @@ the Compose file and this skill right, and to read what they paste.
 | `db`, `migrate`, `api`, `worker`, `web` | `deploy/laptop/docker-compose.yml` | The Fly layout on one machine. `migrate` runs once before `api` and `worker`, as Fly's `release_command` does. |
 | Only `web` has a port, `127.0.0.1:3000` | compose `ports` | Funnel publishes that. The API and Postgres have **no published port**: "the backend has no public address" is a licensing rule (`docs/licensing.md`). `up.sh` refuses to finish if either has one. |
 | The passcode gate | `web/proxy.ts`, `web/lib/passcode.ts`, `web/lib/unlockPage.ts`, `web/app/unlock/check/route.ts` | Off unless `SITE_PASSCODE` is set, so development, CI and Fly are unchanged. A locked page gets a self-contained HTML form (401) **at the address asked for**; an API call gets a JSON 401. The cookie lasts 30 days and is signed with a key derived from the passcode, so changing it signs everyone out. Only the build's static files skip it: `/_next/image` is gated, because it fetches pages itself and could hand out share images. |
-| Settings | `deploy/laptop/.env` (mode 600, gitignored) | `POSTGRES_PASSWORD`, `SITE_PASSCODE`, `SITE_URL`, and later `JUJU_ODDS_API_KEY`. `up.sh` creates the first three. |
+| Watch my parlays (`/me`) | `web/lib/trackerUsers.ts`, `web/proxy.ts`, `web/app/me/`, `web/app/api/me/[...path]/route.ts`, `backend/juju/api/me.py` | The owners' bet tracker, a second lock after the site's: each user signs in with their own name and passcode (`TRACKER_USERS`). Off, and a 404, without it. Its cookie is keyed by that user's passcode, so changing one passcode signs out only that person. The site refuses a passcode under 10 characters, and so does `up.sh`. The API trusts the user the site names in `x-juju-user`, which is why it must never get a published port. |
+| Settings | `deploy/laptop/.env` (mode 600, gitignored) | `POSTGRES_PASSWORD`, `SITE_PASSCODE`, `SITE_URL`, then optionally `TRACKER_USERS` and `JUJU_ODDS_API_KEY`. `up.sh` creates the first three. `TRACKER_USERS=Chris,Ash` (names alone) makes it choose each person's passcode, shown once; `Name:<passcode>` keeps their own. |
 | Compose runs under `env -i` | `compose()` in `up.sh` | Compose takes a variable from the shell before `.env`. On 2026-10-07, testing in a cloud container, the worker picked up parlaytracker's `ODDS_API_KEY` from the shell and started with "archive on"; it made only the free events call. Hence the clean environment, the `JUJU_` name, and the check that stops the worker if it archives without that key. |
 | The demo game | `up.sh`, step "The recorded demo game" | `python -m juju.cli seed final`, once (looked up by ESPN event `401872963`). The production image doesn't ship `backend/tests/`, so it is bind-mounted read-only for that one run. `final` keeps the real timeline: prices captured about two hours before kickoff, flagged EARLY. Nothing is invented. |
 | Funnel | `sudo tailscale funnel --https=443 --bg http://127.0.0.1:3000`; off: the same target with `off` | A stable `https://<machine>.<tailnet>.ts.net` with no domain or router changes. Always sudo, with output visible: when Funnel isn't allowed yet, Tailscale prints a link and waits. The tailnet ID isn't needed and doesn't belong in the repo. |
@@ -40,16 +41,20 @@ relatively.
    and logged in, and MagicDNS giving a name.
 2. **Writes `.env`** if values are missing: a random database password, the passcode (typed,
    or made up as `xxxx-xxxx-xxxx`) and `SITE_URL` from the Tailscale name. Reruns keep them.
+   With `TRACKER_USERS`: checks each name, makes up a passcode for a name written alone, and
+   stops on a passcode under 10 characters.
 3. **Builds, migrates, seeds the demo once, starts** `api`, `worker` and `web` with `--wait`.
 4. **Checks, failing loudly before anything goes online:**
    - an API call without the passcode is a 401, and a page shows the form;
    - the passcode from `.env` opens it;
+   - with `TRACKER_USERS`, `/me` and `/api/me` are locked even with the site passcode, and each
+     user's own passcode signs them in as themselves; without it, `/api/me` is a 404;
    - the site reaches the API, and the demo player page renders;
    - no published port on `api` or `db`;
    - the worker says "archive off" unless `JUJU_ODDS_API_KEY` is set.
 5. **Funnel**, with sudo if needed. Then it prints the address, the passcode only if it just made
-   one up, and direct links to the demo game, which the home page never lists (it shows the last
-   14 hours to the next 36).
+   one up (and the tracker passcodes it just made up), and direct links to the demo game, which
+   the home page never lists (it shows the last 14 hours to the next 36).
 
 `./up.sh --no-funnel` does steps 1 to 4 and leaves the site on `http://127.0.0.1:3000`.
 
@@ -70,6 +75,9 @@ Read the last `== step` and the `Stopped:` line. Most failures are one of these:
 | The URL doesn't answer right after Funnel starts | The first certificate takes up to a minute; try a browser. |
 | `the worker started archiving without JUJU_ODDS_API_KEY` | A key reached it from somewhere other than `.env`. It has been stopped; find out how before starting it again. Never parlaytracker's key. |
 | Users get the form again and again | Their browser blocks cookies for the site, or the passcode changed (everyone re-enters it). |
+| `fix TRACKER_USERS in deploy/laptop/.env` | The line above it says which entry: a name is a letter then letters, digits, `-` or `_`; a passcode needs 10 or more letters, digits, `-`, `_` or `.`. Have the owner edit it themselves (or remove the passcode to have one made up). Never ask for it. |
+| `'s passcode in .env didn't sign in to /me` | The site left that entry out. `docker compose ... logs web` shows why, by position. |
+| "That name and passcode don't match" | A typo, or that person's passcode was changed in `.env`. Only the owner can read `.env`. |
 
 To see more, ask for `docker compose -f deploy/laptop/docker-compose.yml logs --tail 100 <service>`.
 Never ask for `.env`.
@@ -102,7 +110,11 @@ the repo's Dockerfiles: the owner's machine doesn't need them.
 
 Then run `deploy/laptop/up.sh --no-funnel < /dev/null` (a passcode is made up). Walk it in
 Playwright at phone width: the form, a wrong passcode, the right one, the demo pages. Read the
-passcode from `.env` without printing it. Afterwards: `docker compose -f
+passcode from `.env` without printing it. For the tracker, write `TRACKER_USERS=Alpha,Bravo` to
+`.env` before the run: then walk `/me` too (the site's form, then the tracker's, a wrong
+passcode, the right one, "Signed in as"). Run once more with a 4-digit passcode (refused) and
+once without the line (`/api/me` is a 404). The site passcode covers the tracker's sign-in
+address too: the first real run caught `up.sh` posting to it without the site cookie. Afterwards: `docker compose -f
 deploy/laptop/docker-compose.yml down -v` and delete `deploy/laptop/.env`.
 
 ## Moving to Fly later

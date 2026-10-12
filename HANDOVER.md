@@ -5,17 +5,17 @@ product, the owner's decisions and the reasons behind them. Then read
 [CLAUDE.md](CLAUDE.md) for the commands and the rules that are easy to break. This file says
 where the build stands and what to do next. Update it before you finish a session.
 
-## Where things stand (2026-10-08)
+## Where things stand (2026-10-12)
 
 | | |
 |---|---|
-| Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, PR #9 Phase 1 of the tracker (below), and PR #10 its Phase 2. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
-| CI | Green on every merged PR head. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
-| Tests | 1,913 backend tests (1,164 before the tracker), 9 web unit tests (`node --test`), 17 Playwright tests |
+| Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, PR #9 Phase 1 of the tracker (below), and PR #10 its Phase 2. **Phase 3 of the tracker is on `claude/eager-galileo-olocx1`, pushed but not in a PR yet**: open one when the owner asks. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
+| CI | Green on every merged PR head. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 19 Playwright tests at phone width, with Cloudflare's public Turnstile test keys and a test tracker user). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
+| Tests | 1,991 backend tests (1,164 before the tracker), 19 web unit tests (`node --test`), 19 Playwright tests |
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. On 2026-10-08 the owner was setting it up on the laptop (the code wasn't cloned there yet); ask whether it runs. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
 | Real data | No real capture has run. The archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
-| The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**; Phase 3 (passcode users and `/api/me`) is next. Nothing user-visible yet: no routes and no web change. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
+| The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core), 2 (its worker jobs) and 3 (passcode users and `/api/me`) are done**; Phase 4 (the `/me` pages) is next. With `TRACKER_USERS` set, `/me` is a second lock after the site's, and shows only who is signed in; without it, `/me` is a 404. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
 
 ## First thing to do
 
@@ -98,8 +98,14 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
     `parlay_view` (M4), which prices legs exactly like single cards and shows each leg's price;
   - `lookup.py`: which player or team a lookup means; reads the play from the named player's
     side (a defender's interception is his); several certain bets in one line are a parlay.
-- `tracker/` (Phases 1 and 2 of the plan above): parlaytracker@c3bd43c's core and worker
-  jobs, ported with `Ported from` headers. No route calls it yet:
+- `api/me.py` (Phase 3): the tracker's private API, `/api/me/*`, 20 routes (Watch, slips and a
+  preview, payout, cash-out, legs, closing lines, review, analytics, the Log form's games and
+  rosters, tags, sportsbooks, health). Each needs `x-juju-user` naming one of `TRACKER_USERS`
+  (only the names reach the API); none exists without users. Every answer is `no-store`
+  (a middleware in `app.py`), and none lists a closing line. `api/deps.py` holds the session
+  and `respond`, which both routers use.
+- `tracker/` (Phases 1–3 of the plan above): parlaytracker@c3bd43c's core, worker jobs and app
+  logic, ported with `Ported from` headers:
   - `models.py`: slips, legs, events (any of four sports), tags, sportsbooks, raw samples, on
     Juju's `Base` (migration 0006). Leg sources are `LegSource`, PT's `DataSource`: Juju's has
     `odds_api` and no `manual`;
@@ -113,6 +119,9 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
     client (`EspnFeed`, `OddsFeed`), and its box-score columns: its NFL markets read exactly
     Juju's `Stat` columns, plus NBA points and NHL goals + assists;
   - `nflverse.py`: a market's value and offensive snaps, on Juju's streaming client;
+  - `format.py`, `banner.py`, `pickers.py`, `drafts.py` (Phase 3): what PT's Streamlit pages
+    worked out, for `/api/me`: the words and numbers, the health banner, the Log form's cached
+    ESPN lookups (the API's only ESPN reads), and the slip form's rules;
   - `worker/`: `settle.py` (finals, settlement, recheck, nflverse verification, the canary,
     pruning, the raw-sample sink), `live.py` (the live poll for pending legs), `closing.py`
     (closing lines, only with a key) and `jobs()`, which `juju/worker/__main__.py` registers as
@@ -128,8 +137,10 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
 **Web** (`web/`, Next.js 16):
 - Pages: `/`, `/g/[game]/[player]`, `/g/[game]/team/[team]`, `/g/[game]/parlay?legs=` (M4)
   and the info pages. Result pages take `?card=` to put a shared card first.
-- `app/api/[...path]/route.ts` is the **only** way into the backend: an allowlist of paths.
-  It also verifies Turnstile tokens (`lib/turnstile.ts`) and sets a signed one-hour cookie.
+- `app/api/[...path]/route.ts` is the **only** public way into the backend: an allowlist of
+  paths (`lib/publicApi.ts`). It also verifies Turnstile tokens (`lib/turnstile.ts`) and sets a
+  signed one-hour cookie. The tracker's `/api/me` has its own route,
+  `app/api/me/[...path]/route.ts`, which checks the tracker cookie and forwards `x-juju-user`.
 - `.../image/route.tsx` under both result pages (M3): the share image, one card in its world
   with the Jujus (`lib/shareImage.tsx`, next/og). Pages emit Open Graph tags for it.
 - `components/`: `ResultCard` (Verified chip, deciding play, Share and Add to parlay),
@@ -140,7 +151,10 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
 - `proxy.ts` (Next 16's middleware): the passcode gate, only when `SITE_PASSCODE` is set
   (`lib/passcode.ts`, `lib/unlockPage.ts`, `app/unlock/check/route.ts`). A locked page gets a
   plain HTML form at its own address; an API call gets a JSON 401. `lib/signedPass.ts` signs
-  both this cookie and Turnstile's.
+  both this cookie and Turnstile's. Then the tracker's gate, only when `TRACKER_USERS` is set
+  (`lib/trackerUsers.ts`, `app/me/unlock/check/route.ts`): `/me` and `/api/me` need one of its
+  users, each with their own passcode (10+ characters), and a cookie naming them. `app/me/`
+  is a placeholder until Phase 4.
 
 **Deploy**: `deploy/laptop/` (compose, `up.sh`, the owner's README) for the private preview;
 `backend/fly.toml`, `web/fly.toml` and `docs/deploy.md` for launch.
@@ -251,10 +265,11 @@ worker with it, and the worker made one free events call before it was stopped. 
 
 In order. None of these needs the owner, except where it says so.
 
-**0. The tracker, Phase 3: passcode users and `/api/me`** (`docs/plans/integrate-parlaytracker.md`
-§7 and §10). Read that phase's checklist of what only parlaytracker's Streamlit pages held. It
-needs the owner's two usernames before deploy, not before the code. Then Phases 4–6 in order.
-The owner may interleave M5 (below).
+**0. The tracker, Phase 4: the `/me` pages** (`docs/plans/integrate-parlaytracker.md` §5 and
+§10), in the order that phase gives. Every page reads `/api/me` (`juju/api/me.py`), whose
+answers already carry parlaytracker's words, so the pages only lay them out; the Phase 4
+checklist lists what else only the Streamlit pages held. Then Phases 5–6. The owner may
+interleave M5 (below).
 
 **1. Follow-ups from M3 and M4** (small, each a commit):
 - **A share image for a parlay:** `/g/[game]/parlay/image?legs=`, reusing `lib/shareImage.tsx`
@@ -293,9 +308,11 @@ pages and of state exposure; then a soft launch.
 7. **FYI:** GitHub reports the parlaytracker repository as **public**, while the old goals doc
    said "still private". The owner was told on 2026-09-30.
 8. **For the tracker** (`docs/plans/integrate-parlaytracker.md` §13): the two users are **Chris
-   and Ash** (the owner, 2026-10-08). Their passcodes are theirs to put in `deploy/laptop/.env`
-   once Phase 3 exists: never in the repo or in chat, and long enough for a page on the public
-   internet (the owner was told on 2026-10-08 that four digits are not); optionally an OpenRouter key for the screenshot reader
+   and Ash** (the owner, 2026-10-08). Once Phase 3 is merged and pulled, the owner adds
+   `TRACKER_USERS=Chris,Ash` to `deploy/laptop/.env` (`up.sh` then makes up each passcode and
+   shows it once), or `Chris:<passcode>,Ash:<passcode>` with passcodes they choose: never in the
+   repo or in chat. A passcode under 10 characters is refused, by the site and by `up.sh`; the
+   four-digit codes the owner first mentioned won't work; optionally an OpenRouter key for the screenshot reader
    (`QWEN_API_KEY`, Phase 4g); a backup destination and one restore drill (Phase 6); a real
    game weekend for acceptance; approval to archive the parlaytracker repo at the end; and
    whether the laptop gets parlaytracker's auto-update and backup timers. The 25 historical
@@ -349,13 +366,20 @@ pages and of state exposure; then a soft launch.
   From now on, add new migrations and never edit an existing one. Generate against a scratch
   database at head (`alembic revision --autogenerate`), read the file, and run
   `tests/db/test_migrations.py`.
-- **The licensing guard** in `tests/db/test_api.py` lists every API route. A new endpoint makes
-  it fail on purpose: add the route only if it lists prices for one player or team (or is the
-  parlay), never an odds board.
+- **The licensing guard** in `tests/db/test_api.py` lists every API route, with its methods. A
+  new endpoint makes it fail on purpose: add a public route only if it lists prices for one
+  player or team (or is the parlay), never an odds board. A tracker route goes in the private
+  set, and must never list a closing line.
 - **The "live" seed moves times.** Its prices are real but shown as if captured at T-46. That
   is demo data, which is why `dev_seed.py` reads from `tests/` and the production image doesn't
   include the fixtures. Deciding plays and corrections in `juju_dev` survive a reseed: rebuild
   the schema for a clean slate.
+- **Two locks on `/me`.** The site passcode (when set) covers everything, the tracker's sign-in
+  address `/me/unlock/check` included: a script that signs in to the tracker must send the site
+  cookie too (the first real `up.sh` run caught exactly that). Playwright's own request client
+  won't send a `Secure` cookie to `http://127.0.0.1`: test `/api/me` with `fetch` from the page.
+- **FastAPI 0.142 wraps included routers**: `app.routes` holds an `_IncludedRouter`, not the
+  tracker's routes, so the route census reads `app.openapi()["paths"]` (built, never served).
 - **The tracker's tests** live in `tests/unit/tracker/` and `tests/db/tracker/`, with helpers in
   `tests/tracker_support.py`. Its database tests run in a rolled-back savepoint (`session`), and
   an autouse fixture puts back migration 0006's four sportsbooks, because Juju's `db` fixture

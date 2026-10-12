@@ -1,7 +1,7 @@
 # Plan: fold ParlayTracker into Juju as "Watch my parlays"
 
-**Status:** approved direction (owner, 2026-10-08). **Phases 1 and 2 are done** (see §10);
-Phases 3–6 are not started.
+**Status:** approved direction (owner, 2026-10-08). **Phases 1, 2 and 3 are done** (see §10);
+Phases 4–6 are not started.
 **Source:** `parlaytracker@c3bd43c`, its current HEAD and the commit Juju's ported files
 already cite.
 **Target:** `juju@ef6fa70` and onward.
@@ -390,13 +390,14 @@ worker and app. Each one arrives with the phase that reads it:
 | Setting | Phase | Notes |
 |---|---|---|
 | `record_event_ids` | 2 | done: `RECORD_EVENT_IDS` |
-| `display_tz` | 3 | IANA-validated, PT's semantics. Give it a default (ET): PT required it, which would break Juju's existing deploys |
-| `min_sample` | 3 | default 30 |
-| `tracker_users` | 3 | §7 |
+| `display_tz` | 3 | done: `DISPLAY_TZ`, IANA-validated, default `America/New_York` |
+| `min_sample` | 3 | done: `MIN_SAMPLE`, default 30 |
+| `tracker_users` | 3 | done: `TRACKER_USERS`; the API keeps only the names (§7) |
 | `qwen_api_key`, `qwen_base_url`, `qwen_vision_model` | 4g | |
 
 Keep `odds_api_reserve` single. PT's `allowed_logins` and `dev_login` die with Tailscale auth,
-replaced by passcode users; local development gets a `DEV_TRACKER_USER` equivalent instead.
+replaced by passcode users. Local development sets `TRACKER_USERS` too (Phase 3 chose that over
+a `DEV_TRACKER_USER`, which would be a way around the gate).
 
 ## 7. Auth & privacy: per-user passcodes
 
@@ -606,7 +607,74 @@ void, or a result entered by hand). It was fixed in the port, with a test.
 **Not ported, on purpose:** PT's `tests/live/` (two `-m live` tests that call real services).
 Juju's tests block the network, and the canary is the same check, run by the worker.
 
-### Phase 3: auth + `/api/me`
+### Phase 3: auth + `/api/me`. Done, 2026-10-12
+
+**What shipped:**
+- **Users.** `TRACKER_USERS="Chris:<passcode>,Ash:<passcode>"`, read by the site and the API.
+  - The site (`web/lib/trackerUsers.ts`) leaves out an entry with a bad name, a repeated name
+    or a passcode under 10 characters, so it can never sign in.
+  - The API keeps only the names (`Settings.tracker_users`); the passcodes are dropped as they
+    are read.
+  - Neither ever echoes a passcode: a bad entry is named by its position.
+- **The cookie.** `juju_tracker = <name>.<expires>.<mac>`, 30 days, `httpOnly`, `secure`,
+  `sameSite=lax`. The key comes from that user's passcode *and name*, so one cookie can't be
+  turned into the other user's even if their passcodes matched.
+- **Sign-in.** A plain-HTML form (`trackerUnlockHtml`) asks for a name (any case) and a
+  passcode, and posts to `/me/unlock/check`.
+  - Every user is compared in constant time.
+  - A wrong attempt waits 1 s and says "That name and passcode don't match."
+  - The redirect only goes to a page under `/me`.
+- **The gate** (`proxy.ts`), after the site passcode:
+  - `/me` and `/api/me` need a signed-in user: pages get the form, API calls a JSON 401 with
+    `locked`.
+  - Without users both are 404: the API answers 404, and `app/me/layout.tsx` shows the site's
+    own not-found page.
+- **The proxy route** `web/app/api/me/[...path]/route.ts`:
+  - checks the cookie again, allows only plain path segments, and takes bodies up to 64 KB;
+  - waits 20 s, since saving a slip can wait for ESPN;
+  - forwards `x-juju-user` and answers `no-store`.
+- **The public allowlist** moved, unchanged, to `web/lib/publicApi.ts`, so a unit test can
+  prove it never forwards `me/*`.
+- **The API** (`juju/api/me.py`): the 20 routes of §6.5 below.
+  - Each needs `x-juju-user` naming a configured user.
+  - A middleware makes every `/api/me` answer `no-store`, FastAPI's own 404, 405 and 422
+    included.
+  - No answer contains a leg's closing line or odds: a leg says only `has_closing_line`, and
+    the analytics use closing lines only inside averages.
+- **The read models** are built server-side from PT's code, ported with their tests:
+  - `tracker/format.py`: `app/common.py`'s formatting and the Live and Analytics pages' words;
+  - `tracker/banner.py`: the health banner, with its 8 tests;
+  - `tracker/pickers.py`: the cached ESPN lookups;
+  - `tracker/drafts.py`: the slip form's slip type, computed parlay odds, validation messages
+    and warnings.
+- **`/me`** is a placeholder until Phase 4: who is signed in, the banner, and the review count.
+- **The laptop.** `up.sh` checks `TRACKER_USERS`:
+  - names written alone (`TRACKER_USERS=Chris,Ash`) get a passcode made up and shown once;
+  - a passcode under 10 characters is refused;
+  - after starting, it checks `/me` is locked and that each user's own passcode signs them in.
+- **Tests:** 38 API cases, among them PT's Live and Analytics page tests asked of the API; the
+  census split into public and private routes, with their methods; 10 web unit tests; and an
+  e2e sign-in, which CI runs with a test user.
+
+**Where it differs from the text below:**
+- `/api/me/roster/{event_id}` takes `sport` and `date` too: the game's two teams come from that
+  day's (cached) scoreboard.
+- `/api/me/slips/preview` is new. It feeds the form as it is filled in (slip type, a parlay's
+  computed odds, what's missing, warnings) and writes nothing. PT's form worked these out on
+  every rerun.
+- A slip arrives as the person's choices: games and players by ESPN id, lines and odds as
+  typed. The API looks the game and the player's name up itself, and refuses a player on
+  neither roster.
+- There is no `POST /api/me/review`: each review item is acted on through the slip and leg
+  routes.
+- Merging tags is its own route, `POST /settings/tags/{id}/merge`.
+- `PATCH /legs/{id}` can also replace a leg's tags, through a new service, `set_leg_tags`.
+- No `DEV_TRACKER_USER`: a local `TRACKER_USERS` does the same with no way around the gate.
+- `up.sh` makes up passcodes only for names written alone. The owner's users choose their own
+  otherwise.
+- `/api/me/screenshot` waits for Phase 4g, with its 8 MB limit.
+
+**The text as approved:**
 
 - `TRACKER_USERS` settings.
 - The `juju_tracker` cookie (sign and verify, with the username).
@@ -771,9 +839,10 @@ real: ship them first.
 1. **A Juju-only Odds API key (100K plan).** It now funds T-45 capture, repair and closing
    lines. Until then the tracker works fully with manual closing lines, PT's designed fallback.
 2. **Two usernames** (Phase 3): **Chris and Ash** (the owner, 2026-10-08). The passcodes live
-   only in the laptop's `.env`, never in the repo; `up.sh` can generate them. They must be long
-   enough for a page on the public internet: Phase 3 should refuse short ones, as `up.sh`
-   refuses a site passcode under 10 characters.
+   only in the laptop's `.env`, never in the repo. Since Phase 3: `TRACKER_USERS=Chris,Ash`
+   makes `up.sh` choose them (shown once), or each person writes their own as `Chris:<passcode>`.
+   Both the site and `up.sh` refuse one under 10 characters, as `up.sh` refuses a short site
+   passcode.
 3. **Optional:** an OpenRouter key (`QWEN_API_KEY`, with training-permitted providers off) for
    the screenshot reader. The Log form works without it.
 4. **A backup destination** (an rclone remote) and one restore drill, now covering real bet

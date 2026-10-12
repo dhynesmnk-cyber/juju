@@ -20,5 +20,11 @@ built with `NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA` and started
 CI uses. The API keeps its lookup thresholds in memory: restart it if repeated local runs
 start being asked for the check.
 
+`e2e/tracker.spec.ts` ("Watch my parlays", `/me`) runs only when `TRACKER_USERS` is set, to
+the same value the API and the site were started with, as CI does with a test user:
+`TRACKER_USERS="E2e:e2e-tracker-passcode"`. Each passcode needs 10 or more characters. `/me` has
+its own proxy route, `app/api/me/[...path]/route.ts`; the public allowlist
+(`lib/publicApi.ts`) never forwards it. Without `TRACKER_USERS`, `/me` is a 404.
+
 In the Claude Code cloud environment Chromium is pre-installed (`PLAYWRIGHT_BROWSERS_PATH`).
 Elsewhere, run `npx playwright install chromium` once.

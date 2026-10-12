@@ -39,7 +39,10 @@ for any live HTTP call through the proxy.
   snapshot. Never interpolate between snapshots. LLM output is only matched onto IDs; it never
   supplies a displayed number.
 - **Requests from users never reach a data provider** (ESPN, The Odds API, nflverse). Only the
-  worker does. The optional LLM fallback is the one outbound call the API makes.
+  worker does. Two exceptions, both in the API: the optional LLM fallback in `/api/lookup`, and
+  the tracker's Log-form pickers (`/api/me/games`, `/api/me/roster`, and saving a slip), which
+  read ESPN through the router, cached 10 minutes and 12 hours, waiting at most 5 s for a slot
+  (`juju/tracker/pickers.py`). Don't add a third.
 - **Licensing** (docs/licensing.md): no endpoint may list prices across players or games, or
   export raw odds. The one exception, the owner's call on 2026-09-30: a same-game parlay card
   shows the price of each of the 2 to 6 legs someone picked, in one game, at one book (never
@@ -53,5 +56,8 @@ for any live HTTP call through the proxy.
   `tests/db/test_migrations.py`.
 - **The tracker:** slips and legs are written only through `juju/tracker/services.py`. Services
   flush; callers commit. Its data never reaches a public response, a share image or
-  `/api/status`.
+  `/api/status`. Its API, `/api/me/*` (`juju/api/me.py`), is reached only through
+  `web/app/api/me/[...path]/route.ts`, which names the signed-in user in `x-juju-user`; the
+  public allowlist (`web/lib/publicApi.ts`) never names it. Every answer is `no-store`, and none
+  lists a leg's closing line (an Odds API price).
 - **Workers:** exactly one worker runs (Postgres advisory lock), and it never scales to zero.
