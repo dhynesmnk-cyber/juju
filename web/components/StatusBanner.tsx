@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-/** A visible banner whenever live data is degraded: failures are never silent. */
+/** A visible banner whenever live data is degraded, or new games won't get prices: failures
+ *  are never silent. */
 export default function StatusBanner() {
   const [message, setMessage] = useState<string | null>(null);
   useEffect(() => {
@@ -16,7 +17,9 @@ export default function StatusBanner() {
         }
         if (!r.ok) throw new Error();
         const body = await r.json();
-        if (alive) setMessage(body.degraded ? body.message : null);
+        const said = [body.degraded ? body.message : null, body.prices_message ?? null]
+          .filter(Boolean).join(" ");
+        if (alive) setMessage(said || null);
       } catch {
         if (alive) setMessage("Juju can't reach its live data right now.");
       }

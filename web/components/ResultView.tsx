@@ -133,8 +133,8 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
       <div aria-live="polite">
         {view.cards.length === 0 && (
           <p className="muted">
-            No archived prices for {name} in this game. Juju only has prices captured before
-            kickoff.
+            {("no_price" in view && view.no_price)
+              || `No archived prices for ${name} in this game. Juju only has prices captured before kickoff.`}
           </p>
         )}
         {view.cards.map((c, i) => (

@@ -73,6 +73,7 @@ export interface PlayerView {
   player: { id: string; name: string; team_abbr: string | null; position: string | null };
   cards: Card[];
   waiting_for_feed: boolean;
+  no_price?: string | null;  // why there are no cards at all
   disclaimer: string;
 }
 

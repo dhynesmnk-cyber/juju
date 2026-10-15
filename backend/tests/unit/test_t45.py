@@ -97,3 +97,10 @@ def test_a_moved_kickoff_reselects():
 
 def test_nothing_archived():
     assert run().reason is NoPrice.NO_SNAPSHOT
+
+
+def test_a_missing_market_says_whether_it_was_asked_for():
+    """A game with snapshots, none listing this market: rationed away, or no book offered it."""
+    assert select([], [], KICKOFF, CHAIN, asked=None).reason is NoPrice.NO_SNAPSHOT
+    assert select([], [], KICKOFF, CHAIN, asked=False).reason is NoPrice.NOT_SAVED
+    assert select([], [], KICKOFF, CHAIN, asked=True).reason is NoPrice.NOT_OFFERED

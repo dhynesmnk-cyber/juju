@@ -17,13 +17,14 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from juju.api import lookup
 from juju.api.views import Focus, game_view, parlay_view, player_view, team_view
 from juju.config import Settings, get_settings
+from juju.core import budget
 from juju.core.enums import EventStatus, HealthState, PlayKind
 from juju.core.parlay import parse_legs
 from juju.core.models import Game, HotGame, Lookup, OddsSnapshot, Play, SourceHealth
@@ -161,21 +162,51 @@ def health(session: SessionDep) -> JSONResponse:
     return respond(body)
 
 
+# With a key, the worker lists games (free) every 30 minutes: no success for this long means
+# no key, or The Odds API is out of reach.
+PRICES_STALE = timedelta(hours=2)
+
+
+def prices_status(session: Session, odds: SourceHealth | None, now: datetime,
+                  settings: Settings) -> tuple[str, str | None]:
+    """Whether new games will get prices: "on", "rationed", "paused" or "off", and what the site
+    says about it. The same plan the worker's captures follow (core/budget.py)."""
+    if odds is None or odds.last_success_at is None or now - odds.last_success_at > PRICES_STALE:
+        return "off", "Prices aren't being saved right now, so new games won't have any."
+    reset_at = budget.next_reset(now, settings.odds_api_reset_day)
+    known = session.scalar(select(func.count()).select_from(Game).where(
+        Game.odds_event_id.is_not(None), Game.commence_time > now,
+        Game.commence_time <= reset_at)) or 0
+    plan = budget.plan(odds.quota_remaining,
+                       budget.games_left(known, now, reset_at, settings.games_per_week))
+    if plan.tier is budget.Tier.NONE:
+        return "paused", (f"Juju has used its odds credits for the month. New games get prices "
+                          f"again from {reset_at:%B} {reset_at.day}.")
+    if plan.tier is budget.Tier.LEAN:
+        return "rationed", ("Odds credits are short this month, so Juju saves only the "
+                            "most-asked bets.")
+    return "on", None
+
+
 @app.get("/api/status")
 def status(session: SessionDep) -> JSONResponse:
-    """What the site banner needs: is live data degraded right now?"""
+    """What the site banner needs: is live data degraded right now, and are prices saved?"""
+    now = _utcnow()
     rows = list(session.scalars(select(SourceHealth)))
     espn = [r for r in rows if r.source.startswith("espn_")]
     espn_down = bool(espn) and all(r.state is HealthState.OPEN for r in espn)
     worker = next((r for r in rows if r.source == "worker"), None)
     stale_worker = worker is None or worker.last_success_at is None or (
-        _utcnow() - worker.last_success_at > timedelta(minutes=3))
+        now - worker.last_success_at > timedelta(minutes=3))
     message = None
     if stale_worker:
         message = "Live updates are paused. Archived prices are still shown."
     elif espn_down:
         message = "Live stats are unavailable right now. Archived prices are still shown."
-    return respond({"degraded": message is not None, "message": message},
+    prices, prices_message = prices_status(
+        session, next((r for r in rows if r.source == "odds_api"), None), now, get_settings())
+    return respond({"degraded": message is not None, "message": message,
+                    "prices": prices, "prices_message": prices_message},
                    "public, s-maxage=10")
 
 
