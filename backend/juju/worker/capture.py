@@ -1,8 +1,10 @@
 """The archive jobs (docs/GOALS.md section 4): `capture_t45`, `repair_gaps` and `backfill`.
 
-- `capture_t45` takes a coverage snapshot at T-3h, then every market at T-60, T-49, T-47 and
-  T-45:30. A failed slot is retried every 20 s until T-45:00, and nothing is captured after
-  that: a price from after T-45 is never used.
+- `capture_t45` takes the main markets at T-3h, then every market at T-45 (the owner's choice
+  on 2026-10-15; before, also at T-60, T-49 and T-47). The T-45 capture starts at T-46, so a
+  failure can be retried every 20 s until T-45:00; nothing is captured after that: a price
+  from after T-45 is never used. How much each game may spend is planned from the credits left
+  (`core/budget.py`): when they are short, the T-3h check goes first, then markets.
 - `repair_gaps` fills any game that reached T-44 without an on-time snapshot from the
   vendor's own archive, which returns the closest snapshot at or before the time asked for.
 - An unknown market key gets the whole request rejected (422), so the market list is split in
@@ -13,9 +15,10 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Engine, exists, select
+from sqlalchemy import Engine, exists, func, select
 from sqlalchemy.orm import Session
 
+from juju.core import budget
 from juju.core.enums import SnapshotSource
 from juju.core.markets import ALL_KEYS, MAIN_KEYS
 from juju.core.models import Game, OddsSnapshot
@@ -41,25 +44,30 @@ class Slot:
     priority: bool  # may spend below the reserve: this is the price the product is about
 
 
-SLOTS: tuple[Slot, ...] = (
-    Slot("t180", timedelta(hours=3), MAIN_KEYS, False),
-    Slot("t60", timedelta(minutes=60), ALL_KEYS, False),
-    Slot("t49", timedelta(minutes=49), ALL_KEYS, True),
-    Slot("t47", timedelta(minutes=47), ALL_KEYS, True),
-    Slot("t45", timedelta(minutes=45, seconds=30), ALL_KEYS, True),
-)
+EARLY = Slot("t180", timedelta(hours=3), MAIN_KEYS, False)
+T45 = Slot("t45", timedelta(minutes=46), ALL_KEYS, True)
+SLOTS: tuple[Slot, ...] = (EARLY, T45)
+
+
+def slots_for(plan: budget.Plan) -> tuple[Slot, ...]:
+    """The slots a game's plan pays for, with the markets its T-45 capture asks for."""
+    if plan.tier is budget.Tier.NONE:
+        return ()
+    t45 = Slot(T45.name, T45.before_kickoff, plan.markets, True)
+    return (EARLY, t45) if plan.early else (t45,)
 
 
 def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
 
 
-def due_slot(kickoff: datetime, now: datetime, done: set[str]) -> Slot | None:
+def due_slot(kickoff: datetime, now: datetime, done: set[str],
+             slots: Sequence[Slot] = SLOTS) -> Slot | None:
     """The slot to capture now, if any: the latest one whose time has come, unless it is
     already captured. Earlier slots missed (say, after a restart) are skipped, not replayed."""
     if now > target_time(kickoff):
         return None
-    due = [s for s in SLOTS if now >= kickoff - s.before_kickoff]
+    due = [s for s in slots if now >= kickoff - s.before_kickoff]
     if not due or due[-1].name in done:
         return None
     return due[-1]
@@ -100,14 +108,33 @@ def fetch_bisecting(call: Callable[[list[str]], OddsResponse], markets: list[str
             + fetch_bisecting(call, markets[half:], rejections))
 
 
+def games_before(session: Session, now: datetime, until: datetime) -> int:
+    """Games the vendor lists that kick off after `now` and by `until`."""
+    return session.scalar(select(func.count()).select_from(Game).where(
+        Game.odds_event_id.is_not(None), Game.commence_time > now,
+        Game.commence_time <= until)) or 0
+
+
+def current_plan(session: Session, quota: int | None, now: datetime, reset_day: int,
+                 games_per_week: int) -> budget.Plan:
+    """The plan every game captured now follows, from the credits left and the games left."""
+    reset_at = budget.next_reset(now, reset_day)
+    left = budget.games_left(games_before(session, now, reset_at), now, reset_at, games_per_week)
+    return budget.plan(quota, left)
+
+
 class CaptureT45:
     def __init__(self, engine: Engine, odds: OddsSource, books: Sequence[str], reserve: int,
-                 clock: Callable[[], datetime] = _utcnow):
+                 clock: Callable[[], datetime] = _utcnow, reset_day: int = 1,
+                 games_per_week: int = 16, before: Callable[[Session, Game], object] | None = None):
         self._engine = engine
         self._odds = odds
         self._books = list(books)
         self._reserve = reserve
         self._clock = clock
+        self._reset_day = reset_day
+        self._games_per_week = games_per_week
+        self._before = before  # run before each capture, e.g. re-matching player names
         self._attempted: dict[tuple[int, str], datetime] = {}
         self.rejections = Rejections()
 
@@ -119,21 +146,39 @@ class CaptureT45:
             games = session.scalars(
                 select(Game).where(Game.odds_event_id.is_not(None),
                                    Game.commence_time > now,
-                                   Game.commence_time <= now + SLOTS[0].before_kickoff)
+                                   Game.commence_time <= now + EARLY.before_kickoff)
                 .order_by(Game.commence_time, Game.id)).all()
+            if not games:
+                return 0
+            plan = current_plan(session, self._odds.quota_remaining, now, self._reset_day,
+                                self._games_per_week)
             for game in games:
+                self._record(session, game, plan)
                 done = set(session.scalars(select(OddsSnapshot.slot).where(
                     OddsSnapshot.game_id == game.id,
                     OddsSnapshot.source == SnapshotSource.LIVE)))
-                slot = due_slot(game.commence_time, now, done)
+                slot = due_slot(game.commence_time, now, done, slots_for(plan))
                 if slot is None:
                     continue
                 last = self._attempted.get((game.id, slot.name))
                 if last is not None and now - last < RETRY_EVERY:
                     continue
                 self._attempted[(game.id, slot.name)] = now
+                if self._before is not None:
+                    self._before(session, game)
                 stored += self._capture(session, game, slot, now)
+            session.commit()  # the plans recorded
         return stored
+
+    @staticmethod
+    def _record(session: Session, game: Game, plan: budget.Plan) -> None:
+        """Keep the plan on the game, so its cards can say why a price is missing. A game that
+        already has its T-45 capture keeps the plan it was captured under."""
+        if game.capture_plan == plan.tier.value or session.scalar(select(exists().where(
+                OddsSnapshot.game_id == game.id, OddsSnapshot.slot == T45.name))):
+            return
+        log.info("%s: capture plan %s (%s credits a game)", game.label, plan.tier, plan.per_game)
+        game.capture_plan, game.capture_note = plan.tier.value, plan.note
 
     def _capture(self, session: Session, game: Game, slot: Slot, now: datetime) -> int:
         markets = self.rejections.usable(slot.markets)
@@ -229,5 +274,7 @@ class RepairGaps:
             store_snapshot(session, game, response, source=SnapshotSource.HISTORICAL,
                            slot="repair", fetched_at=now, markets=used, books=self._books)
         session.commit()
-        log.info("%s: repaired from the vendor's history", game.label)
+        spent = sum(r.cost or 0 for _, r in results)
+        log.info("%s: repaired from the vendor's history (%s credits, %s left)", game.label,
+                 spent, self._odds.quota_remaining)
         return 1 if results else 0

@@ -12,6 +12,8 @@ response for the games in RECORD_EVENT_IDS.
 import logging
 import signal
 import sys
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlalchemy import Connection, Engine, text
@@ -23,6 +25,7 @@ from juju.ingest.odds_api import OddsApiClient
 from juju.ingest.router import Breakers, EspnRouter
 from juju.tracker import worker as tracker
 from juju.tracker.worker.settle import sample_sink
+from juju.worker.archive import remap_prices, remap_recent
 from juju.worker.capture import CaptureT45, RepairGaps
 from juju.worker.jobs import check_captures, guarded, heartbeat
 from juju.worker.live import PollLive
@@ -49,6 +52,23 @@ def try_lock(conn: Connection) -> bool:
     return bool(locked)
 
 
+def _utcnow() -> datetime:
+    return datetime.now(tz=UTC)
+
+
+def at_startup(engine: Engine, schedule: Callable[[], object], rosters: Callable[[], object],
+               clock: Callable[[], datetime] = _utcnow) -> Callable[[], None]:
+    """Games, then rosters, then the stored prices whose player name didn't match before: in
+    that order, so a capture soon after a restart finds the rosters it matches names against."""
+    def run() -> None:
+        schedule()
+        rosters()
+        linked = remap_recent(engine, clock())
+        if linked:
+            log.info("linked %d stored prices to their players", linked)
+    return run
+
+
 def build_scheduler(engine: Engine, breakers: Breakers, settings: Settings,
                     odds: OddsApiClient | None) -> BlockingScheduler:
     scheduler = BlockingScheduler(
@@ -63,17 +83,22 @@ def build_scheduler(engine: Engine, breakers: Breakers, settings: Settings,
     add("heartbeat", lambda: heartbeat(engine, breakers=breakers), "interval",
         seconds=HEARTBEAT_SECONDS)
     schedule = SyncSchedule(engine, odds, router)
+    rosters = SyncRosters(engine, router)
     add("sync_schedule", schedule, "interval", minutes=SCHEDULE_MINUTES)
-    add("sync_schedule_at_startup", schedule, "date")
-    add("sync_rosters", SyncRosters(engine, router), "interval", minutes=ROSTER_MINUTES)
-    add("poll_live", PollLive(engine, router, odds), "interval", seconds=LIVE_SECONDS)
+    add("sync_rosters", rosters, "interval", minutes=ROSTER_MINUTES)
+    add("sync_at_startup", at_startup(engine, schedule, rosters), "date")
+    add("poll_live", PollLive(engine, router, odds, reserve=settings.odds_api_reserve),
+        "interval", seconds=LIVE_SECONDS)
     add("check_captures", lambda: check_captures(engine), "interval", minutes=CHECK_MINUTES)
     verify = VerifyGames(engine, lambda: NflverseData(breakers))
     add("verify_games", verify, "cron", hour=VERIFY_HOURS_ET, minute=7,
         timezone="America/New_York")
     add("verify_games_at_startup", verify, "date")
     if odds is not None:
-        add("capture_t45", CaptureT45(engine, odds, settings.books, settings.odds_api_reserve),
+        add("capture_t45", CaptureT45(engine, odds, settings.books, settings.odds_api_reserve,
+                                      reset_day=settings.odds_api_reset_day,
+                                      games_per_week=settings.games_per_week,
+                                      before=remap_prices),
             "interval", seconds=CAPTURE_SECONDS)
         add("repair_gaps", RepairGaps(engine, odds, settings.books, settings.odds_api_reserve,
                                       settings.repair_days), "interval", minutes=REPAIR_MINUTES)

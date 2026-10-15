@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     odds_api_key: SecretStr | None = None  # read with .get_secret_value()
     # Credits never spent below this, except by the T-45 captures themselves.
     odds_api_reserve: int = 1000
+    # The day of the month the plan's credits reset (00:00 UTC), and how many games a week the
+    # credits must last for (`core/budget.py`).
+    odds_api_reset_day: int = 1
+    games_per_week: int = 16
     # Books requested from The Odds API: at most 10 cost the same as one region.
     books: Annotated[list[str], NoDecode] = DEFAULT_BOOK_CHAIN
     # The LLM fallback for free text (OpenRouter's OpenAI-compatible API). Off unless both
@@ -55,6 +59,20 @@ class Settings(BaseSettings):
     def _split_list(cls, v: object) -> object:
         if isinstance(v, str):
             return [part.strip() for part in v.split(",") if part.strip()]
+        return v
+
+    @field_validator("odds_api_reset_day")
+    @classmethod
+    def _a_day_every_month_has(cls, v: int) -> int:
+        if not 1 <= v <= 28:
+            raise ValueError("ODDS_API_RESET_DAY must be 1 to 28")
+        return v
+
+    @field_validator("games_per_week")
+    @classmethod
+    def _positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("GAMES_PER_WEEK must be at least 1")
         return v
 
     @field_validator("books")

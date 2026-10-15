@@ -30,6 +30,7 @@ from juju.core.enums import DataSource, EventStatus, PlayKind, Stat
 from juju.core.models import Game, HotGame, LiveStat, Play, Player, StatCorrection
 from juju.ingest import espn, guards
 from juju.worker import deciding
+from juju.worker.capture import affordable
 from juju.ingest.http import FetchError, RateLimited
 from juju.ingest.odds_api import OddsSource, RequestRejected
 from juju.ingest.resolve import (
@@ -46,8 +47,10 @@ SCOREBOARD_PREGAME = timedelta(minutes=5)
 BOX_HOT = timedelta(seconds=20)       # a game people are looking up
 BOX_EVERY = timedelta(seconds=60)     # every other live game
 HOT_FOR = timedelta(minutes=5)
-ODDS_SCORES_EVERY = timedelta(seconds=60)
-ODDS_SCORES_WHEN_ESPN_DOWN = timedelta(seconds=30)
+# The Odds API's scores cost a credit a call. The owner cut their use by 75% on 2026-10-15
+# (from every 60 s and every 30 s): they only stand in for ESPN when ESPN lags.
+ODDS_SCORES_EVERY = timedelta(seconds=240)
+ODDS_SCORES_WHEN_ESPN_DOWN = timedelta(seconds=120)
 ESPN_STALE = timedelta(seconds=90)    # older than this, The Odds API's scores are used
 RECHECK_AFTER_FINAL = timedelta(minutes=10)
 IN_PLAY = (EventStatus.IN_PROGRESS, EventStatus.BREAK, EventStatus.DELAYED)
@@ -74,11 +77,12 @@ class LiveSummary:
 
 class PollLive:
     def __init__(self, engine: Engine, router: EspnRouter, odds: OddsSource | None = None,
-                 clock: Callable[[], datetime] = _utcnow):
+                 clock: Callable[[], datetime] = _utcnow, reserve: int = 0):
         self._engine = engine
         self._router = router
         self._odds = odds
         self._clock = clock
+        self._reserve = reserve  # credits the scores never spend: they are kept for prices
         # In memory: a restart just makes everything due once, which is what we want.
         self._scoreboard_at: dict[date, datetime] = {}
         self._probe_at: dict[date, datetime] = {}
@@ -227,6 +231,8 @@ class PollLive:
         if self._odds_at is not None and now - self._odds_at < every:
             return
         self._odds_at = now
+        if not affordable(self._odds.quota_remaining, 1, self._reserve, priority=False):
+            return
         try:
             scores = self._odds.scores()
         except (FetchError, RateLimited, ProviderOpen, RequestRejected) as e:

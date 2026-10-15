@@ -77,6 +77,11 @@ class Game(Base):
     # (worker/deciding.py `check_first_td`).
     first_td_official: Mapped[str | None] = mapped_column(String(20))
     last_error: Mapped[str | None] = mapped_column(Text)
+    # The credit plan its captures followed (`core/budget.py` Tier: "full", "t45_only", "lean"
+    # or "none"), and what a card with no price says about it ("Juju had used its odds
+    # credits…"). Both unset when no capture was ever planned (no key, or the worker was off).
+    capture_plan: Mapped[str | None] = mapped_column(String(10))
+    capture_note: Mapped[str | None] = mapped_column(String(200))
 
     @property
     def label(self) -> str:
@@ -117,7 +122,8 @@ class OddsSnapshot(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     game_id: Mapped[int] = mapped_column(ForeignKey("games.id", ondelete="CASCADE"), index=True)
     source: Mapped[SnapshotSource] = mapped_column(_enum(SnapshotSource, "snapshot_source"))
-    slot: Mapped[str] = mapped_column(String(10))  # "t180", "t60", "t49", "t47", "t45", "repair"
+    # "t180" or "t45" (since 2026-10-15; earlier: also "t60", "t49", "t47"), or "repair"
+    slot: Mapped[str] = mapped_column(String(10))
     # The moment these prices were the book's prices: our fetch time for a live capture, the
     # vendor's snapshot time for a historical one. T-45 selection uses this.
     observed_at: Mapped[datetime] = mapped_column(TZ)

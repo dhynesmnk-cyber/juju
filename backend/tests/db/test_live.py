@@ -182,3 +182,22 @@ def test_final_then_one_more_box_score_after_ten_minutes(setup):
 
 def test_espn_sport_constant_is_nfl():
     assert espn.Sport.NFL.value == "nfl"
+
+
+@respx.mock
+def test_the_odds_api_scores_are_read_a_quarter_as_often_and_never_below_the_reserve(setup):
+    """The owner's cut on 2026-10-15: every 4 minutes (was every minute) while ESPN works."""
+    db, game_id, clock, poll, odds = setup
+    for host in (WEB, SITE):  # a clock that doesn't move for 5 minutes makes it ask the other
+        respx.get(f"{host}/scoreboard").mock(return_value=httpx.Response(200, json=board(27, 7)))
+        respx.get(f"{host}/summary").mock(return_value=httpx.Response(200, json=summary()))
+    calls = []
+    odds.scores = lambda days_from=None: calls.append(clock.now) or []  # noqa: E731
+    for _ in range(int(timedelta(minutes=8) / timedelta(seconds=5))):
+        poll()
+        clock.now += timedelta(seconds=5)
+    assert len(calls) == 2 and calls[1] - calls[0] == timedelta(minutes=4)
+    reserved = PollLive(db, poll._router, odds, clock=clock, reserve=1000)
+    odds.quota_remaining = 1000
+    reserved()
+    assert len(calls) == 2  # a credit spent on scores would dip into the reserve
