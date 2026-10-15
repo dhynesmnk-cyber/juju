@@ -68,7 +68,11 @@ header.top {
 }
 header.top .brand { font-weight: 800; font-size: 1.35rem; text-decoration: none; color: var(--text); }
 header.top .brand span { color: var(--accent); }
-header.top nav a { color: var(--muted); font-size: 0.9rem; margin-left: 14px; }
+header.top nav a {
+  color: var(--muted); font-size: 0.9rem; margin-left: 14px;
+  display: inline-flex; align-items: center; min-height: 44px;
+}
+header.top .brand { display: inline-flex; align-items: center; min-height: 44px; }
 
 .tagline { color: var(--muted); margin: 2px 0 14px; font-size: 0.95rem; }
 
@@ -102,6 +106,11 @@ header.top nav a { color: var(--muted); font-size: 0.9rem; margin-left: 14px; }
 }
 .suggestions li a:hover, .suggestions li[aria-selected="true"] a, .choices a:hover {
   background: var(--surface-2);
+}
+/* The typeahead floats over the page: it never pushes Live now down as you type. */
+.search .typeahead {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 30;
+  max-height: 60vh; overflow-y: auto;
 }
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }
@@ -139,7 +148,7 @@ h2 { font-size: 1.05rem; margin: 22px 0 10px; }
 }
 .card .label { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .card .bet { font-weight: 700; margin: 2px 0 8px; }
-.card .headline { font-size: 1.6rem; font-weight: 800; margin: 4px 0; }
+.card .headline { margin: 4px 0; }  /* size and face: .headline, below */
 .card .detail { color: var(--muted); font-size: 0.92rem; }
 .card .fair { font-size: 0.92rem; margin-top: 6px; }
 .card .others { font-size: 0.85rem; color: var(--muted); margin-top: 6px; }
@@ -203,7 +212,8 @@ footer.foot {
   color: var(--muted); font-size: 0.85rem;
 }
 footer.foot p { margin: 6px 0; }
-footer.foot a { color: var(--muted); }
+footer.foot a { color: var(--muted); display: inline-flex; align-items: center; min-height: 44px; }
+.back { display: inline-flex; align-items: center; min-height: 44px; }
 
 /* Age gate */
 .gate {
@@ -336,3 +346,46 @@ html.worlds .banner, html.worlds .waiting { background: rgb(24 18 4 / 92%); }
 
 /* The play a result page was opened from (a Live now chip, or one of the latest plays). */
 .the-play { margin: 0 0 12px; font-weight: 600; }
+
+/* ---------- Cards, slimmer (2026-10-15) ---------- */
+.card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.card-top .status-chip { margin: 0; }
+.card .more { margin-top: 6px; }
+.card .more summary {
+  display: inline-flex; align-items: center; min-height: 44px; cursor: pointer;
+  color: var(--accent); font-weight: 600; font-size: 0.92rem;
+}
+.card .more dl {
+  display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 4px 0 0;
+  font-size: 0.9rem; color: var(--muted);
+}
+.card .more dd { margin: 0; color: var(--text); }
+.hypo-line { font-size: 0.78rem; color: var(--muted); margin: 8px 0 0; }
+.unpriced {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 14px; margin: 4px 0 12px; font-size: 0.9rem;
+}
+.unpriced h2 { margin: 2px 0 6px; font-size: 0.95rem; }
+.unpriced ul { margin: 0; padding-left: 18px; color: var(--muted); }
+.unpriced li { margin: 4px 0; }
+.unpriced strong { color: var(--text); }
+
+/* A wider screen: two cards a row, the first across both. */
+@media (min-width: 960px) {
+  .wrap { max-width: 940px; }
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; align-items: start; }
+  .cards > :first-child, .cards > .unpriced { grid-column: 1 / -1; }
+}
+
+/* ---------- Loading and errors ---------- */
+.loading { padding: 8px 0 24px; }
+.sk { background: var(--surface-2); border-radius: 12px; margin: 10px 0; opacity: 0.7; }
+.sk-title { height: 36px; width: 60%; }
+.sk-line { height: 16px; width: 40%; }
+.sk-card { height: 168px; border-radius: var(--radius); }
+@media (prefers-reduced-motion: no-preference) {
+  .sk { animation: sk-pulse 1.2s ease-in-out infinite; }
+}
+@keyframes sk-pulse { 50% { opacity: 0.35; } }
+.error-page { padding: 24px 0; }
+.error-page h1 { font-size: 1.5rem; margin: 0 0 8px; }

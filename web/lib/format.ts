@@ -2,24 +2,33 @@ export function american(n: number): string {
   return n > 0 ? `+${n}` : `${n}`;
 }
 
-const timeFmt = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
+const ET = "America/New_York";
 const etFmt = new Intl.DateTimeFormat("en-US", {
-  hour: "numeric", minute: "2-digit", timeZone: "America/New_York", timeZoneName: "short",
+  hour: "numeric", minute: "2-digit", timeZone: ET, timeZoneName: "short",
 });
-const dayFmt = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" });
+const etDayFmt = new Intl.DateTimeFormat("en-US", {
+  weekday: "short", month: "short", day: "numeric", timeZone: ET,
+});
 
-/** Local time, with ET alongside when the viewer isn't on Eastern time. */
-export function localAndEt(iso: string): string {
+/** Times are the same text on the server and in the browser: Eastern time until the page knows
+ *  the viewer's zone (`tz`, from `LocalTime` after hydration), then local with ET beside it.
+ *  (Formatting in the runtime's own zone made the server, on UTC, and a phone disagree, and
+ *  React redrew the page.) */
+export function localAndEt(iso: string, tz: string | null = null): string {
   const d = new Date(iso);
-  const local = timeFmt.format(d);
   const et = etFmt.format(d);
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return tz === "America/New_York" ? et : `${local} (${et})`;
+  if (!tz || tz === ET) return et;
+  const local = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz })
+    .format(d);
+  return `${local} (${et})`;
 }
 
-export function dayAndTime(iso: string): string {
+export function dayAndTime(iso: string, tz: string | null = null): string {
   const d = new Date(iso);
-  return `${dayFmt.format(d)}, ${localAndEt(iso)}`;
+  const day = !tz || tz === ET ? etDayFmt.format(d) : new Intl.DateTimeFormat("en-US", {
+    weekday: "short", month: "short", day: "numeric", timeZone: tz,
+  }).format(d);
+  return `${day}, ${localAndEt(iso, tz)}`;
 }
 
 export function secondsAgo(s: number | null): string {

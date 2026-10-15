@@ -15,7 +15,7 @@ where the build stands and what to do next. Update it before you finish a sessio
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. It runs: the owner used it through real games on 2026-10-11, with a free Odds API key in `deploy/laptop/.env`. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
 | Real data | The laptop captures real prices: on the free key from about 2026-10-10 (until its 500 credits ran out), and on the owner's 20K-credit key from 2026-10-15, which also filled last weekend's missed games from the vendor's history. `python -m juju.cli report --since DATE` on the laptop shows what it saved. The tests still use only the recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
-| The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. **Stage 2 (lookups and live plays) is done** on the same branch: the latest plays for text naming no one, recent plays deciding between namesakes, the tapped play named on its page, interceptions and return TDs as plays, one bad box score no longer shutting an ESPN host. Stage 3 (the redesign: mockups, the owner's choice, then the build) is next |
+| The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. **Stage 2 (lookups and live plays) is done** on the same branch: the latest plays for text naming no one, recent plays deciding between namesakes, the tapped play named on its page, interceptions and return TDs as plays, one bad box score no longer shutting an ESPN host. **Stage 3:** the three mockup directions are on a private canvas for the owner (https://claude.ai/artifact/BvBJUwJFtcd6K5xmiJ6hf8: A feed first, B game first, C answer first, phone and desktop, every number from the recorded game), and the fixes every direction needs are built: times the same on server and phone, loading and error pages, no layout shift (floating typeahead, server-rendered banner and 21+ gate), slimmer cards with Details, unpriced bets as one list, 44 px targets, two cards a row on wide screens. **Waiting for the owner to pick a direction** |
 | The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**; Phase 3 (passcode users and `/api/me`) is next. Nothing user-visible yet: no routes and no web change. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
 
 ## First thing to do
@@ -304,8 +304,8 @@ worker with it, and the worker made one free events call before it was stopped. 
 In order. None of these needs the owner, except where it says so.
 
 **0. The live-test fixes** ([docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md)):
-Stages 1 (prices) and 2 (lookups and live plays) are done. Next, Stage 3: mockups, the owner's
-choice, then the redesign. After Sunday 2026-10-18, ask the owner for
+Stages 1 (prices) and 2 (lookups and live plays) are done, and Stage 3's shared fixes. Next:
+build the direction the owner picks from the canvas (Stage 3), in `web/`. After Sunday 2026-10-18, ask the owner for
 `report --since 2026-10-18` from the laptop: it shows whether every game got its two captures
 and how many credits each cost. These come before the tracker's Phase 3.
 
@@ -383,6 +383,16 @@ pages and of state exposure; then a soft launch.
     `NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt`.
   - Chromium is at `/opt/pw-browsers`. For WebGL screenshots, launch with `--use-gl=swiftshader`.
     A script importing Playwright must live inside `web/` to resolve `@playwright/test`.
+- **The 21+ gate is a cookie** (`juju21=yes`, a year), read by the server in `app/layout.tsx`
+  (which makes every page dynamic), with the old localStorage key still honoured and carried
+  into the cookie. Playwright's `pastAgeGate` sets both.
+- **Times:** `lib/format.ts` formats in ET unless given the viewer's zone; `LocalTime` adds the
+  local time after hydration. Never format a time in the runtime's own zone in a component: the
+  server is on UTC and the page would redraw. `e2e/juju.spec.ts` runs a page in Los Angeles
+  time and fails on React's hydration errors (#418 and friends in a production build).
+- **Pages:** `lib/backend.ts` `backendPage` turns a 404/422 into `notFound()` and anything else
+  into `app/error.tsx` ("can't reach its data"), with an 8-second timeout. `backendGet` (6 s)
+  is for things a page can do without.
 - **Next.js 16:**
   - The font is `Big_Shoulders` in `next/font/google` (not `Big_Shoulders_Display`).
   - Playwright's reduced-motion option goes under `contextOptions`.

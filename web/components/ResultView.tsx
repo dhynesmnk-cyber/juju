@@ -26,12 +26,17 @@ function isDone(v: View): boolean {
   return v.game.status === "final" && v.cards.every((c) => SETTLED.has(c.outcome) || c.price === null);
 }
 
-/** The shared card (`?card=`) first, then the rest in the backend's order. */
+/** The shared card (`?card=`) first, then the rest in the backend's order; bets with no price
+ *  go last, where they are listed in a line each rather than as cards. */
 function pinned(v: View, key?: string): View {
-  const i = key ? v.cards.findIndex((c) => c.key === key) : -1;
-  if (i <= 0) return v;
-  return { ...v, cards: [v.cards[i], ...v.cards.slice(0, i), ...v.cards.slice(i + 1)] } as View;
+  const priced = v.cards.filter((c) => c.price !== null);
+  const cards = [...priced, ...v.cards.filter((c) => c.price === null)];
+  const i = key ? cards.findIndex((c) => c.key === key) : -1;
+  if (i <= 0) return { ...v, cards } as View;
+  return { ...v, cards: [cards[i], ...cards.slice(0, i), ...cards.slice(i + 1)] } as View;
 }
+
+const NO_PRICE = /^No price on file: /;
 
 /** A card's own link: this page with the card first (and its line, for a ladder). */
 export function sharePath(pagePath: string, card: Card): string {
@@ -61,10 +66,11 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
   const previous = useRef<Map<string, Card["outcome"]>>(
     new Map(initial.cards.map((c) => [c.key, c.outcome])));
   const first = view.cards[0];
-  // A card that is already cashed when the page opens gets its moment too.
+  // A card already cashed when the page opens gets its shockwave, but shows its number as is:
+  // the count-up is for a bet that cashes while you watch (counting from $10 on load made the
+  // number drop and climb after it had been read).
   const [shockAt, setShockAt] = useState<number | null>(null);
-  const [countFirst, setCountFirst] = useState(
-    () => initial.cards[0]?.outcome === "locked" || initial.cards[0]?.outcome === "won");
+  const [countFirst, setCountFirst] = useState(false);
   useEffect(() => {
     if (initial.cards[0]?.outcome !== "locked"
         || ("waiting_for_feed" in initial && initial.waiting_for_feed)) return;
@@ -102,6 +108,8 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
   }, [apiPath, view, waitingNow, pin]);
 
   const { name, sub } = title(view);
+  const priced = view.cards.filter((c) => c.price !== null);
+  const unpriced = view.cards.filter((c) => c.price === null);
   const g = view.game;
   const score = g.home.score !== null && g.away.score !== null
     ? `${g.away.abbr ?? g.away.name} ${g.away.score} – ${g.home.score} ${g.home.abbr ?? g.home.name}`
@@ -139,24 +147,33 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
           this page updates by itself. Prices below are already final.
         </div>
       )}
-      <div aria-live="polite">
+      <div className="cards">
         {view.cards.length === 0 && (
           <p className="muted">
             {("no_price" in view && view.no_price)
               || `No archived prices for ${name} in this game. Juju only has prices captured before kickoff.`}
           </p>
         )}
-        {view.cards.map((c, i) => (
+        {priced.map((c, i) => (
           <ResultCard key={c.key} card={c} changed={changed.has(c.key)}
                       id={i === 0 ? "first-card" : undefined}
                       crew={i === 0 ? MOOD[world] : undefined}
                       countUp={i === 0 && countFirst} sharePath={sharePath(pagePath, c)}
                       parlay={parlayLeg(view, c)} />
         ))}
+        {unpriced.length > 0 && (
+          <section className="unpriced" aria-label="Bets with no price">
+            <h2>No price on file</h2>
+            <ul>
+              {unpriced.map((c) => (
+                <li key={c.key}><strong>{c.label}</strong>: {(c.no_price ?? "").replace(NO_PRICE, "")}</li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
-      <p className="hint hypo">{view.disclaimer}</p>
       <ParlayTray game={view.game.id} />
-      <p><Link href="/">← Look up another play</Link></p>
+      <p><Link className="back" href="/">← Look up another play</Link></p>
     </>
   );
 }

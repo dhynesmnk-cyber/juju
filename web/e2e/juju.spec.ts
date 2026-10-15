@@ -4,6 +4,9 @@ import AxeBuilder from "@axe-core/playwright";
 // The seeded game is PHI @ CHI (recorded 2026-09-28), in the fourth quarter.
 
 async function pastAgeGate(page: Page) {
+  // The server reads the cookie (no gate drawn at all); localStorage is the older way.
+  await page.context().addCookies([{ name: "juju21", value: "yes",
+                                     url: process.env.BASE_URL ?? "http://127.0.0.1:3000" }]);
   await page.addInitScript(() => window.localStorage.setItem("juju-21-confirmed", "yes"));
 }
 
@@ -77,9 +80,41 @@ test("team lines", async ({ page }) => {
   await expect(page.getByRole("article", { name: /Spread/ })).toContainText("CHI");
 });
 
+test("bets with no price are one line each, after the cards", async ({ page }) => {
+  await pastAgeGate(page);
+  await page.goto("/g/1/team/3");
+  const none = page.getByRole("region", { name: "Bets with no price" });
+  await expect(none).toContainText("Moneyline");  // the recording has no moneyline
+  await expect(page.getByRole("article", { name: /Moneyline/ })).toHaveCount(0);
+  await expect(page.getByRole("article").first()).not.toContainText("None");
+});
+
+test.describe("a phone in another time zone than the server", () => {
+  test.use({ timezoneId: "America/Los_Angeles" });
+
+  test("renders the same page the server sent: no hydration mismatch", async ({ page }) => {
+    const problems: string[] = [];
+    page.on("console", (m) => {
+      // Development builds say "hydration"; production ones give React's error number.
+      if (/hydrat|did not match|server rendered|#41[89]|#42[35]/i.test(m.text())) {
+        problems.push(m.text());
+      }
+    });
+    page.on("pageerror", (e) => problems.push(e.message));
+    await pastAgeGate(page);
+    await page.goto("/g/1/3929630");
+    await expect(page.getByRole("heading", { name: "Saquon Barkley" })).toBeVisible();
+    await page.getByRole("article", { name: /Rush yards/ }).getByText("Details").click();
+    // The server sent Eastern time; the phone adds its own beside it, after hydrating.
+    await expect(page.getByRole("article", { name: /Rush yards/ }))
+      .toContainText(/\d+:\d\d [AP]M \(\d+:\d\d [AP]M E[DS]T\)/);
+    expect(problems).toEqual([]);
+  });
+});
+
 test("pages have no serious accessibility problems", async ({ page }) => {
   await pastAgeGate(page);
-  for (const path of ["/", "/about"]) {
+  for (const path of ["/", "/about", "/g/1/3929630", "/g/1/team/3"]) {
     await page.goto(path);
     const results = await new AxeBuilder({ page }).analyze();
     const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");

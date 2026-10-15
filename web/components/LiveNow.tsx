@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import Jujus from "@/components/world/Jujus";
 import WorldStage from "@/components/world/WorldStage";
-import { dayAndTime, quarter } from "@/lib/format";
+import LocalTime from "@/components/LocalTime";
+import { quarter } from "@/lib/format";
 import { playHref, resultHref } from "@/lib/links";
 import type { LiveGame, LiveResponse } from "@/lib/types";
 
@@ -20,7 +21,7 @@ function GameBlock({ g }: { g: LiveGame }) {
       <div className="head">
         <span className="score">{score}</span>
         <span className="status">
-          {g.status === "scheduled" ? dayAndTime(g.commence_time) : g.status_text}
+          {g.status === "scheduled" ? <LocalTime iso={g.commence_time} withDay /> : g.status_text}
         </span>
       </div>
       {g.plays.length > 0 && (
@@ -75,14 +76,14 @@ export default function LiveNow({ initial }: { initial: LiveResponse | null }) {
   // The home page never celebrates: it is calm before kickoff and lit when games are on.
   const world = live.length ? "live" : "pre";
   return (
-    <div aria-live="polite">
+    <div>
       <WorldStage world={world} />
       <div className="home-crew"><Jujus mood={live.length ? "cheer" : "sleepy"} /></div>
       <h2>{live.length ? "Live now" : "No games in play right now"}</h2>
       {failed && <p className="hint" role="alert">Can&apos;t load games right now. Retrying.</p>}
       {live.map((g) => <GameBlock key={g.id} g={g} />)}
       {!live.length && data?.next_kickoff && (
-        <p className="muted">Next kickoff: {data.next_kickoff.label}, {dayAndTime(data.next_kickoff.commence_time)}</p>
+        <p className="muted">Next kickoff: {data.next_kickoff.label}, <LocalTime iso={data.next_kickoff.commence_time} withDay /></p>
       )}
       {other.length > 0 && <h2>{live.length ? "Other games" : "Recent and upcoming"}</h2>}
       {other.map((g) => <GameBlock key={g.id} g={g} />)}

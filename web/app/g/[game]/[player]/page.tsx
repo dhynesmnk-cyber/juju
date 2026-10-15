@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ResultView from "@/components/ResultView";
-import { backendGet } from "@/lib/backend";
+import { backendPage } from "@/lib/backend";
 import { CARD_KEY, SIZE, imagePath, pickCard } from "@/lib/shareImage";
 import type { PlayerView } from "@/lib/types";
 
@@ -29,7 +29,7 @@ async function load(props: Props) {
   if (!/^\d+$/.test(game) || !/^\d+$/.test(player)) return null;
   const sp = await props.searchParams;
   const q = query(sp);
-  const view = await backendGet<PlayerView>(`/api/player/${game}/${player}${q}`);
+  const view = await backendPage<PlayerView>(`/api/player/${game}/${player}${q}`);
   const pin = typeof sp.card === "string" && CARD_KEY.test(sp.card) ? sp.card : undefined;
   return view ? { view, apiPath: `/api/player/${game}/${player}${q}`,
                   pagePath: `/g/${game}/${player}`, pin } : null;

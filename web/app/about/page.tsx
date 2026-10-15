@@ -10,15 +10,16 @@ export default function About() {
       </p>
       <h2>The prices are real</h2>
       <p>
-        Before every game, Juju saves the sportsbooks&apos; prices several times, ending at 45
-        minutes before kickoff. A card shows the price from the latest save at or before that
-        moment, with its time. If the only price we have is earlier, the card says so. We never
-        estimate a price between two saves, and we never use one from after T-45.
+        Before every game, Juju saves the sportsbooks&apos; prices twice: three hours before
+        kickoff, and 45 minutes before. A card shows the price from the latest save at or before
+        the 45-minute mark, with its time. If the only price we have is earlier, the card says
+        so. We never estimate a price between two saves, and we never use one from after the
+        45-minute mark.
       </p>
       <p>
         We show one book first: Hard Rock Bet, then DraftKings, then others, whichever had the
-        price on time. Other books&apos; prices are listed underneath. We never pick the best
-        price for the headline.
+        price on time. Other books&apos; prices are under Details on each card. We never pick the
+        best price for the headline.
       </p>
       <h2>Live status catches up</h2>
       <p>
@@ -35,9 +36,16 @@ export default function About() {
       </p>
       <h2>Same-game parlays</h2>
       <p>
-        When we add parlays, they&apos;ll use standard parlay maths. Books adjust same-game
-        parlays for correlation, so a real ticket would have paid less, and every parlay card
-        will say so.
+        Add up to six bets from one game with <em>Add to parlay</em>, or type them in one line
+        (&quot;Barkley 100+ rush yards and Smith 5+ catches&quot;). Parlays use standard parlay
+        maths. Books adjust same-game parlays for correlation, so a real ticket would have paid
+        less, and every parlay card says so.
+      </p>
+      <h2>Type what you saw</h2>
+      <p>
+        Name a player (&quot;Barkley rush yards&quot;) or just describe the play (&quot;that
+        TD&quot;, &quot;who just scored&quot;): with no name, Juju lists the latest plays across
+        the games on, newest first, to tap.
       </p>
       <h2>What Juju is not</h2>
       <p>

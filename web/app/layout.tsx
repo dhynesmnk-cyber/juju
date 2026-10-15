@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { Big_Shoulders } from "next/font/google";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import AgeGate from "@/components/AgeGate";
 import StatusBanner from "@/components/StatusBanner";
 import { worldsEnabled } from "@/components/world/worlds";
+import { backendGet } from "@/lib/backend";
+import { type StatusBody, statusMessage } from "@/lib/status";
 import "./globals.css";
 
 const display = Big_Shoulders({
@@ -28,7 +31,9 @@ export const viewport: Viewport = {
   ],
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const confirmed = (await cookies()).get("juju21")?.value === "yes";
+  const status = statusMessage(await backendGet<StatusBody>("/api/status", 1500));
   return (
     <html lang="en" className={`${display.variable}${worldsEnabled ? " worlds" : ""}`}>
       <body>
@@ -39,7 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/about">How it works</Link>
             </nav>
           </header>
-          <StatusBanner />
+          <StatusBanner initial={status} />
           <main>{children}</main>
           <footer className="foot">
             <p>
@@ -56,7 +61,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </p>
           </footer>
         </div>
-        <AgeGate />
+        <AgeGate confirmed={confirmed} />
       </body>
     </html>
   );

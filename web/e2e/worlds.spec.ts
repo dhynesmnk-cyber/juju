@@ -4,6 +4,9 @@ import { expect, test, type Page } from "@playwright/test";
 // the Jujus match the bet's state, and reduced motion shows the final number at once.
 
 async function pastAgeGate(page: Page) {
+  // The server reads the cookie (no gate drawn at all); localStorage is the older way.
+  await page.context().addCookies([{ name: "juju21", value: "yes",
+                                     url: process.env.BASE_URL ?? "http://127.0.0.1:3000" }]);
   await page.addInitScript(() => window.localStorage.setItem("juju-21-confirmed", "yes"));
 }
 
