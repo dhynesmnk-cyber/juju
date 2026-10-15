@@ -5,7 +5,7 @@ product, the owner's decisions and the reasons behind them. Then read
 [CLAUDE.md](CLAUDE.md) for the commands and the rules that are easy to break. This file says
 where the build stands and what to do next. Update it before you finish a session.
 
-## Where things stand (2026-10-12)
+## Where things stand (2026-10-15)
 
 | | |
 |---|---|
@@ -13,9 +13,9 @@ where the build stands and what to do next. Update it before you finish a sessio
 | CI | Green on every merged PR head. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
 | Tests | 1,913 backend tests (1,164 before the tracker), 9 web unit tests (`node --test`), 17 Playwright tests |
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. It runs: the owner used it through real games on 2026-10-11, with a free Odds API key in `deploy/laptop/.env`. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
-| Real data | The laptop may have captured real prices on 2026-10-11, on the free key; Stage 0 of the live-test plan reads its database to find out. Otherwise the archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
+| Real data | The laptop captures real prices: on the free key from about 2026-10-10 (until its 500 credits ran out), and on the owner's 20K-credit key from 2026-10-15, which also filled last weekend's missed games from the vendor's history. `python -m juju.cli report --since DATE` on the laptop shows what it saved. The tests still use only the recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
-| The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **Waiting for the owner's go-ahead; nothing built yet** |
+| The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. Stage 2 (lookups) and Stage 3 (the redesign) are next |
 | The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**; Phase 3 (passcode users and `/api/me`) is next. Nothing user-visible yet: no routes and no web change. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
 
 ## First thing to do
@@ -190,8 +190,31 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
       plays to tap, newest first, and never picks one by itself.
     - **The UI gets a bigger redesign**, with mockups for the owner to choose from before
       it is built.
+    - **On 2026-10-15:** a **20K-credit Odds API key** (put on the laptop that evening);
+      **captures at T-3h and T-45 only** (was T-3h, T-60, T-49, T-47 and T-45:30); **75% less
+      credit use during games** (score polling every 4 minutes, not every minute); last
+      weekend's missed games filled from the vendor's history once; **build it all now**. The
+      key is never sent in chat.
 
 ## Decisions made by agents (reasons in the commits; change only with a reason)
+
+- **The T-45 capture starts at T-46** (2026-10-15), so a failed call has a minute of 20-second
+  retries before T-45:00. With one on-time capture instead of three, a 30-second window was too
+  thin. Its price is still on time (within 5 minutes of T-45).
+- **The credit budget shares what is left over the games left** before the reset, counting at
+  least a full week's games for each week left (`GAMES_PER_WEEK`), because the vendor lists
+  only a few days ahead. An unknown quota is a full plan. The T-45 capture may still spend the
+  reserve; the T-3h check, repair and score polling may not.
+- **"Prices are off" is read from the Odds API's last success** (none for 2 hours), not from
+  a flag the worker writes: with a key, the free games list succeeds every 30 minutes. The API
+  never holds the key.
+- **A market missing from a game's snapshots says why:** not asked for (`NOT_SAVED`; "credits
+  were short" only when the game's plan was lean, since the demo recording simply lacks the
+  moneyline), or asked for and not offered (`NOT_OFFERED`). `NO_SNAPSHOT` is only for a game
+  with no snapshot at all, and uses the worker's note when it skipped the game.
+- **Unmatched and doubtful player names are matched again** with every snapshot and after every
+  roster refresh, for games of the last 14 days (`archive.remap_prices`). The prices keep the
+  vendor's raw name, so pointing them at a player changes no number.
 
 - **A disagreement with nflverse re-opens the payout** with the official number, and the card
   says what changed. That follows GOALS v1 section 9 ("a settled payout can be re-opened and
@@ -260,10 +283,11 @@ worker with it, and the worker made one free events call before it was stopped. 
 
 In order. None of these needs the owner, except where it says so.
 
-**0. The live-test fixes** ([docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md)),
-once the owner says go: Stage 0 (the owner pastes the laptop's evidence), then Stage 1
-(prices) before the next game day, Stage 2 (lookups and live plays), Stage 3 (mockups, the
-owner's choice, then the redesign). These come before the tracker's Phase 3.
+**0. The live-test fixes** ([docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md)):
+Stage 1 (prices) is done. Next, Stage 2 (lookups and live plays), then Stage 3 (mockups, the
+owner's choice, then the redesign). After Sunday 2026-10-18, ask the owner for
+`report --since 2026-10-18` from the laptop: it shows whether every game got its two captures
+and how many credits each cost. These come before the tracker's Phase 3.
 
 **0b. The tracker, Phase 3: passcode users and `/api/me`** (`docs/plans/integrate-parlaytracker.md`
 §7 and §10). Read that phase's checklist of what only parlaytracker's Streamlit pages held. It
@@ -296,9 +320,9 @@ pages and of state exposure; then a soft launch.
 
 ## Needs the owner
 
-1. A **Juju-only Odds API key on the 100K plan** ($59/mo): `JUJU_ODDS_API_KEY` in
-   `deploy/laptop/.env` for the preview, a Fly secret for launch. Real captures and historical
-   repair need it: historical data is paid-only.
+1. **Done 2026-10-15:** a Juju-only Odds API key, on a 20K-credit plan, in
+   `deploy/laptop/.env` as `JUJU_ODDS_API_KEY`. For launch it becomes a Fly secret. If its
+   credits don't reset on the 1st, the owner sets `ODDS_API_RESET_DAY` in `.env`.
 2. **Fly.io:** create the apps, or give a deploy token. Then follow `docs/deploy.md`.
 3. **A domain on Cloudflare**, then `SITE_URL` in `web/fly.toml` (share previews).
 4. **Turnstile:** a widget for the domain (site key and secret, `docs/deploy.md` step 5).
@@ -359,7 +383,8 @@ pages and of state exposure; then a soft launch.
   `position: relative; z-index: 1`. Anything else puts the world on top of the text.
 - **Migrations:** 0001 was regenerated once, before any deploy; 0002 and 0003 came with M3,
   0004 with the first-touchdown check, 0005 renamed its marker to `plays_checked_at` (written
-  by hand: autogenerate turns a rename into a drop and an add, losing the values).
+  by hand: autogenerate turns a rename into a drop and an add, losing the values), 0006 is the
+  tracker's schema, 0007 adds `games.capture_plan` and `capture_note` (the credit budget).
   From now on, add new migrations and never edit an existing one. Generate against a scratch
   database at head (`alembic revision --autogenerate`), read the file, and run
   `tests/db/test_migrations.py`.

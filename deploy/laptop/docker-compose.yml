@@ -6,10 +6,17 @@
 # as it does over Fly's private network (docs/licensing.md: the backend has no public address).
 name: juju
 
+# The API and the worker share these. The credit plan (backend/juju/core/budget.py) needs the
+# day the Odds API plan's credits reset (ODDS_API_RESET_DAY, 1 to 28) and the credits that only
+# the T-45 captures may spend (ODDS_API_RESERVE); the API reads both for the site's status.
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://juju:${POSTGRES_PASSWORD:?run ./up.sh}@db:5432/juju
+  ODDS_API_RESET_DAY: ${ODDS_API_RESET_DAY:-1}
+  ODDS_API_RESERVE: ${ODDS_API_RESERVE:-1000}
+
 x-backend: &backend
   image: juju-backend:local
-  environment:
-    DATABASE_URL: postgresql://juju:${POSTGRES_PASSWORD:?run ./up.sh}@db:5432/juju
+  environment: *backend-env
   restart: unless-stopped
 
 services:
@@ -54,13 +61,15 @@ services:
   # Exactly one, always on (CLAUDE.md). With no key it archives nothing: it follows real games
   # from ESPN, so their cards say "No price on file" until Juju's own key is in .env, as
   # JUJU_ODDS_API_KEY. Not ODDS_API_KEY: a shell can have that one (parlaytracker's), and
-  # Compose would take it from the shell before .env.
+  # Compose would take it from the shell before .env. REPAIR_DAYS is how far back a game with
+  # no T-45 price is filled from the vendor's history (about 340 credits a game); 0 turns it off.
   worker:
     <<: *backend
     command: ["python", "-m", "juju.worker"]
     environment:
-      DATABASE_URL: postgresql://juju:${POSTGRES_PASSWORD:?run ./up.sh}@db:5432/juju
+      <<: *backend-env
       ODDS_API_KEY: ${JUJU_ODDS_API_KEY:-}
+      REPAIR_DAYS: ${REPAIR_DAYS:-14}
     depends_on:
       migrate:
         condition: service_completed_successfully

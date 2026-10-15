@@ -204,6 +204,11 @@ if [ -n "$(get JUJU_ODDS_API_KEY)" ]; then
   [[ "$archive" == *"archive on"* ]] \
     || die "JUJU_ODDS_API_KEY is in .env but the worker isn't archiving. See: docker compose logs worker"
   ok "the worker archives prices with Juju's Odds API key"
+  # One free call: is the key accepted, how many credits are left, what will captures take.
+  odds=$(compose exec -T worker python -m juju.cli odds-status 2> /dev/null) \
+    || die "the Odds API didn't accept JUJU_ODDS_API_KEY:
+   ${odds:-no answer}"
+  printf '%s\n' "$odds" | sed 's/^/   /'
 else
   [[ "$archive" == *"archive off"* ]] || {
     compose stop worker > /dev/null 2>&1 || true

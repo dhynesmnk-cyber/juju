@@ -46,8 +46,8 @@ then remembers it for 30 days.
   them as earlier than T-45. Its cards say "Awaiting verification": the next-day check only
   looks at games from the last week.
 - **Real games:** the worker follows this week's NFL games from ESPN, so they show up on the
-  home page with live plays. Their cards say "No price on file": prices are archived only with
-  Juju's own Odds API key (below).
+  home page with live plays. Their prices are saved only with Juju's own Odds API key (below);
+  without one, their cards say "No price on file" and the site says prices aren't being saved.
 
 ## Day to day
 
@@ -81,17 +81,30 @@ sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.ta
 The lid setting takes effect after a reboot. To undo: delete that file and
 `sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target`.
 
-## Real prices, later
+## Real prices
 
-With Juju's own Odds API key (the 100K plan, `docs/deploy.md`), add one line to
-`deploy/laptop/.env`:
+With Juju's own Odds API key, add one line to `deploy/laptop/.env`:
 
 ```
 JUJU_ODDS_API_KEY=<the key>
 ```
 
-and run `deploy/laptop/up.sh`. The worker then archives prices before each kickoff. Never use
-parlaytracker's key here.
+and run `deploy/laptop/up.sh`. It checks the key with one free call and prints the credits left
+and what the captures will take. The worker then saves prices twice before each kickoff, at
+3 hours and at 45 minutes (about 50 credits a game). Never use parlaytracker's key here, and
+never paste a key into a chat.
+
+Any plan works, even a free one: when credits run short the worker saves fewer bets and the
+site says so. Three optional lines in `.env` tune it:
+
+| Line | What it does |
+|---|---|
+| `ODDS_API_RESET_DAY=15` | The day of the month your plan's credits reset (1 to 28; default 1) |
+| `REPAIR_DAYS=2` | How far back a game with no 45-minute price is filled from the vendor's history, at about 340 credits a game (default 14; 0 turns it off; paid plans only) |
+| `ODDS_API_RESERVE=1000` | Credits kept back: only the 45-minute capture may spend them |
+
+To see what the worker saved and what people looked up since a day:
+`docker compose -f deploy/laptop/docker-compose.yml exec api python -m juju.cli report --since 2026-10-18`.
 
 ## If something goes wrong
 

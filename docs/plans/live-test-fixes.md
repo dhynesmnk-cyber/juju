@@ -1,7 +1,14 @@
 # Plan: fix lookups, missing prices and the UI after the 2026-10-11 live test
 
-**Status:** drafted 2026-10-12, waiting for the owner's go-ahead. Nothing is built yet.
+**Status:** drafted 2026-10-12. **Stage 1 is done** (2026-10-15). Stages 2 and 3 are next.
 **Target:** `juju@0b29db3` and onward.
+
+> **Changed 2026-10-15, by the owner:** a 20K-credit key instead of the free one; captures at
+> T-3h and T-45 only (the T-45 one from T-46, retried until T-45:00); score polling cut by 75%
+> (every 4 minutes) instead of only when ESPN lags; last weekend's missed games filled from the
+> vendor's history once; and "build it all now". The credit budget below stays, as the safety
+> net: on 20K every game gets the full plan. Its tiers became Full (both captures), T-45 only,
+> Lean and None. The rest of Stage 1 was built as written.
 
 ## Context
 

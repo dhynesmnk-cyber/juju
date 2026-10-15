@@ -20,7 +20,7 @@ the Compose file and this skill right, and to read what they paste.
 | `db`, `migrate`, `api`, `worker`, `web` | `deploy/laptop/docker-compose.yml` | The Fly layout on one machine. `migrate` runs once before `api` and `worker`, as Fly's `release_command` does. |
 | Only `web` has a port, `127.0.0.1:3000` | compose `ports` | Funnel publishes that. The API and Postgres have **no published port**: "the backend has no public address" is a licensing rule (`docs/licensing.md`). `up.sh` refuses to finish if either has one. |
 | The passcode gate | `web/proxy.ts`, `web/lib/passcode.ts`, `web/lib/unlockPage.ts`, `web/app/unlock/check/route.ts` | Off unless `SITE_PASSCODE` is set, so development, CI and Fly are unchanged. A locked page gets a self-contained HTML form (401) **at the address asked for**; an API call gets a JSON 401. The cookie lasts 30 days and is signed with a key derived from the passcode, so changing it signs everyone out. Only the build's static files skip it: `/_next/image` is gated, because it fetches pages itself and could hand out share images. |
-| Settings | `deploy/laptop/.env` (mode 600, gitignored) | `POSTGRES_PASSWORD`, `SITE_PASSCODE`, `SITE_URL`, and later `JUJU_ODDS_API_KEY`. `up.sh` creates the first three. |
+| Settings | `deploy/laptop/.env` (mode 600, gitignored) | `POSTGRES_PASSWORD`, `SITE_PASSCODE`, `SITE_URL`, and `JUJU_ODDS_API_KEY` (the owner's 20K-credit key since 2026-10-15). `up.sh` creates the first three. Optional: `ODDS_API_RESET_DAY`, `REPAIR_DAYS`, `ODDS_API_RESERVE` (the credit plan; README "Real prices"); the API gets the first and last, only the worker gets the key and `REPAIR_DAYS`. |
 | Compose runs under `env -i` | `compose()` in `up.sh` | Compose takes a variable from the shell before `.env`. On 2026-10-07, testing in a cloud container, the worker picked up parlaytracker's `ODDS_API_KEY` from the shell and started with "archive on"; it made only the free events call. Hence the clean environment, the `JUJU_` name, and the check that stops the worker if it archives without that key. |
 | The demo game | `up.sh`, step "The recorded demo game" | `python -m juju.cli seed final`, once (looked up by ESPN event `401872963`). The production image doesn't ship `backend/tests/`, so it is bind-mounted read-only for that one run. `final` keeps the real timeline: prices captured about two hours before kickoff, flagged EARLY. Nothing is invented. |
 | Funnel | `sudo tailscale funnel --https=443 --bg http://127.0.0.1:3000`; off: the same target with `off` | A stable `https://<machine>.<tailnet>.ts.net` with no domain or router changes. Always sudo, with output visible: when Funnel isn't allowed yet, Tailscale prints a link and waits. The tailnet ID isn't needed and doesn't belong in the repo. |
@@ -46,7 +46,9 @@ relatively.
    - the passcode from `.env` opens it;
    - the site reaches the API, and the demo player page renders;
    - no published port on `api` or `db`;
-   - the worker says "archive off" unless `JUJU_ODDS_API_KEY` is set.
+   - the worker says "archive off" unless `JUJU_ODDS_API_KEY` is set;
+   - with a key, `python -m juju.cli odds-status` in the worker: one free call that checks the
+     key and prints the credits left, the reset day and the capture plan (never the key).
 5. **Funnel**, with sudo if needed. Then it prints the address, the passcode only if it just made
    one up, and direct links to the demo game, which the home page never lists (it shows the last
    14 hours to the next 36).
@@ -69,6 +71,8 @@ Read the last `== step` and the `Stopped:` line. Most failures are one of these:
 | `Funnel didn't start` | Funnel isn't allowed for the machine. Open the link it printed, or add the `funnel` node attribute in the tailnet policy. |
 | The URL doesn't answer right after Funnel starts | The first certificate takes up to a minute; try a browser. |
 | `the worker started archiving without JUJU_ODDS_API_KEY` | A key reached it from somewhere other than `.env`. It has been stopped; find out how before starting it again. Never parlaytracker's key. |
+| `the Odds API didn't accept JUJU_ODDS_API_KEY` | `odds-status` got a 401 (a mistyped or expired key; ask the owner to re-copy it into `.env`, never into chat) or couldn't reach the API. |
+| Cards say "No price on file" on real games, or the site says prices are rationed or paused | Ask for `docker compose ... exec api python -m juju.cli report --since <date>`: each game's captures and credits, its matched names. `odds-status` says the credits left and the plan. |
 | Users get the form again and again | Their browser blocks cookies for the site, or the passcode changed (everyone re-enters it). |
 
 To see more, ask for `docker compose -f deploy/laptop/docker-compose.yml logs --tail 100 <service>`.

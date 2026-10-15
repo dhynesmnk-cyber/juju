@@ -66,8 +66,13 @@ attribution. The nflverse data is CC-BY-4.0 (not MIT, as v1 said), so the footer
 
 - **Capture around T-45, not all day.** A snapshot taken after T-45 is never used.
   - At T-3 h: main markets, as a coverage check.
-  - At T-60, T-49, T-47 and T-45:30: every market.
-  - A failed capture retries every 20 s until T-45:00. Nothing is captured after that.
+  - At T-45: every market. It starts at T-46, and a failed capture retries every 20 s until
+    T-45:00. Nothing is captured after that.
+  - Changed by the owner on 2026-10-15, on a 20K-credit key: two captures a game instead of five
+    (T-60, T-49, T-47 and T-45:30 were dropped), about 50 credits a game.
+  - **A credit budget** shares the credits left over the games left before they reset
+    (`core/budget.py`). When they run short, the T-3 h check goes first, then the less-asked
+    markets; a game with nothing left says so on its cards.
 - **Capture wide, display narrow.** Up to 10 books cost the same as one region, so one request asks
   for all of `BOOKS` and for the main and alternate player markets. Fetching the same data later
   from the historical endpoint costs 10×.
@@ -84,8 +89,10 @@ attribution. The nflverse data is CC-BY-4.0 (not MIT, as v1 said), so the footer
     **no price**, with the reason.
 - **Provenance:** every price keeps its snapshot, the fetch time, the vendor's market
   `last_update`, and the sha256 of the gzipped raw payload.
-- **Budget:** about 8k credits a month for the archive, 5–9k for live scores and about 2k for
-  repairs. That is the 100K plan ($59/mo), on a key used only by Juju.
+- **Budget:** about 3,300 credits a month for the archive (two captures a game), about 1,000 for
+  live scores (every 4 minutes during games, cut by 75% on 2026-10-15) and repairs at about 340
+  a game. The owner runs the 20K plan on a key used only by Juju (2026-10-15); the budget keeps
+  it within any plan, down to a free key's 500, by rationing.
 
 ## 5. The result card
 
