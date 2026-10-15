@@ -27,7 +27,9 @@ from juju.config import Settings, get_settings
 from juju.core import budget
 from juju.core.enums import EventStatus, HealthState, PlayKind
 from juju.core.parlay import parse_legs
-from juju.core.models import Game, HotGame, Lookup, OddsSnapshot, Play, SourceHealth
+from juju.core.models import (
+    Game, HotGame, Lookup, OddsSnapshot, Play, Player, Price, SourceHealth,
+)
 from juju.db import session_factory
 from juju.ingest.llm import Budget, LlmReader
 
@@ -245,6 +247,37 @@ def live(session: SessionDep) -> JSONResponse:
                     "next_kickoff": None if nxt is None else {
                         "label": nxt.label, "commence_time": nxt.commence_time}},
                    "public, s-maxage=5, stale-while-revalidate=15")
+
+
+def _play_row(p: Play) -> dict:
+    return {"id": p.id, "kind": p.kind, "label": p.label, "text": p.text, "yards": p.yards,
+            "period": p.period, "clock": p.clock, "wallclock": p.wallclock,
+            "athlete_id": p.espn_athlete_id, "passer_id": p.passer_espn_id,
+            "team_espn_id": p.team_espn_id, "scoring": p.scoring}
+
+
+@app.get("/api/game/{game_id}")
+def game_page(game_id: int, session: SessionDep) -> JSONResponse:
+    """One game for its page: its state, every notable play (newest first) and the players
+    Juju has a price for. No prices here: a UI list (docs/licensing.md); each player's own
+    prices come from /api/player."""
+    game = session.get(Game, game_id)
+    if game is None:
+        raise HTTPException(404, "No such game")
+    now = _utcnow()
+    plays = session.scalars(select(Play).where(Play.game_id == game.id)
+                            .order_by(Play.period.desc(), Play.sequence.desc()).limit(200)).all()
+    priced = select(Price.espn_athlete_id).where(
+        Price.game_id == game.id, Price.espn_athlete_id.is_not(None)).distinct()
+    players = session.scalars(select(Player).where(Player.espn_athlete_id.in_(priced))
+                              .order_by(Player.team_espn_id, Player.position, Player.name)).all()
+    return respond({**jsonable_encoder(game_view(game, now)),
+                    "plays": [_play_row(p) for p in plays
+                              if p.espn_athlete_id or (p.scoring and p.team_espn_id)],
+                    "players": [{"id": p.espn_athlete_id, "name": p.name,
+                                 "team_espn_id": p.team_espn_id, "position": p.position}
+                                for p in players]},
+                   _cache_for(game.status))
 
 
 @app.get("/api/suggest")

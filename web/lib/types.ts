@@ -109,6 +109,24 @@ export interface LivePlay {
   label: string;
 }
 
+/** One game's page (/api/game): every notable play, newest first, and the players Juju has a
+ *  price for. No prices in it. */
+export interface GamePlay extends LivePlay {
+  passer_id: string | null;
+}
+
+export interface GamePlayer {
+  id: string;
+  name: string;
+  team_espn_id: string | null;
+  position: string | null;
+}
+
+export interface GamePageView extends GameView {
+  plays: GamePlay[];
+  players: GamePlayer[];
+}
+
 export interface LiveGame extends GameView {
   plays: LivePlay[];
 }

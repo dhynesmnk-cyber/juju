@@ -23,7 +23,7 @@ test("the age gate asks once and remembers", async ({ page }) => {
 test("tap a live play and get the price at once", async ({ page }) => {
   await pastAgeGate(page);
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Live now" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "On now" })).toBeVisible();
   await page.getByRole("link", { name: /J\. Hurts 20-yd run/ }).click();
   await expect(page.getByRole("heading", { name: "Jalen Hurts" })).toBeVisible();
   const card = page.getByRole("article", { name: /Rush yards/ });
@@ -72,10 +72,31 @@ test("text naming no one offers the latest plays, and the page names the one tap
   await expect(page.getByRole("note")).toContainText("J. Hurts 1-yd TD run");
 });
 
-test("team lines", async ({ page }) => {
+test("a game's plays open what they paid, in place", async ({ page }) => {
   await pastAgeGate(page);
   await page.goto("/");
-  await page.getByRole("link", { name: "CHI lines" }).first().click();
+  await page.getByRole("link", { name: /Every play, and what it paid/ }).first().click();
+  await expect(page.getByRole("heading", { name: /PHI 7 – 27 CHI/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "4th quarter" })).toBeVisible();
+  const play = page.getByRole("button", { name: /D\. Smith 30-yd catch/ });
+  await expect(play).toContainText("from Jalen Hurts");
+  await play.click();
+  await expect(play).toHaveAttribute("aria-expanded", "true");
+  const bet = page.getByRole("article").first();
+  await expect(bet).toContainText(/at (DraftKings|FanDuel|BetMGM)/);
+  await expect(bet).toContainText("Hypothetical");
+  await page.getByRole("link", { name: /All of DeVonta Smith's bets/ }).click();
+  await expect(page.getByRole("heading", { name: "DeVonta Smith" })).toBeVisible();
+  await expect(page.getByRole("note")).toContainText("D. Smith 30-yd catch");
+  await page.getByRole("link", { name: /every play/ }).click();
+  await expect(page.getByRole("tab", { name: "Plays" })).toHaveAttribute("aria-selected", "true");
+});
+
+test("team lines", async ({ page }) => {
+  await pastAgeGate(page);
+  await page.goto("/g/1");
+  await page.getByRole("tab", { name: "Game lines" }).click();
+  await page.getByRole("link", { name: "CHI lines" }).click();
   await expect(page.getByRole("heading", { name: "Chicago Bears" })).toBeVisible();
   await expect(page.getByRole("article", { name: /Spread/ })).toContainText("CHI");
 });
@@ -114,7 +135,7 @@ test.describe("a phone in another time zone than the server", () => {
 
 test("pages have no serious accessibility problems", async ({ page }) => {
   await pastAgeGate(page);
-  for (const path of ["/", "/about", "/g/1/3929630", "/g/1/team/3"]) {
+  for (const path of ["/", "/about", "/g/1", "/g/1/3929630", "/g/1/team/3"]) {
     await page.goto(path);
     const results = await new AxeBuilder({ page }).analyze();
     const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");

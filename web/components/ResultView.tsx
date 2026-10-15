@@ -7,6 +7,7 @@ import ResultCard from "@/components/ResultCard";
 import WorldStage from "@/components/world/WorldStage";
 import { MOOD, worldFor } from "@/components/world/worlds";
 import { quarter, secondsAgo } from "@/lib/format";
+import { gameHref } from "@/lib/links";
 import { legKey } from "@/lib/parlayTray";
 import type { Card, PlayerView, TeamView } from "@/lib/types";
 
@@ -122,6 +123,7 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
       <WorldStage world={world} shockAt={shockAt} shockFrom={shockFrom} />
       <div className="sr-only" aria-live="polite">{announce}</div>
       <div className="result-head">
+        <Link className="back" href={gameHref(g.id)}>‹ {g.away.abbr ?? g.away.name} @ {g.home.abbr ?? g.home.name}, every play</Link>
         <h1>{name}</h1>
         <div className="sub">{[sub, score, g.status_text].filter(Boolean).join(" · ")}</div>
         {g.status !== "scheduled" && g.status !== "final" && (

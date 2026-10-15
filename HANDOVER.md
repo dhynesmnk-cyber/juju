@@ -15,7 +15,7 @@ where the build stands and what to do next. Update it before you finish a sessio
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. It runs: the owner used it through real games on 2026-10-11, with a free Odds API key in `deploy/laptop/.env`. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
 | Real data | The laptop captures real prices: on the free key from about 2026-10-10 (until its 500 credits ran out), and on the owner's 20K-credit key from 2026-10-15, which also filled last weekend's missed games from the vendor's history. `python -m juju.cli report --since DATE` on the laptop shows what it saved. The tests still use only the recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
-| The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. **Stage 2 (lookups and live plays) is done** on the same branch: the latest plays for text naming no one, recent plays deciding between namesakes, the tapped play named on its page, interceptions and return TDs as plays, one bad box score no longer shutting an ESPN host. **Stage 3:** the three mockup directions are on a private canvas for the owner (https://claude.ai/artifact/BvBJUwJFtcd6K5xmiJ6hf8: A feed first, B game first, C answer first, phone and desktop, every number from the recorded game), and the fixes every direction needs are built: times the same on server and phone, loading and error pages, no layout shift (floating typeahead, server-rendered banner and 21+ gate), slimmer cards with Details, unpriced bets as one list, 44 px targets, two cards a row on wide screens. **Waiting for the owner to pick a direction** |
+| The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. **Stage 2 (lookups and live plays) is done** on the same branch: the latest plays for text naming no one, recent plays deciding between namesakes, the tapped play named on its page, interceptions and return TDs as plays, one bad box score no longer shutting an ESPN host. **Stage 3:** the three mockup directions are on a private canvas for the owner (https://claude.ai/artifact/BvBJUwJFtcd6K5xmiJ6hf8: A feed first, B game first, C answer first, phone and desktop, every number from the recorded game), and the fixes every direction needs are built: times the same on server and phone, loading and error pages, no layout shift (floating typeahead, server-rendered banner and 21+ gate), slimmer cards with Details, unpriced bets as one list, 44 px targets, two cards a row on wide screens. **On 2026-10-15 the owner chose B, game first, and it is built:** the home page shows each game on now as a tile (score, its latest play, "Every play, and what it paid"), then the next and earlier games; a game's page (`/g/[game]`, from `/api/game/{id}`, which lists no prices) has its plays on a timeline by quarter, newest first, and tapping one opens what it paid in place (beside the timeline on a wide screen), plus Players and Game lines tabs. Result pages link back to their game |
 | The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**; Phase 3 (passcode users and `/api/me`) is next. Nothing user-visible yet: no routes and no web change. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
 
 ## First thing to do
@@ -127,13 +127,18 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   golden set with or without an LLM, to choose `LLM_MODEL`).
 
 **Web** (`web/`, Next.js 16):
-- Pages: `/`, `/g/[game]/[player]`, `/g/[game]/team/[team]`, `/g/[game]/parlay?legs=` (M4)
-  and the info pages. Result pages take `?card=` to put a shared card first.
+- Pages: `/` (search, then a tile per game on now, then next and earlier games), `/g/[game]`
+  (the game: its plays by quarter, each opening what it paid in place; Players; Game lines),
+  `/g/[game]/[player]`, `/g/[game]/team/[team]`, `/g/[game]/parlay?legs=` (M4) and the info
+  pages. Result pages take `?card=` to put a shared card first, and `?play_id=` to name the
+  play they were opened from.
 - `app/api/[...path]/route.ts` is the **only** way into the backend: an allowlist of paths.
   It also verifies Turnstile tokens (`lib/turnstile.ts`) and sets a signed one-hour cookie.
 - `.../image/route.tsx` under both result pages (M3): the share image, one card in its world
   with the Jujus (`lib/shareImage.tsx`, next/og). Pages emit Open Graph tags for it.
-- `components/`: `ResultCard` (Verified chip, deciding play, Share and Add to parlay),
+- `components/`: `LiveNow` (the home page's game tiles), `GamePage` (the timeline; a play's
+  answer is the player's or team's own endpoint with `play_id`, its priced touched bets, two
+  at most), `ResultCard` (Verified chip, deciding play, Share and Add to parlay),
   `ResultView`, `ParlayTray` (per game, in the viewer's browser: `lib/parlayTray.ts`),
   `ParlayView` (a light in the sky per leg, each leg's price; gold only when all are lit),
   `SearchBox` (shows `TurnstileWidget` only when challenged), `world/` (option A: shader,
@@ -189,7 +194,9 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
     - **A lookup that names nobody** ("what just happened", "that TD") offers the latest
       plays to tap, newest first, and never picks one by itself.
     - **The UI gets a bigger redesign**, with mockups for the owner to choose from before
-      it is built.
+      it is built. **On 2026-10-15 the owner chose B, game first**, from
+      https://claude.ai/artifact/BvBJUwJFtcd6K5xmiJ6hf8: games on the home page, and a game
+      page whose timeline of plays opens what each paid.
     - **On 2026-10-15:** a **20K-credit Odds API key** (put on the laptop that evening);
       **captures at T-3h and T-45 only** (was T-3h, T-60, T-49, T-47 and T-45:30); **75% less
       credit use during games** (score polling every 4 minutes, not every minute); last
@@ -304,8 +311,9 @@ worker with it, and the worker made one free events call before it was stopped. 
 In order. None of these needs the owner, except where it says so.
 
 **0. The live-test fixes** ([docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md)):
-Stages 1 (prices) and 2 (lookups and live plays) are done, and Stage 3's shared fixes. Next:
-build the direction the owner picks from the canvas (Stage 3), in `web/`. After Sunday 2026-10-18, ask the owner for
+All three stages are done: prices, lookups and live plays, and the UI (direction B, game
+first). Next: the owner pulls the branch on the laptop before Sunday 2026-10-18 and tries the
+game pages during the games. After Sunday, ask the owner for
 `report --since 2026-10-18` from the laptop: it shows whether every game got its two captures
 and how many credits each cost. These come before the tracker's Phase 3.
 

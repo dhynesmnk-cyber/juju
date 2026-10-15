@@ -1,6 +1,6 @@
 # Plan: fix lookups, missing prices and the UI after the 2026-10-11 live test
 
-**Status:** drafted 2026-10-12. **Stages 1 and 2 are done** (2026-10-15). Stage 3 is next.
+**Status:** drafted 2026-10-12. **All three stages are done** (2026-10-15); Stage 3 built direction B.
 **Target:** `juju@0b29db3` and onward.
 
 > **Changed 2026-10-15, by the owner:** a 20K-credit key instead of the free one; captures at
@@ -223,12 +223,27 @@ Reuse: `affordable` and `Slot` (`capture.py`), `match_roster_player` (`ingest/re
    - OT instead of "Q5"; Share resets; tap targets of 44 px or more everywhere; a desktop
      breakpoint.
    - `about/page.tsx` is updated for parlays.
+   **The owner chose B, game first** (2026-10-15).
 3. **Build the chosen direction:**
    - `web/app/page.tsx`, `components/LiveNow.tsx`, `SearchBox.tsx`, `ResultView.tsx`,
      `ResultCard.tsx`, `ParlayView.tsx` and `app/globals.css`, plus any new pages the
      direction needs.
    - Types in `lib/types.ts` follow the new API fields (`the_play`, `kind: "plays"`,
      `prices` status).
+
+   **Built (B):**
+   - `/api/game/{id}`: the game, its notable plays (newest first, with the passer of a
+     catch or an interception) and the players with a price on file. No prices: a play's
+     answer comes from the player's or team's own endpoint with `play_id`, one game and one
+     player at a time, as before. The licensing guard in `tests/db/test_api.py` covers it.
+   - Home (`components/LiveNow.tsx`): "On now", a tile per game in play (score, its latest
+     play straight to what it paid, "Every play, and what it paid"), then "Next" and
+     "Earlier".
+   - The game page (`app/g/[game]/page.tsx`, `components/GamePage.tsx`): tabs Plays, Players
+     and Game lines; the plays by quarter, newest first, as buttons that open what each paid
+     in place (its priced touched bets, two at most, and "All of X's bets"); beside the
+     timeline at 960 px and wider. It polls every 10 s while the game is on.
+   - Result pages link back to their game; the footer keeps "1-800-GAMBLER." on one line.
 
 ## Verification
 

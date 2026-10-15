@@ -16,6 +16,11 @@ export function resultHref(kind: "player" | "team", gameId: number, id: string,
   return s ? `${base}?${s}` : base;
 }
 
+/** A game's page: its plays, newest first, each opening what it paid. */
+export function gameHref(gameId: number): string {
+  return `/g/${gameId}`;
+}
+
 export function choiceHref(c: Choice, focus?: Partial<Focus>): string {
   if (c.play_id) {  // one of the latest plays: it is already in the feed
     return resultHref(c.kind, c.game_id, c.id, { play: c.play ?? null, expect: false },
