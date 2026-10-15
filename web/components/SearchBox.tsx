@@ -20,6 +20,7 @@ export default function SearchBox() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [challenged, setChallenged] = useState(false);
+  const [picking, setPicking] = useState<"who" | "play">("who");
   const asked = useRef("");  // the text a challenge interrupted, looked up once it passes
   const listId = useId();
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -77,9 +78,10 @@ export default function SearchBox() {
         router.push(parlayHref(body.game_id, body.legs));
       } else if ((body.kind === "player" || body.kind === "team") && body.game_id && body.id) {
         router.push(resultHref(body.kind, body.game_id, body.id, body.focus));
-      } else if (body.kind === "choices") {
+      } else if (body.kind === "choices" || body.kind === "plays") {
         setChoices(body.choices);
         setFocus(body.focus);
+        setPicking(body.kind === "plays" ? "play" : "who");
       } else {
         setMessage(body.message);
       }
@@ -154,10 +156,12 @@ export default function SearchBox() {
       )}
       {choices.length > 0 && (
         <div className="choices" aria-live="polite">
-          <p className="hint">Which one did you mean?</p>
-          <ul className="suggestions" aria-label="Did you mean">
+          <p className="hint">
+            {picking === "play" ? "Which play? The latest, newest first." : "Which one did you mean?"}
+          </p>
+          <ul className="suggestions" aria-label={picking === "play" ? "Latest plays" : "Did you mean"}>
             {choices.map((c) => (
-              <li key={`${c.kind}-${c.game_id}-${c.id}`}>
+              <li key={`${c.kind}-${c.game_id}-${c.id}-${c.play_id ?? ""}-${c.play ?? ""}`}>
                 <Link href={choiceHref(c, focus)}>
                   <span>{c.name}</span><span className="muted small">{c.detail}</span>
                 </Link>

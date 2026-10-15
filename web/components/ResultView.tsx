@@ -6,7 +6,7 @@ import ParlayTray from "@/components/ParlayTray";
 import ResultCard from "@/components/ResultCard";
 import WorldStage from "@/components/world/WorldStage";
 import { MOOD, worldFor } from "@/components/world/worlds";
-import { secondsAgo } from "@/lib/format";
+import { quarter, secondsAgo } from "@/lib/format";
 import { legKey } from "@/lib/parlayTray";
 import type { Card, PlayerView, TeamView } from "@/lib/types";
 
@@ -124,6 +124,15 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
         )}
         {offline && <div className="fresh red" role="alert">Can&apos;t refresh right now. Retrying.</div>}
       </div>
+      {view.the_play && (
+        <p className="the-play" role="note">
+          <span className="muted small">The play </span>
+          {view.the_play.label}
+          {view.the_play.period
+            ? <span className="muted small"> · {quarter(view.the_play.period)} {view.the_play.clock ?? ""}</span>
+            : null}
+        </p>
+      )}
       {waiting && (
         <div className="waiting" role="status">
           That play isn&apos;t in the official feed yet. It usually shows up within a minute:

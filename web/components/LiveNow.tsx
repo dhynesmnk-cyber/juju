@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import Jujus from "@/components/world/Jujus";
 import WorldStage from "@/components/world/WorldStage";
-import { dayAndTime } from "@/lib/format";
+import { dayAndTime, quarter } from "@/lib/format";
 import { playHref, resultHref } from "@/lib/links";
 import type { LiveGame, LiveResponse } from "@/lib/types";
 
@@ -27,10 +27,10 @@ function GameBlock({ g }: { g: LiveGame }) {
         <div className="chips">
           {g.plays.map((p) =>
             p.athlete_id ? (
-              <Link key={p.id} href={playHref(g.id, p.athlete_id, p.kind, p.yards)}
+              <Link key={p.id} href={playHref(g.id, p.athlete_id, p.kind, p.yards, p.id)}
                     className={`chip${p.scoring ? " scoring" : ""}`}>
                 {p.label}
-                {p.clock && p.period ? <span className="muted small">&nbsp;· Q{p.period} {p.clock}</span> : null}
+                {p.clock && p.period ? <span className="muted small">&nbsp;· {quarter(p.period)} {p.clock}</span> : null}
               </Link>
             ) : null,
           )}

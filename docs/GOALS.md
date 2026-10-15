@@ -163,6 +163,10 @@ Rules:
    - A score of 90 or more is accepted automatically. 75–89 is doubtful, and so is a runner-up
      within 3 points.
    - A doubtful match gets a one-tap confirmation card.
+   - Added 2026-10-15, after the live test: games final within the hour count as live; among
+     namesakes, the one who made the play described in the last ten minutes is the one meant;
+     and text that names no one ("what just happened", "that TD") offers the latest plays to
+     tap, newest first, never picking one.
 4. **The LLM is a fallback.** It is only called when the deterministic parse isn't sure, has a 3 s
    timeout, and never supplies a displayed number.
 5. **Every card names its book** and lists the other books' prices. The headline never shows the

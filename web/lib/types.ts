@@ -74,13 +74,24 @@ export interface PlayerView {
   cards: Card[];
   waiting_for_feed: boolean;
   no_price?: string | null;  // why there are no cards at all
+  the_play?: ThePlay | null;  // the play tapped, when the page was opened from one
   disclaimer: string;
+}
+
+export interface ThePlay {
+  id: number;
+  label: string;
+  text: string;
+  period: number | null;
+  clock: string | null;
+  yards: number | null;
 }
 
 export interface TeamView {
   game: GameView;
   team: { espn_id: string; name: string; abbr: string | null };
   cards: Card[];
+  the_play?: ThePlay | null;
   disclaimer: string;
 }
 
@@ -108,11 +119,14 @@ export interface LiveResponse {
 }
 
 export interface Choice {
-  kind: "player" | "team";
+  kind: "player" | "team";  // the page it opens
   game_id: number;
   id: string;
-  name: string;
+  name: string;    // a play's label, for one of the latest plays
   detail: string;
+  play_id?: number | null;  // set for one of the latest plays
+  play?: string | null;
+  yards?: number | null;
 }
 
 export interface Focus {
@@ -124,7 +138,7 @@ export interface Focus {
 }
 
 export interface LookupResponse {
-  kind: "player" | "team" | "parlay" | "choices" | "none";
+  kind: "player" | "team" | "parlay" | "choices" | "plays" | "none";
   path: string;
   game_id: number | null;
   id: string | null;

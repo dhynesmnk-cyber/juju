@@ -55,6 +55,20 @@ test("free text with a clear name resolves, a shared name asks", async ({ page }
     .toBeVisible();
 });
 
+test("text naming no one offers the latest plays, and the page names the one tapped",
+     async ({ page }) => {
+  await pastAgeGate(page);
+  await page.goto("/");
+  await page.getByRole("combobox").fill("that TD");
+  await page.getByRole("button", { name: "Look it up" }).click();
+  await expect(page.getByText("Which play? The latest, newest first.")).toBeVisible();
+  const plays = page.getByRole("list", { name: "Latest plays" });
+  await expect(plays.getByRole("link").first()).toContainText("TD");
+  await plays.getByRole("link", { name: /Hurts 1-yd TD run/ }).click();
+  await expect(page.getByRole("heading", { name: "Jalen Hurts" })).toBeVisible();
+  await expect(page.getByRole("note")).toContainText("J. Hurts 1-yd TD run");
+});
+
 test("team lines", async ({ page }) => {
   await pastAgeGate(page);
   await page.goto("/");

@@ -333,3 +333,6 @@ html.worlds .banner, html.worlds .waiting { background: rgb(24 18 4 / 92%); }
   .crew .j, .crew .pupils, .crew .eyes, .crew .bubble { animation: none !important; }
   .world-css, .world-gl { transition-duration: 1ms; }
 }
+
+/* The play a result page was opened from (a Live now chip, or one of the latest plays). */
+.the-play { margin: 0 0 12px; font-weight: 600; }

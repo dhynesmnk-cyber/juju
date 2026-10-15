@@ -15,7 +15,7 @@ where the build stands and what to do next. Update it before you finish a sessio
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. It runs: the owner used it through real games on 2026-10-11, with a free Odds API key in `deploy/laptop/.env`. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
 | Real data | The laptop captures real prices: on the free key from about 2026-10-10 (until its 500 credits ran out), and on the owner's 20K-credit key from 2026-10-15, which also filled last weekend's missed games from the vendor's history. `python -m juju.cli report --since DATE` on the laptop shows what it saved. The tests still use only the recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
-| The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. Stage 2 (lookups) and Stage 3 (the redesign) are next |
+| The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. **Stage 2 (lookups and live plays) is done** on the same branch: the latest plays for text naming no one, recent plays deciding between namesakes, the tapped play named on its page, interceptions and return TDs as plays, one bad box score no longer shutting an ESPN host. Stage 3 (the redesign: mockups, the owner's choice, then the build) is next |
 | The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**; Phase 3 (passcode users and `/api/me`) is next. Nothing user-visible yet: no routes and no web change. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
 
 ## First thing to do
@@ -198,6 +198,26 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
 
 ## Decisions made by agents (reasons in the commits; change only with a reason)
 
+- **Lookups that name no one get the latest plays** (2026-10-15, the owner's choice): up to
+  8, newest first by ESPN's wallclock, from games in play or final within the hour, filtered by
+  the kind of play and the yards (±5) described. A touchdown pass is offered twice: as the
+  scorer's and as the thrower's ("J. Hurts 30-yd TD pass"). No prices in them, so
+  `/api/lookup` stays a UI list (licensing).
+- **A namesake who just made the play is the one meant:** among candidates with a strong name
+  match (90+), one with a play of the kind described in the last ten minutes is picked (path
+  `recent`) if he is the only one, and listed first otherwise. A first name alone is still
+  never picked. This refines GOALS §7.3 (the confirmation card when unsure): the play itself
+  removes the doubt.
+- **Games final within the hour are searched with the live ones**, so "Smith TD" about a game
+  that just ended is no longer resolved to a lone Smith in a game still on.
+- **One game's bad box score benches that game on that host for 5 minutes**
+  (`ingest/router.py`), instead of closing the host for 30 minutes for every game. Two
+  different games failing within 10 minutes is a format change and closes it as before. The
+  fault-matrix test was changed to match.
+- **Interceptions are notable plays** (the defender's, with the thrower kept as the passer, so
+  "that pick" finds both), labelled "T. Edwards interception"; return touchdowns are labelled
+  from ESPN's play type ("pick-six", "punt return TD"); a play stored before its team's roster
+  arrived gets its player on a later read. Migration 0008 adds `plays.passer_espn_id`.
 - **The T-45 capture starts at T-46** (2026-10-15), so a failed call has a minute of 20-second
   retries before T-45:00. With one on-time capture instead of three, a 30-second window was too
   thin. Its price is still on time (within 5 minutes of T-45).
@@ -266,7 +286,7 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
 | `nflverse/*.csv` | **Recorded 2026-09-30, free**: PHI @ CHI (final 27–7) and PIT @ CLE (not played) from nflverse's schedule, its 65 stat lines and players, and its 155 plays. Re-record with `scripts/record_nflverse.py` |
 | `espn/{nba,nhl}_scoreboard_2026-03-01.json`, `espn/mlb_scoreboard_2026-05-05_postponed.json`, `espn/{nba_roster_18,nhl_roster_16,mlb_roster_10}.json`, `espn/nba_summary_*.json`, `espn/nhl_summary_*.json` | From parlaytracker (free): the other sports' scoreboards, rosters and box scores, for the tracker's slips. Its ten files that share a path with Juju's are byte-identical |
 | `nflverse/tracker/*.csv` | **Recorded 2026-10-08, free** (`scripts/record_nflverse.py --tracker 2026 401872954 401872958`): NYJ @ DET and ARI @ SF (week 3) with snap counts, for the tracker's worker tests. parlaytracker's own slice had 0 in 21 values of its four newest markets; these are nflverse's real numbers |
-| `lookups/golden.jsonl` | 177 lookups about the recorded game with their right answers (`tests/lookups.py`): 125 exact, 49 asked, 3 missed, 0 wrong without the LLM |
+| `lookups/golden.jsonl` | 189 lookups about the recorded game with their right answers (`tests/lookups.py`): 138 exact, 50 asked, 1 missed, 0 wrong without the LLM (2026-10-15; text naming no one counts as exact when it gets the latest plays). `tests/db/test_slate.py` adds a second game (PIT @ CLE, rosters only) for namesakes, recent plays and games just over |
 
 The recorded PHI @ CHI odds have **no TD-scorer markets**; tests that need them add a price to
 the recorded snapshot (see `tests/db/test_deciding.py`). The PIT @ CLE file has them.
@@ -284,8 +304,8 @@ worker with it, and the worker made one free events call before it was stopped. 
 In order. None of these needs the owner, except where it says so.
 
 **0. The live-test fixes** ([docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md)):
-Stage 1 (prices) is done. Next, Stage 2 (lookups and live plays), then Stage 3 (mockups, the
-owner's choice, then the redesign). After Sunday 2026-10-18, ask the owner for
+Stages 1 (prices) and 2 (lookups and live plays) are done. Next, Stage 3: mockups, the owner's
+choice, then the redesign. After Sunday 2026-10-18, ask the owner for
 `report --since 2026-10-18` from the laptop: it shows whether every game got its two captures
 and how many credits each cost. These come before the tracker's Phase 3.
 
@@ -299,9 +319,9 @@ The owner may interleave M5 (below).
   (the lights in the sky, the combined payout, the correlation note), and Open Graph tags on
   the parlay page.
 - **The golden set:** add parlay lines (they resolve to `kind: "parlay"`; `tests/lookups.py`
-  needs a verdict for them), and consider team nicknames ("Philly", "Birds") and "game total
-  over": the set's 3 misses. Raise the floors in `tests/db/test_golden.py` when the numbers
-  improve.
+  needs a verdict for them). Nicknames were done on 2026-10-15; "game total over" is the one
+  miss left. Raise the floors in `tests/db/test_golden.py` when the numbers improve. A real
+  Sunday's lookups (`report --since`) are the best source of new lines.
 
 **2. M5 engineering that can be done before deploy:**
 - **k6 load test** (`load/` or `web/load/`): the cached card endpoints behind the proxy, and
@@ -384,7 +404,8 @@ pages and of state exposure; then a soft launch.
 - **Migrations:** 0001 was regenerated once, before any deploy; 0002 and 0003 came with M3,
   0004 with the first-touchdown check, 0005 renamed its marker to `plays_checked_at` (written
   by hand: autogenerate turns a rename into a drop and an add, losing the values), 0006 is the
-  tracker's schema, 0007 adds `games.capture_plan` and `capture_note` (the credit budget).
+  tracker's schema, 0007 adds `games.capture_plan` and `capture_note` (the credit budget), 0008
+  `plays.passer_espn_id`.
   From now on, add new migrations and never edit an existing one. Generate against a scratch
   database at head (`alembic revision --autogenerate`), read the file, and run
   `tests/db/test_migrations.py`.

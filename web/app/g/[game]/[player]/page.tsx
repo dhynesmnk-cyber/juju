@@ -12,7 +12,7 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const KEEP = ["play", "market", "threshold", "yards", "expect"];
+const KEEP = ["play", "market", "threshold", "yards", "expect", "play_id"];
 
 function query(sp: Record<string, string | string[] | undefined>): string {
   const q = new URLSearchParams();

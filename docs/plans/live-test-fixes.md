@@ -1,6 +1,6 @@
 # Plan: fix lookups, missing prices and the UI after the 2026-10-11 live test
 
-**Status:** drafted 2026-10-12. **Stage 1 is done** (2026-10-15). Stages 2 and 3 are next.
+**Status:** drafted 2026-10-12. **Stages 1 and 2 are done** (2026-10-15). Stage 3 is next.
 **Target:** `juju@0b29db3` and onward.
 
 > **Changed 2026-10-15, by the owner:** a 20K-credit key instead of the free one; captures at

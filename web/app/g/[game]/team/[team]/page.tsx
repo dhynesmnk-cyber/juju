@@ -16,9 +16,11 @@ async function load(props: Props) {
   const { game, team } = await props.params;
   if (!/^\d+$/.test(game) || !/^\d+$/.test(team)) return null;
   const sp = await props.searchParams;
-  const view = await backendGet<TeamView>(`/api/team/${game}/${team}`);
+  const q = typeof sp.play_id === "string" && /^\d+$/.test(sp.play_id)
+    ? `?play_id=${sp.play_id}` : "";
+  const view = await backendGet<TeamView>(`/api/team/${game}/${team}${q}`);
   const pin = typeof sp.card === "string" && CARD_KEY.test(sp.card) ? sp.card : undefined;
-  return view ? { view, apiPath: `/api/team/${game}/${team}`,
+  return view ? { view, apiPath: `/api/team/${game}/${team}${q}`,
                   pagePath: `/g/${game}/team/${team}`, pin } : null;
 }
 
