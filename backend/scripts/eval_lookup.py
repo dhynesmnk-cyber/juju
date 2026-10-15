@@ -96,7 +96,9 @@ def main(argv: list[str]) -> int:
         if settings.llm_api_key is None:
             print("\nLLM_API_KEY is not set")
             return 2
-        unsure = base.by_path["choices"] + base.by_path["none"]
+        # The model is asked only when the deterministic path isn't sure: those it offers
+        # choices for, finds no one in, or answers with the latest plays (when a name was typed).
+        unsure = base.by_path["choices"] + base.by_path["none"] + base.by_path["plays"]
         print(f"\nEach model is called at most for the {unsure} lookups the deterministic path "
               f"isn't sure about: up to {unsure * len(opts.model)} calls in all.")
         if not opts.yes and input("Make these calls? [y/N] ").strip().lower() != "y":

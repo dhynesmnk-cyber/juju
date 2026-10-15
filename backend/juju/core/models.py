@@ -196,7 +196,8 @@ class StatCorrection(Base):
 
 
 class Play(Base):
-    """A notable play (a score, or a gain of 20+ yards), for the "Live now" chips."""
+    """A notable play (a score, a gain of 20+ yards, an interception), for the "Live now"
+    chips and for lookups that name no one ("what just happened")."""
     __tablename__ = "plays"
     id: Mapped[int] = mapped_column(primary_key=True)
     game_id: Mapped[int] = mapped_column(ForeignKey("games.id", ondelete="CASCADE"), index=True)
@@ -209,9 +210,12 @@ class Play(Base):
     label: Mapped[str] = mapped_column(String(80))  # "S. Barkley 60-yd TD run"
     yards: Mapped[int | None]
     text: Mapped[str] = mapped_column(Text)
+    # The player whose play it is: the scorer, the runner or catcher, the intercepting defender.
     espn_athlete_id: Mapped[str | None] = mapped_column(String(20))
-    team_espn_id: Mapped[str | None] = mapped_column(String(10))
+    team_espn_id: Mapped[str | None] = mapped_column(String(10))  # that player's team
     scoring: Mapped[bool] = mapped_column(default=False)
+    # Who threw it, for a touchdown pass, a long completion or an interception.
+    passer_espn_id: Mapped[str | None] = mapped_column(String(20))
 
 
 class DecidingPlay(Base):

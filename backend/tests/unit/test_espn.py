@@ -146,3 +146,38 @@ def test_grouped_rosters_for_other_sports(name):
     players = espn.parse_roster(load(name))
     assert players and all(p.espn_athlete_id and p.name for p in players)
     assert len({p.espn_athlete_id for p in players}) == len(players)
+
+
+# --- Notable plays (2026-10-15: interceptions, play types, names with particles) --------------
+
+def _plays():
+    path = Path(__file__).resolve().parents[1] / "fixtures" / "espn" / \
+        "nfl_summary_401872963_full.json"
+    return espn.parse_plays(json.loads(path.read_text()))
+
+
+def test_interceptions_are_notable_with_the_defender_and_the_thrower():
+    picks = [p for p in _plays() if p.kind.value == "def_interception"]
+    assert {(p.player_name, p.passer_name) for p in picks} == {
+        ("T.Edwards", "J.Hurts"), ("D.Thieneman", "A.Dalton")}
+    assert all(p.type_text == "Pass Interception Return" and not p.scoring for p in picks)
+
+
+def test_every_play_keeps_espns_type():
+    assert {p.type_text for p in _plays() if p.scoring} >= {"Rushing Touchdown",
+                                                           "Passing Touchdown"}
+
+
+@pytest.mark.parametrize("text, name", [
+    ("A.St. Brown right end to DET 40 for 25 yards", "A.St. Brown"),
+    ("D.Van Ginkel up the middle to MIA 30 for 21 yards", "D.Van Ginkel"),
+    ("M.Harrison Jr. left end to ARI 45 for 22 yards", "M.Harrison Jr."),
+    ("J.Hurts up the middle to CHI 1 for 1 yard", "J.Hurts"),
+])
+def test_runners_with_particles_and_suffixes(text, name):
+    assert espn._RUNNER.match(text).group("name") == name
+
+
+def test_a_catch_by_a_receiver_with_a_particle():
+    m = espn._RECEIVER.search("J.Goff pass deep right to A.St. Brown to CHI 20 for 31 yards")
+    assert m.group("name") == "A.St. Brown"

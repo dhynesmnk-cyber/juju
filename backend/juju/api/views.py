@@ -5,7 +5,7 @@ Everything here reads Postgres only. No data provider is called while a person w
 """
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import Decimal
 
@@ -86,6 +86,7 @@ class Focus:
     threshold: Decimal | None = None  # an Over line, e.g. 99.5 for "100+"
     expect: bool = False  # they described a play that should already count
     yards: int | None = None  # the play's length, if they gave one
+    via: PlayKind | None = None  # a touchdown's way in (CATCH or RUN), when the play is known
 
 
 NO_FOCUS = Focus()
@@ -404,7 +405,7 @@ def _build(market: Market, sel: Selection, bet: Bet, game: Game, stat: PlayerSta
            deciding_play: DecidingPlay | Play | None = None) -> CardView:
     decided = card.decide(bet, _state(game), stat, now)
     outcome = decided.outcome
-    touched = plays.touches(market, focus.play)
+    touched = plays.touches(market, focus.play, focus.via)
     named = focus.market_key is not None and (
         focus.market_key == market.key or focus.market_key == market.key.replace(
             "_alternate", ""))
@@ -449,6 +450,38 @@ class PlayerView:
     cards: list[CardView]
     waiting_for_feed: bool
     no_price: str | None = None  # why there are no cards at all
+    the_play: dict | None = None  # the play tapped: {id, label, text, period, clock, yards}
+
+
+# A play from the thrower's side: what it was for him.
+_THROWN = {"touchdown": PlayKind.PASS_TD, "catch": PlayKind.PASS,
+           "def_interception": PlayKind.INTERCEPTION}
+
+
+def the_play(session: Session, game: Game, play_id: int | None, focus: Focus, *,
+             athlete: str | None = None, team: str | None = None
+             ) -> tuple[dict | None, Focus]:
+    """The play someone tapped (a Live now chip or one of the latest plays), when it is this
+    game's and this player's (or team's): the page names it, and it decides which bets it
+    touched. Anything else is ignored, as a hand-edited URL would be."""
+    play = session.get(Play, play_id) if play_id is not None else None
+    if play is None or play.game_id != game.id:
+        return None, focus
+    if athlete is not None and athlete == play.espn_athlete_id:
+        kind = PlayKind(play.kind)
+    elif athlete is not None and athlete == play.passer_espn_id and play.kind in _THROWN:
+        kind = _THROWN[play.kind]
+    elif athlete is None and team is not None and team == play.team_espn_id:
+        kind = PlayKind(play.kind)
+    else:
+        return None, focus
+    via = None
+    if kind is PlayKind.TOUCHDOWN and athlete is not None:
+        via = (PlayKind.CATCH if play.passer_espn_id else
+               PlayKind.RUN if play.label.endswith("TD run") else None)
+    shown = {"id": play.id, "label": play.label, "text": play.text, "period": play.period,
+             "clock": play.clock, "yards": play.yards}
+    return shown, replace(focus, play=kind, via=via)  # the play itself says what it was
 
 
 _YES_NAMES = {YES, OVER}  # a yes-only market may come back as "Yes" or as "Over 0.5"
@@ -476,10 +509,12 @@ def player_line(market: Market, quote: Quote | None, threshold: Decimal | None
 
 
 def player_view(session: Session, game: Game, athlete: str, now: datetime,
-                chain: Sequence[str], focus: Focus = NO_FOCUS) -> PlayerView | None:
+                chain: Sequence[str], focus: Focus = NO_FOCUS,
+                play_id: int | None = None) -> PlayerView | None:
     player = session.get(Player, athlete)
     if player is None:
         return None
+    shown, focus = the_play(session, game, play_id, focus, athlete=athlete)
     keys = sorted({k for (k,) in session.execute(select(Price.market_key).where(
         Price.game_id == game.id, Price.espn_athlete_id == athlete).distinct())})
     rows_by_key: dict[str, list[_Row]] = defaultdict(list)
@@ -534,7 +569,7 @@ def player_view(session: Session, game: Game, athlete: str, now: datetime,
                 "position": player.position},
         cards=views,
         waiting_for_feed=any(v.outcome is Outcome.WAITING_FOR_FEED for v in views),
-        no_price=no_price)
+        no_price=no_price, the_play=shown)
 
 
 # --- Team -------------------------------------------------------------------------------------
@@ -557,12 +592,15 @@ class TeamView:
     game: GameView
     team: dict
     cards: list[CardView]
+    the_play: dict | None = None
 
 
 def team_view(session: Session, game: Game, team_espn_id: str, now: datetime,
-              chain: Sequence[str], focus: Focus = NO_FOCUS) -> TeamView | None:
+              chain: Sequence[str], focus: Focus = NO_FOCUS,
+              play_id: int | None = None) -> TeamView | None:
     if team_espn_id not in (game.home_espn_id, game.away_espn_id):
         return None
+    shown, focus = the_play(session, game, play_id, focus, team=team_espn_id)
     is_home = team_espn_id == game.home_espn_id
     name = game.home_team if is_home else game.away_team
     rows = _price_rows(session, game.id, TEAM_KEYS)
@@ -586,7 +624,7 @@ def team_view(session: Session, game: Game, team_espn_id: str, now: datetime,
         views.append(_build(market, sel, bet, game, None, now, focus, side, check=check))
     return TeamView(game_view(game, now),
                     {"espn_id": team_espn_id, "name": name,
-                     "abbr": game.home_abbr if is_home else game.away_abbr}, views)
+                     "abbr": game.home_abbr if is_home else game.away_abbr}, views, shown)
 
 
 # --- Parlay (M4) ------------------------------------------------------------------------------

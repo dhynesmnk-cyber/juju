@@ -40,5 +40,10 @@ def rank(items: list[Ranked]) -> list[Ranked]:
     return sorted(items, key=key)
 
 
-def touches(market: Market, play: PlayKind | None) -> bool:
-    return play is not None and play in market.touched_by
+def touches(market: Market, play: PlayKind | None, via: PlayKind | None = None) -> bool:
+    """Does this kind of play move this market? A touchdown `via` a catch moves the receiving
+    markets and not the rushing ones (and the other way round for a run)."""
+    if play is None or play not in market.touched_by:
+        return False
+    other = {PlayKind.CATCH: PlayKind.RUN, PlayKind.RUN: PlayKind.CATCH}.get(via) if via else None
+    return not (other in market.touched_by and via not in market.touched_by)

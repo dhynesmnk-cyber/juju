@@ -306,13 +306,14 @@ def _cache_for(status: EventStatus) -> str:
 @app.get("/api/player/{game_id}/{athlete_id}")
 def player(game_id: int, athlete_id: str, session: SessionDep, response: Response,
            play: str | None = None, market: str | None = None, threshold: str | None = None,
-           expect: bool = False, yards: int | None = None) -> JSONResponse:
+           expect: bool = False, yards: int | None = None,
+           play_id: int | None = None) -> JSONResponse:
     game = session.get(Game, game_id)
     if game is None:
         raise HTTPException(404, "No such game")
     now = _utcnow()
     view = player_view(session, game, athlete_id, now, get_settings().books,
-                       _focus(play, market, threshold, expect, yards))
+                       _focus(play, market, threshold, expect, yards), play_id)
     if view is None:
         raise HTTPException(404, "No such player")
     mark_hot(session, game.id, now)
@@ -322,13 +323,13 @@ def player(game_id: int, athlete_id: str, session: SessionDep, response: Respons
 
 @app.get("/api/team/{game_id}/{team_id}")
 def team(game_id: int, team_id: str, session: SessionDep, play: str | None = None,
-         market: str | None = None) -> JSONResponse:
+         market: str | None = None, play_id: int | None = None) -> JSONResponse:
     game = session.get(Game, game_id)
     if game is None:
         raise HTTPException(404, "No such game")
     now = _utcnow()
     view = team_view(session, game, team_id, now, get_settings().books,
-                     _focus(play, market, None, False))
+                     _focus(play, market, None, False), play_id)
     if view is None:
         raise HTTPException(404, "No such team in this game")
     mark_hot(session, game.id, now)

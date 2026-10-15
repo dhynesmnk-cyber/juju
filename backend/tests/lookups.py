@@ -59,6 +59,7 @@ def verdict(g: Golden, r: Result) -> Verdict:
     if r.kind == "choices":
         offered = {f"{c.kind}:{c.id}" for c in r.choices}
         return Verdict.ASKED if not g.want or offered & g.want else Verdict.MISSED
+    # "plays" (the latest plays, for text naming no one) and "none" claim no one.
     return Verdict.EXACT if not g.want else Verdict.MISSED
 
 

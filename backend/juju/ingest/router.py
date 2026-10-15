@@ -1,7 +1,10 @@
 # Ported from parlaytracker@c3bd43c parlaytracker/ingest/router.py. Changes: imports; Juju's box
 # scores are NFL only (`summary` returns the box score together with its notable plays: one
-# request, both uses); `box_score` reads the tracker's markets in any sport; and scoreboards and
-# rosters default to the NFL, and take another sport for the tracker.
+# request, both uses); `box_score` reads the tracker's markets in any sport; scoreboards and
+# rosters default to the NFL, and take another sport for the tracker; and (2026-10-15) a game's
+# document that doesn't read or isn't plausible benches that game on that host for 5 minutes,
+# instead of closing the host for 30 for every game: only two different games failing within
+# 10 minutes, a format change, close it.
 """Per-provider circuit breakers and the ESPN router (SPEC.md section 8.3).
 
 `Breakers` keeps one breaker per provider and persists it to `source_health`. `EspnRouter`
@@ -36,6 +39,8 @@ TRANSIENT_MAX = timedelta(minutes=5)
 BLOCKED_FOR = timedelta(minutes=10)
 THROTTLED_DEFAULT = timedelta(minutes=5)
 SCHEMA_FOR = timedelta(minutes=30)  # also `implausible`: retrying won't fix a format change
+BENCH_FOR = timedelta(minutes=5)     # one game's odd document: that game waits on that host
+FORMAT_WINDOW = timedelta(minutes=10)  # two different games failing this close: a format change
 FROZEN_FOR = timedelta(minutes=5)
 
 
@@ -108,8 +113,9 @@ class CircuitBreaker:
         return changed
 
     def record_failure(self, kind: FailureKind, detail: str,
-                       retry_after: float | None = None) -> bool:
-        """Count a failure and open the breaker if its kind calls for it. True if it changed."""
+                       retry_after: float | None = None, hold: bool = False) -> bool:
+        """Count a failure and open the breaker if its kind calls for it (never when `hold`:
+        the failure is one request's, not the provider's). True if it changed."""
         now = self._clock()
         trial = self.is_half_open
         self._requests.append(now)
@@ -117,6 +123,8 @@ class CircuitBreaker:
         self.last_failure_at = now
         self.last_error = detail[:500]
         self.consecutive_failures += 1
+        if hold:
+            return True  # degraded, not open
         duration = self._open_duration(kind, retry_after, trial)
         if duration is None:
             return True  # degraded, not open
@@ -204,9 +212,9 @@ class Breakers:
             self.persist(source)
 
     def failure(self, source: str, kind: FailureKind, detail: str,
-                retry_after: float | None = None) -> None:
+                retry_after: float | None = None, hold: bool = False) -> None:
         with self._lock:
-            self._breakers[source].record_failure(kind, detail, retry_after)
+            self._breakers[source].record_failure(kind, detail, retry_after, hold)
         self.persist(source)
 
     def persist(self, *sources: str) -> None:
@@ -297,13 +305,16 @@ class EspnRouter:
     def __init__(self, breakers: Breakers, limiter=None,
                  sample_sink: Callable[[SampleRecord], None] | None = None,
                  record_event_ids: frozenset[str] | set[str] = frozenset(),
-                 default_max_wait: float = 0.0):
+                 default_max_wait: float = 0.0, clock: Callable[[], datetime] = _utcnow):
         # A CLI run may wait for ESPN's one-request-per-2-seconds slots; the worker never does.
         self._default_wait = default_max_wait
         self._breakers = breakers
         self._limiter = limiter or espn.LIMITER  # looked up now, so tests can swap it
         self._sink = sample_sink
         self._record = frozenset(record_event_ids)
+        self._clock = clock
+        self._benched: dict[tuple[str, str], datetime] = {}  # (provider, game) -> until
+        self._bad_reads: dict[str, list[tuple[datetime, str]]] = {}  # provider -> (when, game)
 
     @property
     def breakers(self) -> Breakers:
@@ -411,6 +422,11 @@ class EspnRouter:
             except ProviderOpen as e:
                 errors[source] = str(e)
                 continue
+            until = self._benched.get((source, recording_id)) if recording_id else None
+            if until is not None and self._clock() < until:
+                last_kind = last_kind or FailureKind.SCHEMA
+                errors[source] = f"{recording_id} benched until {until:%H:%M:%S}: it didn't read"
+                continue
             url = ""
             try:
                 url, response = fetch(provider, max_wait)
@@ -430,7 +446,12 @@ class EspnRouter:
                 kind = (FailureKind.SCHEMA if isinstance(e, espn.SchemaError)
                         else FailureKind.IMPLAUSIBLE)
                 last_kind = kind
-                self._breakers.failure(source, kind, str(e))
+                one_game = recording_id is not None and not self._format_changed(
+                    source, recording_id)
+                if one_game:
+                    assert recording_id is not None
+                    self._benched[(source, recording_id)] = self._clock() + BENCH_FOR
+                self._breakers.failure(source, kind, str(e), hold=one_game)
                 self._save(source, "failure", url, response, None, str(e))
                 errors[source] = f"{kind}: {e}"
                 continue
@@ -443,6 +464,15 @@ class EspnRouter:
         if limited and last_kind is None:
             raise RateLimited("espn", 0.0)  # skipped, not failed: the next run tries again
         raise AllProvidersFailed(errors, last_kind)
+
+    def _format_changed(self, source: str, game: str) -> bool:
+        """Note that `game`'s document didn't read on `source`. True once two different games'
+        haven't within FORMAT_WINDOW: the provider's format changed, not one game's data."""
+        now = self._clock()
+        recent = [(t, g) for t, g in self._bad_reads.get(source, []) if now - t < FORMAT_WINDOW]
+        recent.append((now, game))
+        self._bad_reads[source] = recent
+        return len({g for _, g in recent}) >= 2
 
     def _save(self, source: str, reason: str, url: str, response: JsonResponse,
               event_id: str | None, error: str | None) -> None:
