@@ -1,28 +1,71 @@
 """Which player or team a lookup means (docs/GOALS.md section 7.3).
 
-Players are looked for in context order: games in play, then games around today, then the
-last week. A clear match (90 or more, nobody else within 3 points) goes straight to the result.
+Players are looked for in context order: games in play (and games final within the hour), then
+games around today, then the last week. A clear match (90 or more, nobody else within 3 points)
+goes straight to the result. Among namesakes, one who made a play of the kind described in the
+last ten minutes is the one meant: picked if he is the only one, listed first otherwise.
 Anything less gives the person candidates to tap. Teams are matched by their aliases
-(parlaytracker's rules) when no player is named.
+(parlaytracker's rules, plus the common nicknames) when no player is named. Text that names no
+one ("what just happened", "that TD") gets the latest plays to tap, newest first: with ten games
+on, picking one would be a guess.
 """
 import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from juju.core.enums import EventStatus, PlayKind
+from juju.core.live import period_label
 from juju.core.markets import BY_KEY, Scope
-from juju.core.models import Game, Player
+from juju.core.models import Game, Play, Player
 from juju.core.parlay import MAX_LEGS, LegKey
 from juju.ingest.llm import LlmReader
 from juju.ingest.parse import Parsed, for_position, parse_text
 from juju.ingest.resolve import (
-    RosterEntry, is_confident, mentions, normalize_name, rank_players, team_aliases,
+    PLAYER_AUTO_SCORE, Candidate, RosterEntry, is_confident, mentions, normalize_name,
+    rank_players, team_aliases,
 )
 
 IN_PLAY = (EventStatus.IN_PROGRESS, EventStatus.BREAK, EventStatus.DELAYED)
+JUST_FINAL = timedelta(hours=1)   # a game this recently over is still "the one on"
+RECENT_PLAY = timedelta(minutes=10)
+LATEST_PLAYS = 8
+
+# What people call teams beyond their names (normalised display name -> nicknames). "Birds"
+# is the Eagles'; Atlanta's "Dirty Birds" would make it ambiguous, so it isn't listed.
+NICKNAMES: dict[str, frozenset[str]] = {k: frozenset(v) for k, v in {
+    "philadelphia eagles": {"philly", "birds", "iggles"},
+    "san francisco 49ers": {"niners", "sf"},
+    "tampa bay buccaneers": {"bucs"},
+    "new england patriots": {"pats"},
+    "jacksonville jaguars": {"jags"},
+    "green bay packers": {"pack"},
+    "new york giants": {"g men", "gmen", "big blue"},
+    "new york jets": {"gang green"},
+    "kansas city chiefs": {"kc"},
+    "los angeles chargers": {"bolts"},
+    "las vegas raiders": {"vegas"},
+    "minnesota vikings": {"vikes"},
+    "cincinnati bengals": {"cincy"},
+    "miami dolphins": {"fins", "phins"},
+    "seattle seahawks": {"hawks"},
+    "indianapolis colts": {"indy"},
+    "arizona cardinals": {"cards"},
+    "chicago bears": {"da bears"},
+    "washington commanders": {"commanders", "dc"},
+    "los angeles rams": {"la rams"},
+}.items()}
+# Team abbreviations that are also everyday words: a team only when they are the whole text.
+WORDY_ABBREVIATIONS = frozenset({"no", "ten", "car", "min", "den", "sea", "was", "ne", "ind",
+                                 "lac", "lar"})
+
+
+def in_play_or_just_final(game: Game, now: datetime) -> bool:
+    return game.status in IN_PLAY or (
+        game.status is EventStatus.FINAL and game.final_at is not None
+        and now - game.final_at <= JUST_FINAL)
 
 
 @dataclass(frozen=True)
@@ -32,11 +75,12 @@ class PoolEntry:
 
 
 def game_tiers(session: Session, now: datetime) -> list[list[Game]]:
-    """Games in play; games from 18 hours ago to 12 hours ahead; the rest of the last week."""
+    """Games in play or final within the hour; games from 18 hours ago to 12 hours ahead; the
+    rest of the last week."""
     games = session.scalars(select(Game).where(
         Game.commence_time.between(now - timedelta(days=7), now + timedelta(hours=12)))
         .order_by(Game.commence_time.desc())).all()
-    live = [g for g in games if g.status in IN_PLAY]
+    live = [g for g in games if in_play_or_just_final(g, now)]
     near = [g for g in games if g not in live
             and now - timedelta(hours=18) <= g.commence_time <= now + timedelta(hours=12)]
     week = [g for g in games if g not in live and g not in near]
@@ -59,17 +103,20 @@ def pool(session: Session, games: list[Game]) -> list[PoolEntry]:
 
 @dataclass
 class Choice:
-    kind: str            # "player" or "team"
+    kind: str            # "player" or "team": the page it opens
     game_id: int
     id: str              # ESPN athlete id or team id
-    name: str
-    detail: str          # "PHI · QB · PHI @ CHI"
+    name: str            # a play's label, for a play
+    detail: str          # "PHI · QB · PHI @ CHI", or "Q2 3:12 · PHI @ CHI" for a play
+    play_id: int | None = None  # a play from the latest plays: the page names it
+    play: str | None = None     # the play's kind from this player's side (a PlayKind value)
+    yards: int | None = None
 
 
 @dataclass
 class Result:
-    kind: str            # "player", "team", "parlay", "choices", "none"
-    path: str            # "deterministic", "llm", "choices", "none"
+    kind: str            # "player", "team", "parlay", "choices", "plays", "none"
+    path: str            # "deterministic", "recent", "llm", "choices", "plays", "none"
     parsed: Parsed
     game_id: int | None = None
     id: str | None = None
@@ -98,13 +145,20 @@ def _player_choice(p: PoolEntry, position: dict[str, str]) -> Choice:
     return Choice("player", p.game.id, p.entry.espn_athlete_id, p.entry.name, detail)
 
 
+def aliases_for(name: str, abbreviation: str | None, text: str) -> frozenset[str]:
+    """A team's aliases with its nicknames, less abbreviations that are everyday words (unless
+    the text is nothing but that word)."""
+    aliases = team_aliases(name, abbreviation) | NICKNAMES.get(normalize_name(name), frozenset())
+    return frozenset(a for a in aliases if a not in WORDY_ABBREVIATIONS or a == text)
+
+
 def _find_team(session: Session, text: str, tiers: list[list[Game]]) -> list[Choice]:
     norm = normalize_name(text)
     for games in tiers:
         hits = []
         for g in games:
-            home = team_aliases(g.home_team, g.home_abbr)
-            away = team_aliases(g.away_team, g.away_abbr)
+            home = aliases_for(g.home_team, g.home_abbr, norm)
+            away = aliases_for(g.away_team, g.away_abbr, norm)
             for aliases, team, name in ((home - away, g.home_espn_id, g.home_team),
                                         (away - home, g.away_espn_id, g.away_team)):
                 if team and mentions(norm, aliases):
@@ -112,6 +166,113 @@ def _find_team(session: Session, text: str, tiers: list[list[Game]]) -> list[Cho
         if hits:
             return hits
     return []
+
+
+# --- Plays: the latest ones, and who just made one --------------------------------------------
+
+# A described play -> the stored plays it can be: (stored kind, whose: the player or the passer).
+_PLAY_ROWS: dict[PlayKind, tuple[tuple[str, str], ...]] = {
+    PlayKind.TOUCHDOWN: (("touchdown", "player"),),
+    PlayKind.PASS_TD: (("touchdown", "passer"),),
+    PlayKind.RUN: (("run", "player"), ("touchdown", "player")),
+    PlayKind.CATCH: (("catch", "player"), ("touchdown", "player")),
+    PlayKind.PASS: (("catch", "passer"), ("touchdown", "passer")),
+    PlayKind.FIELD_GOAL: (("field_goal", "player"),),
+    PlayKind.INTERCEPTION: (("def_interception", "player"), ("def_interception", "passer")),
+    PlayKind.DEF_INTERCEPTION: (("def_interception", "player"),),
+}
+# Unnamed and untyped ("what just happened"): the player's side of every play, and the
+# thrower's side of a touchdown pass.
+_ANY: tuple[tuple[str, str], ...] = tuple(
+    (kind, "player") for kind in ("touchdown", "run", "catch", "field_goal", "def_interception")
+) + (("touchdown", "passer"),)
+# What the play was from the passer's side.
+_THROWN = {"touchdown": PlayKind.PASS_TD, "catch": PlayKind.PASS,
+           "def_interception": PlayKind.INTERCEPTION}
+
+
+def _sides(play: Play, wanted: PlayKind | None, yards: int | None) -> list[str]:
+    """Whose play this is, for what was described: "player", "passer", both or neither."""
+    if yards is not None and (play.yards is None or abs(play.yards - yards) > 5):
+        return []
+    rows = _ANY if wanted in (None, PlayKind.UNKNOWN) else _PLAY_ROWS.get(wanted, ())
+    return [side for kind, side in rows if kind == play.kind
+            and (side == "player" or play.passer_espn_id is not None)]
+
+
+def recent_players(session: Session, ids: list[str], wanted: PlayKind | None, now: datetime
+                   ) -> list[str]:
+    """Of `ids`, the players who made a play of the kind described in the last ten minutes
+    (or threw it, for a pass), most recent first."""
+    rows = session.scalars(select(Play).where(
+        or_(Play.espn_athlete_id.in_(ids), Play.passer_espn_id.in_(ids)),
+        Play.wallclock >= now - RECENT_PLAY).order_by(Play.wallclock.desc())).all()
+    out: list[str] = []
+    for p in rows:
+        for side in _sides(p, wanted, None):
+            who = p.espn_athlete_id if side == "player" else p.passer_espn_id
+            if who in ids and who not in out:
+                out.append(who)
+    return out
+
+
+def _short(name: str | None) -> str:
+    if not name:
+        return "Team"
+    first, _, last = name.partition(" ")
+    return f"{first[:1]}. {last}" if last else name
+
+
+def latest_plays(session: Session, parsed: Parsed, now: datetime,
+                 limit: int = LATEST_PLAYS) -> list[Choice]:
+    """The newest notable plays in games in play or just over, filtered by the kind of play and
+    the yards described; a pass is also offered as its thrower's. No prices."""
+    games = {g.id: g for g in session.scalars(select(Game).where(
+        Game.commence_time.between(now - timedelta(hours=14), now + timedelta(hours=1))))
+        if in_play_or_just_final(g, now)}
+    if not games:
+        return []
+    rows = session.scalars(select(Play).where(Play.game_id.in_(games))
+                           .order_by(Play.wallclock.desc().nulls_last(), Play.id.desc())
+                           .limit(80)).all()
+    passers = {p.espn_athlete_id: p.name for p in session.scalars(select(Player).where(
+        Player.espn_athlete_id.in_({r.passer_espn_id for r in rows if r.passer_espn_id})))}
+    out: list[Choice] = []
+    for p in rows:
+        g = games[p.game_id]
+        when = " ".join(x for x in (period_label(p.period), p.clock) if x)
+        detail = " · ".join(x for x in (when, g.label) if x)
+        for side in _sides(p, parsed.play, parsed.yards):
+            if side == "passer":
+                assert p.passer_espn_id is not None
+                thrown = _THROWN[p.kind]
+                yards = f"{p.yards}-yd " if p.yards is not None and thrown is not \
+                    PlayKind.INTERCEPTION else ""
+                what = {PlayKind.PASS_TD: "TD pass", PlayKind.PASS: "completion",
+                        PlayKind.INTERCEPTION: "interception thrown"}[thrown]
+                out.append(Choice("player", g.id, p.passer_espn_id,
+                                  f"{_short(passers.get(p.passer_espn_id))} {yards}{what}",
+                                  detail, p.id, thrown.value, p.yards))
+            elif p.espn_athlete_id:
+                out.append(Choice("player", g.id, p.espn_athlete_id, p.label, detail, p.id,
+                                  p.kind, p.yards))
+            elif p.scoring and p.team_espn_id:  # a defense's or a team's score, no one named
+                out.append(Choice("team", g.id, p.team_espn_id, p.label, detail, p.id, p.kind,
+                                  p.yards))
+        if len(out) >= limit:
+            break
+    return out[:limit]
+
+
+def _the_one_who_just_did_it(session: Session, ranked: list[Candidate], parsed: Parsed,
+                             now: datetime) -> tuple[str | None, list[Candidate]]:
+    """Among namesakes (each a strong name match), the one who just made the play described:
+    (him, if he is the only one; the candidates with recent players first)."""
+    strong = [c.entry.espn_athlete_id for c in ranked if c.score >= PLAYER_AUTO_SCORE]
+    recent = recent_players(session, strong, parsed.play, now) if len(strong) > 1 else []
+    order = {a: i for i, a in enumerate(recent)}
+    first = sorted(ranked, key=lambda c: order.get(c.entry.espn_athlete_id, len(order)))
+    return (recent[0] if len(recent) == 1 else None), first
 
 
 # "Barkley TD and Smith 5+ catches": parts joined by "and", "&", a comma or a spaced "+".
@@ -187,6 +348,9 @@ def resolve(session: Session, text: str, now: datetime, llm: LlmReader | None = 
                 top = by_id[ranked[0].entry.espn_athlete_id]
                 return Result("player", "deterministic", parsed, top.game.id,
                               top.entry.espn_athlete_id)
+            just, ranked = _the_one_who_just_did_it(session, ranked, parsed, now)
+            if just is not None:
+                return Result("player", "recent", parsed, by_id[just].game.id, just)
             return Result("choices", "choices", parsed, choices=[
                 _player_choice(by_id[c.entry.espn_athlete_id], positions) for c in ranked])
         return None
@@ -210,7 +374,7 @@ def resolve(session: Session, text: str, now: datetime, llm: LlmReader | None = 
             return Result("team", "deterministic", parsed, teams[0].game_id, teams[0].id)
         if teams:
             return Result("choices", "choices", parsed, choices=teams)
-    if llm is not None:
+    if llm is not None and (found is not None or parsed.name_text):
         reading = llm.read(text)
         if reading and reading.player_name:
             again = search(normalize_name(reading.player_name))
@@ -223,6 +387,9 @@ def resolve(session: Session, text: str, now: datetime, llm: LlmReader | None = 
                 return from_his_side(again)
     if found is not None:
         return found
+    if plays := latest_plays(session, parsed, now):
+        return Result("plays", "plays", parsed, choices=plays,
+                      message="Which play? The latest, newest first.")
     return Result("none", "none", parsed,
                   message="We couldn't tell which player or team you mean. Try a name, "
                           "like \"Barkley TD\", or pick from Live now.")

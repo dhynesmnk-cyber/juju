@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { FocusEvent } from "react";
 import TurnstileWidget, { TURNSTILE_SITE_KEY } from "@/components/TurnstileWidget";
 import { choiceHref, resultHref } from "@/lib/links";
 import { parlayHref } from "@/lib/parlayTray";
@@ -20,27 +21,28 @@ export default function SearchBox() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [challenged, setChallenged] = useState(false);
+  const [picking, setPicking] = useState<"who" | "play">("who");
   const asked = useRef("");  // the text a challenge interrupted, looked up once it passes
   const listId = useId();
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    clearTimeout(timer.current);
     const q = text.trim();
     // A single word is a name being typed; several words are a description of a play.
     if (q.length < 2 || q.split(/\s+/).length > 2) {
-      timer.current = setTimeout(() => setSuggestions([]), 0);
-      return;
+      const t = setTimeout(() => setSuggestions([]), 0);
+      return () => clearTimeout(t);
     }
-    timer.current = setTimeout(async () => {
+    // An older answer never replaces a newer one: each keystroke cancels the last request.
+    const ctl = new AbortController();
+    const t = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/suggest?q=${encodeURIComponent(q)}`);
+        const r = await fetch(`/api/suggest?q=${encodeURIComponent(q)}`, { signal: ctl.signal });
         if (r.ok) setSuggestions((await r.json()).choices ?? []);
       } catch {
-        setSuggestions([]);
+        if (!ctl.signal.aborted) setSuggestions([]);
       }
     }, 120);
-    return () => clearTimeout(timer.current);
+    return () => { clearTimeout(t); ctl.abort(); };
   }, [text]);
 
   const lookup = useCallback(async (q: string, token?: string) => {
@@ -77,9 +79,10 @@ export default function SearchBox() {
         router.push(parlayHref(body.game_id, body.legs));
       } else if ((body.kind === "player" || body.kind === "team") && body.game_id && body.id) {
         router.push(resultHref(body.kind, body.game_id, body.id, body.focus));
-      } else if (body.kind === "choices") {
+      } else if (body.kind === "choices" || body.kind === "plays") {
         setChoices(body.choices);
         setFocus(body.focus);
+        setPicking(body.kind === "plays" ? "play" : "who");
       } else {
         setMessage(body.message);
       }
@@ -124,13 +127,22 @@ export default function SearchBox() {
   }
 
   return (
-    <form className="search" onSubmit={submit} role="search">
+    <form className="search" onSubmit={submit} role="search"
+          onBlur={(e: FocusEvent<HTMLFormElement>) => {
+            // Tapping away closes the suggestions; tapping one of them doesn't.
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setSuggestions([]);
+          }}>
       <label htmlFor="q">What just happened?</label>
       <div className="row">
         <input
           id="q" name="q" value={text} autoComplete="off" autoCapitalize="words"
           enterKeyHint="search" placeholder="e.g. Barkley 60 yd TD run" maxLength={200}
-          onChange={(e) => { setText(e.target.value); setActive(-1); }}
+          onChange={(e) => {
+            setText(e.target.value);
+            setActive(-1);
+            setChoices([]);   // an answer to the last question no longer applies
+            setMessage(null);
+          }}
           onKeyDown={onKey}
           role="combobox" aria-expanded={suggestions.length > 0} aria-controls={listId}
           aria-autocomplete="list"
@@ -141,7 +153,7 @@ export default function SearchBox() {
         </button>
       </div>
       {suggestions.length > 0 && (
-        <ul className="suggestions" id={listId} role="listbox" aria-label="Players">
+        <ul className="suggestions typeahead" id={listId} role="listbox" aria-label="Players">
           {suggestions.map((c, i) => (
             <li key={`${c.game_id}-${c.id}`} id={`${listId}-${i}`} role="option"
                 aria-selected={i === active}>
@@ -154,10 +166,12 @@ export default function SearchBox() {
       )}
       {choices.length > 0 && (
         <div className="choices" aria-live="polite">
-          <p className="hint">Which one did you mean?</p>
-          <ul className="suggestions" aria-label="Did you mean">
+          <p className="hint">
+            {picking === "play" ? "Which play? The latest, newest first." : "Which one did you mean?"}
+          </p>
+          <ul className="suggestions" aria-label={picking === "play" ? "Latest plays" : "Did you mean"}>
             {choices.map((c) => (
-              <li key={`${c.kind}-${c.game_id}-${c.id}`}>
+              <li key={`${c.kind}-${c.game_id}-${c.id}-${c.play_id ?? ""}-${c.play ?? ""}`}>
                 <Link href={choiceHref(c, focus)}>
                   <span>{c.name}</span><span className="muted small">{c.detail}</span>
                 </Link>

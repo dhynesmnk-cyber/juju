@@ -1,7 +1,8 @@
 # Ported from parlaytracker@c3bd43c parlaytracker/ingest/espn.py. Changes: NFL stats are keyed by
 # Juju's Stat (with longest-play and made/attempted columns), the web-app fetch helpers are gone
-# (the API never calls ESPN), `parse_plays` reads notable plays from the same summary, and
-# `parse_box_score` takes the columns to read, so the tracker can read its markets in any sport.
+# (the API never calls ESPN), `parse_plays` reads notable plays from the same summary (since
+# 2026-10-15 also interceptions, and return touchdowns by their type), and `parse_box_score`
+# takes the columns to read, so the tracker can read its markets in any sport.
 """ESPN client and parsers (SPEC.md section 6.1).
 
 Nothing outside this module touches ESPN's raw JSON: parsers validate the parts they use
@@ -475,15 +476,19 @@ def parse_box_score(payload: Any, sport: Sport = Sport.NFL,
 
 # --- Notable plays (summary document) --------------------------------------------------------
 
-# A non-scoring play this long gets a "Live now" chip.
+# A non-scoring play this long gets a "Live now" chip. Interceptions always do.
 BIG_PLAY_YARDS = 20
 _YD = re.compile(r"^(?P<name>.+?)\s+(?P<yards>-?\d+)\s+Yd\b", re.IGNORECASE)
 _PASS_FROM = re.compile(r"\bpass from (?P<passer>.+?)(?:\s*\(|$)", re.IGNORECASE)
 _LEAD = re.compile(r"^(?:\([^)]*\)\s*)+")  # "(Shotgun) ", "(No Huddle, Shotgun) "
-_ABBR = r"[A-Z][A-Za-z'\-]*\.\s?[A-Z][A-Za-z'\-]+(?:\s(?:Jr\.|Sr\.|II|III|IV))?"
+# "J.Hurts", "A.St. Brown", "D.Van Ginkel", "M.Harrison Jr.": an initial, then the surname with
+# its particle, if any ("A.St" alone matched nobody).
+_ABBR = (r"[A-Z][A-Za-z'\-]*\.\s?(?:(?:St\.|Van|Vander|Von|De|Del|La|Le)\s?)?"
+         r"[A-Z][A-Za-z'\-]+(?:\s(?:Jr\.|Sr\.|II|III|IV))?")
 _RUNNER = re.compile(rf"^(?P<name>{_ABBR})\s")
 _RECEIVER = re.compile(rf"\bpass\b[^.]*?\bto (?P<name>{_ABBR})")
 _PASSER = re.compile(rf"^(?P<name>{_ABBR}) pass\b")
+_INTERCEPTOR = re.compile(rf"\bINTERCEPTED by (?P<name>{_ABBR})")
 
 
 @dataclass(frozen=True)
@@ -498,10 +503,11 @@ class RawPlay:
     kind: PlayKind
     yards: int | None
     text: str
-    team_espn_id: str | None
+    team_espn_id: str | None  # the team with the ball (an interception's thrower's team)
     player_name: str | None
-    passer_name: str | None  # the thrower of a touchdown pass or a long completion
+    passer_name: str | None  # the thrower of a touchdown pass, a long completion or a pick
     scoring: bool
+    type_text: str = ""      # ESPN's play type: "Punt Return Touchdown", "Rush", ...
 
 
 class _PlayTypeRaw(BaseModel):
@@ -563,12 +569,15 @@ def _kind(type_text: str) -> PlayKind | None:
         return PlayKind.RUN
     if t in ("pass reception", "pass completion"):
         return PlayKind.CATCH
+    if t == "pass interception return":
+        return PlayKind.DEF_INTERCEPTION  # the defender's play; the thrower is the passer
     return None
 
 
 def parse_plays(payload: Any) -> list[RawPlay]:
-    """Scoring plays and gains of BIG_PLAY_YARDS or more, oldest first. Anything we can't
-    read is skipped (a chip is a convenience; the box score is what cards are built from)."""
+    """Scoring plays, gains of BIG_PLAY_YARDS or more and interceptions, oldest first. Anything
+    we can't read is skipped (a chip is a convenience; the box score is what cards are built
+    from)."""
     doc = unwrap_cdn(payload)
     if not isinstance(doc, dict):
         raise SchemaError("summary is not an object")
@@ -585,7 +594,8 @@ def parse_plays(payload: Any) -> list[RawPlay]:
         for p in drive.plays:
             kind = _kind(p.type.text)
             yards = p.statYardage
-            if kind is None or (not p.scoringPlay and (yards is None or yards < BIG_PLAY_YARDS)):
+            if kind is None or (not p.scoringPlay and kind is not PlayKind.DEF_INTERCEPTION
+                                and (yards is None or yards < BIG_PLAY_YARDS)):
                 continue
             text = _LEAD.sub("", p.text).strip()
             player = passer = None
@@ -605,11 +615,15 @@ def parse_plays(payload: Any) -> list[RawPlay]:
                     player = m.group("name")
                     if pm := _PASSER.match(text):
                         passer = pm.group("name")
+                elif kind is PlayKind.DEF_INTERCEPTION and (m := _INTERCEPTOR.search(text)):
+                    player = m.group("name")
+                    if pm := _PASSER.match(text):
+                        passer = pm.group("name")
             try:
                 sequence = int(p.sequenceNumber or 0)
             except ValueError:
                 sequence = 0
             out[p.id] = RawPlay(p.id, sequence, p.period.number, p.clock.displayValue,
                                 p.wallclock, kind, yards, text, team_id, player, passer,
-                                p.scoringPlay)
+                                p.scoringPlay, p.type.text)
     return sorted(out.values(), key=lambda r: (r.period or 0, r.sequence))

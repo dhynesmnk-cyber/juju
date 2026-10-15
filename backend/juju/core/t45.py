@@ -29,6 +29,7 @@ class Timing(enum.StrEnum):
 
 class NoPrice(enum.StrEnum):
     NO_SNAPSHOT = "no_snapshot"          # nothing archived at or before T-45 for this game
+    NOT_SAVED = "not_saved"              # snapshots, but none asked for this market (credits)
     NOT_OFFERED = "not_offered"          # no book in the chain listed this market
     NOT_LISTED = "not_listed"            # the market was up, but not this player or line
     TOO_EARLY = "too_early"              # only prices from more than 3 hours before T-45
@@ -80,12 +81,16 @@ def target_time(kickoff: datetime) -> datetime:
 
 
 def select(offers: Iterable[Offer], listings: Iterable[Listing], kickoff: datetime,
-           chain: Sequence[str]) -> Selection:
+           chain: Sequence[str], asked: bool | None = None) -> Selection:
+    """`asked`: whether a snapshot taken by the target asked for this market (None: the game
+    has no such snapshot, or the caller doesn't know). It only explains a missing price."""
     target = target_time(kickoff)
     offers = [o for o in offers if o.observed_at <= target]
     listings = [x for x in listings if x.observed_at <= target]
     if not listings and not offers:
-        return Selection(None, NoPrice.NO_SNAPSHOT)
+        if asked is None:
+            return Selection(None, NoPrice.NO_SNAPSHOT)
+        return Selection(None, NoPrice.NOT_OFFERED if asked else NoPrice.NOT_SAVED)
 
     # Each book's latest snapshot (at or before the target) that listed the market.
     latest: dict[str, Listing] = {}

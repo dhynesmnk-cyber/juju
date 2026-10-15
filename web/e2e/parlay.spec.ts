@@ -5,6 +5,9 @@ import AxeBuilder from "@axe-core/playwright";
 // rushing yards (line 73.5) and DeVonta Smith 6 catches (line 5.5), so both have cashed.
 
 async function pastAgeGate(page: Page) {
+  // The server reads the cookie (no gate drawn at all); localStorage is the older way.
+  await page.context().addCookies([{ name: "juju21", value: "yes",
+                                     url: process.env.BASE_URL ?? "http://127.0.0.1:3000" }]);
   await page.addInitScript(() => window.localStorage.setItem("juju-21-confirmed", "yes"));
 }
 

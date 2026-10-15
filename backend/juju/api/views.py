@@ -5,7 +5,7 @@ Everything here reads Postgres only. No data provider is called while a person w
 """
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import Decimal
 
@@ -15,12 +15,15 @@ from sqlalchemy.orm import Session
 from juju.core import card, parlay, plays
 from juju.core.card import Bet, GameState, Outcome, PlayerStat
 from juju.core.enums import DataSource, EventStatus, PlayKind, Stat
+from juju.core.budget import Tier
 from juju.core.live import Severity, age_seconds, freshness, game_status_text
 from juju.core.markets import BY_KEY, NO, OVER, UNDER, YES, Market, Scope
 from juju.core.models import (
     DecidingPlay, Game, LiveStat, OddsSnapshot, Play, Player, Price, StatCorrection,
 )
-from juju.core.t45 import Listing, NoPrice, Offer, Quote, Selection, select as select_price
+from juju.core.t45 import (
+    Listing, NoPrice, Offer, Quote, Selection, select as select_price, target_time,
+)
 from juju.ingest.nflverse import CHECKED_STATS, MAX_STATS
 
 BOOK_NAMES = {
@@ -31,15 +34,31 @@ BOOK_NAMES = {
 }
 
 NO_PRICE_TEXT = {
-    NoPrice.NO_SNAPSHOT: "No price on file: Juju has no archived odds from before T-45 for "
-                         "this game.",
-    NoPrice.NOT_OFFERED: "No price on file: none of the books we follow offered this market "
-                         "before T-45.",
-    NoPrice.NOT_LISTED: "No price on file: the market was up at T-45, but not for this "
-                        "player or line.",
-    NoPrice.TOO_EARLY: "No price on file: the only prices we have are more than 3 hours "
-                       "older than T-45.",
+    NoPrice.NO_SNAPSHOT: "No price on file: Juju didn't save odds for this game before "
+                         "kickoff.",
+    NoPrice.NOT_SAVED: "No price on file: Juju didn't save this bet for this game.",
+    NoPrice.NOT_OFFERED: "No price on file: none of the books Juju follows offered this bet "
+                         "45 minutes before kickoff.",
+    NoPrice.NOT_LISTED: "No price on file: the books offered this bet 45 minutes before "
+                        "kickoff, but not for this player or line.",
+    NoPrice.TOO_EARLY: "No price on file: the only odds Juju has for this bet are from more "
+                       "than 3¾ hours before kickoff.",
 }
+NO_PLAYER_PRICES = ("No price on file: the books Juju follows had no bets on this player 45 "
+                    "minutes before kickoff.")
+
+
+LEAN_TEXT = ("No price on file: odds credits were short, so Juju saved only the most-asked "
+             "bets for this game.")
+
+
+def no_price_text(reason: NoPrice, game: Game) -> str:
+    """Why a card has no price, with the reason the worker recorded when it knows one."""
+    if reason is NoPrice.NO_SNAPSHOT and game.capture_note:
+        return f"No price on file: {game.capture_note}"
+    if reason is NoPrice.NOT_SAVED and game.capture_plan == Tier.LEAN:
+        return LEAN_TEXT
+    return NO_PRICE_TEXT[reason]
 
 NO_LINE_TEXT = "No line to follow: there is no price on file"
 
@@ -67,6 +86,7 @@ class Focus:
     threshold: Decimal | None = None  # an Over line, e.g. 99.5 for "100+"
     expect: bool = False  # they described a play that should already count
     yards: int | None = None  # the play's length, if they gave one
+    via: PlayKind | None = None  # a touchdown's way in (CATCH or RUN), when the play is known
 
 
 NO_FOCUS = Focus()
@@ -155,6 +175,22 @@ def _price_rows(session: Session, game_id: int, keys: Sequence[str],
     return [_Row(p, at, str(src), sha) for p, at, src, sha in session.execute(q)]
 
 
+def asked_markets(session: Session, game: Game) -> frozenset[str] | None:
+    """The markets the game's snapshots up to T-45 asked for; None if it has none."""
+    rows = session.scalars(select(OddsSnapshot.markets).where(
+        OddsSnapshot.game_id == game.id,
+        OddsSnapshot.observed_at <= target_time(game.commence_time))).all()
+    if not rows:
+        return None
+    return frozenset(m for r in rows for m in r.split(","))
+
+
+def _select(offers: list[Offer], listings: list[Listing], game: Game, chain: Sequence[str],
+            asked: frozenset[str] | None, key: str) -> Selection:
+    return select_price(offers, listings, game.commence_time, chain,
+                        asked=None if asked is None else key in asked)
+
+
 def _listings(session: Session, game_id: int, keys: Sequence[str]) -> dict[str, list[Listing]]:
     rows = session.execute(
         select(Price.market_key, Price.book, Price.snapshot_id, OddsSnapshot.observed_at)
@@ -221,19 +257,25 @@ def _other_dicts(sel: Selection) -> list[dict]:
 
 
 def _bet_text(market: Market, line: Decimal | None, side: str | None) -> str:
+    """What the bet was, in words. With no price there is no line, and it says so."""
     if market.first_td:
         return "Yes: scores the game's first touchdown"
     if market.yes_only:
         return f"Yes: {market.label.lower()}"
     if market.scope is Scope.MONEYLINE:
         return f"{side} to win"
+    if line is None:
+        return {Scope.SPREAD: f"{side} on the spread",
+                Scope.TEAM: f"{side} over their team total",
+                Scope.TOTAL: "Over the game total"}.get(
+            market.scope, f"Over the {market.label.lower()} line")
     if market.scope is Scope.SPREAD:
-        return f"{side} {'+' if line is not None and line > 0 else ''}{line}"
+        return f"{side} {'+' if line > 0 else ''}{line}"
     if market.scope is Scope.TEAM:
         return f"{side} over {line} points"
     if market.scope is Scope.TOTAL:
         return f"Over {line} points"
-    if market.alternate and line is not None:
+    if market.alternate:
         return f"{_fmt(line + Decimal('0.5'))}+ {market.label.lower()}"  # 99.5 -> "100+"
     return f"Over {line} {market.label.lower()}"
 
@@ -363,7 +405,7 @@ def _build(market: Market, sel: Selection, bet: Bet, game: Game, stat: PlayerSta
            deciding_play: DecidingPlay | Play | None = None) -> CardView:
     decided = card.decide(bet, _state(game), stat, now)
     outcome = decided.outcome
-    touched = plays.touches(market, focus.play)
+    touched = plays.touches(market, focus.play, focus.via)
     named = focus.market_key is not None and (
         focus.market_key == market.key or focus.market_key == market.key.replace(
             "_alternate", ""))
@@ -382,7 +424,7 @@ def _build(market: Market, sel: Selection, bet: Bet, game: Game, stat: PlayerSta
         line=bet.line, outcome=outcome, outcome_text=outcome_text,
         current=decided.current, needed=decided.needed,
         price=_price_dict(sel.quote) if sel.quote else None,
-        no_price=NO_PRICE_TEXT[sel.reason] if sel.reason else None,
+        no_price=no_price_text(sel.reason, game) if sel.reason else None,
         others=_other_dicts(sel), touched=touched, named=named, alternate=market.alternate,
         verified=verified, decided_by=decided_by, notes=notes, **_money_fields(sel, outcome))
 
@@ -407,6 +449,39 @@ class PlayerView:
     player: dict
     cards: list[CardView]
     waiting_for_feed: bool
+    no_price: str | None = None  # why there are no cards at all
+    the_play: dict | None = None  # the play tapped: {id, label, text, period, clock, yards}
+
+
+# A play from the thrower's side: what it was for him.
+_THROWN = {"touchdown": PlayKind.PASS_TD, "catch": PlayKind.PASS,
+           "def_interception": PlayKind.INTERCEPTION}
+
+
+def the_play(session: Session, game: Game, play_id: int | None, focus: Focus, *,
+             athlete: str | None = None, team: str | None = None
+             ) -> tuple[dict | None, Focus]:
+    """The play someone tapped (a Live now chip or one of the latest plays), when it is this
+    game's and this player's (or team's): the page names it, and it decides which bets it
+    touched. Anything else is ignored, as a hand-edited URL would be."""
+    play = session.get(Play, play_id) if play_id is not None else None
+    if play is None or play.game_id != game.id:
+        return None, focus
+    if athlete is not None and athlete == play.espn_athlete_id:
+        kind = PlayKind(play.kind)
+    elif athlete is not None and athlete == play.passer_espn_id and play.kind in _THROWN:
+        kind = _THROWN[play.kind]
+    elif athlete is None and team is not None and team == play.team_espn_id:
+        kind = PlayKind(play.kind)
+    else:
+        return None, focus
+    via = None
+    if kind is PlayKind.TOUCHDOWN and athlete is not None:
+        via = (PlayKind.CATCH if play.passer_espn_id else
+               PlayKind.RUN if play.label.endswith("TD run") else None)
+    shown = {"id": play.id, "label": play.label, "text": play.text, "period": play.period,
+             "clock": play.clock, "yards": play.yards}
+    return shown, replace(focus, play=kind, via=via)  # the play itself says what it was
 
 
 _YES_NAMES = {YES, OVER}  # a yes-only market may come back as "Yes" or as "Over 0.5"
@@ -434,10 +509,12 @@ def player_line(market: Market, quote: Quote | None, threshold: Decimal | None
 
 
 def player_view(session: Session, game: Game, athlete: str, now: datetime,
-                chain: Sequence[str], focus: Focus = NO_FOCUS) -> PlayerView | None:
+                chain: Sequence[str], focus: Focus = NO_FOCUS,
+                play_id: int | None = None) -> PlayerView | None:
     player = session.get(Player, athlete)
     if player is None:
         return None
+    shown, focus = the_play(session, game, play_id, focus, athlete=athlete)
     keys = sorted({k for (k,) in session.execute(select(Price.market_key).where(
         Price.game_id == game.id, Price.espn_athlete_id == athlete).distinct())})
     rows_by_key: dict[str, list[_Row]] = defaultdict(list)
@@ -453,6 +530,7 @@ def player_view(session: Session, game: Game, athlete: str, now: datetime,
     scorer = None if first_td is None else first_td.espn_athlete_id or card.UNKNOWN_SCORER
     decided = deciding_plays(session, game.id, athlete)
     claim_seen = claim_in_feed(focus, stats)
+    asked = asked_markets(session, game)
     views: list[CardView] = []
     for key in keys:
         market = BY_KEY.get(key)
@@ -461,7 +539,7 @@ def player_view(session: Session, game: Game, athlete: str, now: datetime,
         if market.alternate and focus.threshold is None:
             continue  # ladders only when someone names a threshold
         offers = player_offers(market, rows_by_key[key], focus.threshold)
-        sel = select_price(offers, listings.get(key, []), game.commence_time, chain)
+        sel = _select(offers, listings.get(key, []), game, chain, asked, key)
         line = player_line(market, sel.quote, focus.threshold)
         value = stats.get(market.stat) if market.stat else None
         stat = PlayerStat(value, scorer, athlete)
@@ -481,12 +559,17 @@ def player_view(session: Session, game: Game, athlete: str, now: datetime,
     views.sort(key=lambda v: order[v.key])
     team_abbr = (game.home_abbr if player.team_espn_id == game.home_espn_id
                  else game.away_abbr if player.team_espn_id == game.away_espn_id else None)
+    no_price = None
+    if not views:
+        no_price = (NO_PLAYER_PRICES if asked is not None
+                    else no_price_text(NoPrice.NO_SNAPSHOT, game))
     return PlayerView(
         game=game_view(game, now),
         player={"id": athlete, "name": player.name, "team_abbr": team_abbr,
                 "position": player.position},
         cards=views,
-        waiting_for_feed=any(v.outcome is Outcome.WAITING_FOR_FEED for v in views))
+        waiting_for_feed=any(v.outcome is Outcome.WAITING_FOR_FEED for v in views),
+        no_price=no_price, the_play=shown)
 
 
 # --- Team -------------------------------------------------------------------------------------
@@ -509,12 +592,15 @@ class TeamView:
     game: GameView
     team: dict
     cards: list[CardView]
+    the_play: dict | None = None
 
 
 def team_view(session: Session, game: Game, team_espn_id: str, now: datetime,
-              chain: Sequence[str], focus: Focus = NO_FOCUS) -> TeamView | None:
+              chain: Sequence[str], focus: Focus = NO_FOCUS,
+              play_id: int | None = None) -> TeamView | None:
     if team_espn_id not in (game.home_espn_id, game.away_espn_id):
         return None
+    shown, focus = the_play(session, game, play_id, focus, team=team_espn_id)
     is_home = team_espn_id == game.home_espn_id
     name = game.home_team if is_home else game.away_team
     rows = _price_rows(session, game.id, TEAM_KEYS)
@@ -523,11 +609,12 @@ def team_view(session: Session, game: Game, team_espn_id: str, now: datetime,
     for r in rows:
         by_key[r.price.market_key].append(r)
     other_team = game.away_team if is_home else game.home_team
+    asked = asked_markets(session, game)
     views = []
     for key in TEAM_KEYS:
         market = BY_KEY[key]
         offers = team_offers(market, by_key[key], name, other_team)
-        sel = select_price(offers, listings.get(key, []), game.commence_time, chain)
+        sel = _select(offers, listings.get(key, []), game, chain, asked, key)
         line = sel.quote.offer.point if sel.quote else None
         bet = Bet(market, line, side_is_home=is_home)
         side = (game.home_abbr if is_home else game.away_abbr) or name
@@ -537,7 +624,7 @@ def team_view(session: Session, game: Game, team_espn_id: str, now: datetime,
         views.append(_build(market, sel, bet, game, None, now, focus, side, check=check))
     return TeamView(game_view(game, now),
                     {"espn_id": team_espn_id, "name": name,
-                     "abbr": game.home_abbr if is_home else game.away_abbr}, views)
+                     "abbr": game.home_abbr if is_home else game.away_abbr}, views, shown)
 
 
 # --- Parlay (M4) ------------------------------------------------------------------------------
@@ -597,6 +684,7 @@ def parlay_view(session: Session, game: Game, legs: Sequence[parlay.LegKey], now
     scorer = None if first_td is None else first_td.espn_athlete_id or card.UNKNOWN_SCORER
     teams = {game.home_espn_id: (game.home_team, game.home_abbr, True),
              game.away_espn_id: (game.away_team, game.away_abbr, False)}
+    asked = asked_markets(session, game)
     built: list[_Leg] = []
     for leg in legs:
         key = leg.market.key
@@ -610,7 +698,7 @@ def parlay_view(session: Session, game: Game, legs: Sequence[parlay.LegKey], now
             rows = player_rows(session, game.id, leg.athlete)
             value = rows[leg.market.stat].value if leg.market.stat in rows else None
             built.append(_Leg(leg, "player", leg.athlete, player.name,
-                              select_price(offers, listings, game.commence_time, chain),
+                              _select(offers, listings, game, chain, asked, key),
                               PlayerStat(value, scorer, leg.athlete)))
         else:
             if leg.team not in teams:
@@ -619,7 +707,7 @@ def parlay_view(session: Session, game: Game, legs: Sequence[parlay.LegKey], now
             other = game.away_team if is_home else game.home_team
             offers = team_offers(leg.market, _price_rows(session, game.id, [key]), name, other)
             built.append(_Leg(leg, "team", leg.team or "", name,
-                              select_price(offers, listings, game.commence_time, chain), None,
+                              _select(offers, listings, game, chain, asked, key), None,
                               abbr or name, is_home))
 
     book, quotes = parlay.choose_book([b.sel for b in built], chain)
@@ -641,7 +729,7 @@ def parlay_view(session: Session, game: Game, legs: Sequence[parlay.LegKey], now
             current=outcome.current,
             needed=outcome.needed,
             price=_price_dict(quote) if quote else None,
-            no_price=None if quote else NO_PRICE_TEXT[b.sel.reason or NoPrice.NOT_LISTED]))
+            no_price=None if quote else no_price_text(b.sel.reason or NoPrice.NOT_LISTED, game)))
 
     result = parlay.parlay_outcome([o for o, _ in decided])
     notes = [parlay.SGP_NOTE]

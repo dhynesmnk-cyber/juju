@@ -12,14 +12,14 @@ from sqlalchemy.orm import Session
 from juju.api.views import player_view
 from juju.config import DEFAULT_BOOK_CHAIN
 from juju.core.card import Outcome
-from juju.core.enums import DataSource, EventStatus
+from juju.core.enums import DataSource, EventStatus, PlayKind
 from juju.core.models import Game, HotGame, LiveStat, Play
 from juju.dev_seed import seed_phi_chi_scenario
 from juju.ingest import espn
 from juju.ingest.http import RateLimiter
 from juju.ingest.odds_api import ApiGameScore
-from juju.ingest.router import Breakers, EspnRouter
-from juju.worker.live import PollLive
+from juju.ingest.router import Breakers, EspnRouter, Routed, Summary
+from juju.worker.live import LiveSummary, PollLive, play_label
 from tests.support import BARKLEY, FIXTURES, KICKOFF, FakeOdds, load
 
 pytestmark = pytest.mark.db
@@ -182,3 +182,106 @@ def test_final_then_one_more_box_score_after_ten_minutes(setup):
 
 def test_espn_sport_constant_is_nfl():
     assert espn.Sport.NFL.value == "nfl"
+
+
+@respx.mock
+def test_the_odds_api_scores_are_read_a_quarter_as_often_and_never_below_the_reserve(setup):
+    """The owner's cut on 2026-10-15: every 4 minutes (was every minute) while ESPN works."""
+    db, game_id, clock, poll, odds = setup
+    for host in (WEB, SITE):  # a clock that doesn't move for 5 minutes makes it ask the other
+        respx.get(f"{host}/scoreboard").mock(return_value=httpx.Response(200, json=board(27, 7)))
+        respx.get(f"{host}/summary").mock(return_value=httpx.Response(200, json=summary()))
+    calls = []
+    odds.scores = lambda days_from=None: calls.append(clock.now) or []  # noqa: E731
+    for _ in range(int(timedelta(minutes=8) / timedelta(seconds=5))):
+        poll()
+        clock.now += timedelta(seconds=5)
+    assert len(calls) == 2 and calls[1] - calls[0] == timedelta(minutes=4)
+    reserved = PollLive(db, poll._router, odds, clock=clock, reserve=1000)
+    odds.quota_remaining = 1000
+    reserved()
+    assert len(calls) == 2  # a credit spent on scores would dip into the reserve
+
+
+# --- Notable plays: interceptions, late rosters, labels, the CDN (2026-10-15) ------------------
+
+HURTS_ID, EDWARDS = "4040715", "3121544"  # T.J. Edwards, CHI: "T.Edwards" in ESPN's text
+
+
+def _interceptor(session, text_part: str) -> Play:
+    return session.scalars(select(Play).where(Play.kind == "def_interception",
+                                              Play.text.contains(text_part))).one()
+
+
+@respx.mock
+def test_an_interception_is_the_defenders_play_with_the_thrower_kept(setup):
+    db, game_id, clock, poll, _ = setup
+    respx.get(f"{WEB}/scoreboard").mock(return_value=httpx.Response(200, json=board(27, 7)))
+    respx.get(f"{WEB}/summary").mock(return_value=httpx.Response(200, json=summary()))
+    poll()
+    with Session(db) as s:
+        pick = _interceptor(s, "INTERCEPTED by T.Edwards")
+        game = s.get(Game, game_id)
+        assert pick.passer_espn_id == HURTS_ID
+        assert pick.team_espn_id == game.home_espn_id  # CHI, the defense
+        assert pick.espn_athlete_id == EDWARDS and pick.label == "T. Edwards interception"
+
+
+@respx.mock
+def test_a_play_stored_before_the_rosters_gets_its_player_later(setup):
+    db, game_id, clock, poll, _ = setup
+    from juju.core.models import Player
+    from juju.worker.schedule import upsert_roster
+    with Session(db) as s:
+        saved = {p.espn_athlete_id: p for p in s.scalars(select(Player))}
+        s.execute(Player.__table__.delete())
+        s.commit()
+    respx.get(f"{WEB}/scoreboard").mock(return_value=httpx.Response(200, json=board(27, 7)))
+    respx.get(f"{WEB}/summary").mock(return_value=httpx.Response(200, json=summary()))
+    poll()
+    with Session(db) as s:
+        assert s.scalars(select(Play).where(Play.espn_athlete_id.is_not(None))).all() == []
+        for team in ("21", "3"):
+            upsert_roster(s, team, espn.parse_roster(
+                load(FIXTURES / "espn" / f"nfl_roster_{team}.json")), clock.now)
+        s.commit()
+    clock.now += timedelta(seconds=61)
+    poll()
+    with Session(db) as s:
+        hurts_td = s.scalars(select(Play).where(Play.kind == "touchdown", Play.period == 2)).one()
+        assert hurts_td.espn_athlete_id == HURTS_ID and hurts_td.label == "J. Hurts 1-yd TD run"
+    assert len(saved) > 0
+
+
+def test_return_touchdowns_are_labelled_by_their_type():
+    def raw(type_text, passer=None, text="x"):
+        return espn.RawPlay("1", 1, 2, "3:00", None, PlayKind.TOUCHDOWN, 45, text, "3",
+                            "Kyle Dugger", passer, True, type_text)
+    assert play_label("Kyle Dugger", raw("Interception Return Touchdown")) == \
+        "K. Dugger 45-yd pick-six"
+    assert play_label("Kyle Dugger", raw("Punt Return Touchdown")).endswith("punt return TD")
+    assert play_label("Kyle Dugger", raw("Kickoff Return Touchdown")).endswith("kick return TD")
+    assert play_label("Kyle Dugger", raw("Passing Touchdown", passer="J.Hurts")).endswith(
+        "TD catch")
+    assert play_label("Kyle Dugger", raw("Rushing Touchdown")).endswith("TD run")
+    # Before the type was kept: a return TD whose text says "left" was a "TD run".
+    assert play_label("Kyle Dugger", raw("Fumble Return Touchdown",
+                                         text="returned left")).endswith("fumble return TD")
+
+
+def test_a_score_change_read_from_the_cdn_is_read_once_more(setup):
+    db, game_id, clock, poll, _ = setup
+    box = espn.parse_box_score(summary())
+    reads = []
+
+    def cdn_summary(event_id, max_wait=0.0, *, only=None):
+        reads.append(event_id)
+        return Routed(DataSource.ESPN_CDN, Summary(box, []))
+    poll._router.summary = cdn_summary
+    poll._score_changed.add(game_id)
+    with Session(db, expire_on_commit=False) as s:
+        game = s.get(Game, game_id)
+        assert poll._box(s, game, clock.now, LiveSummary())
+        assert game_id in poll._score_changed  # no plays came: once more
+        assert poll._box(s, game, clock.now, LiveSummary())
+        assert game_id not in poll._score_changed  # but not forever

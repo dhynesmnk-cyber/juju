@@ -30,6 +30,7 @@ from juju.core.enums import DataSource, EventStatus, PlayKind, Stat
 from juju.core.models import Game, HotGame, LiveStat, Play, Player, StatCorrection
 from juju.ingest import espn, guards
 from juju.worker import deciding
+from juju.worker.capture import affordable
 from juju.ingest.http import FetchError, RateLimited
 from juju.ingest.odds_api import OddsSource, RequestRejected
 from juju.ingest.resolve import (
@@ -46,8 +47,10 @@ SCOREBOARD_PREGAME = timedelta(minutes=5)
 BOX_HOT = timedelta(seconds=20)       # a game people are looking up
 BOX_EVERY = timedelta(seconds=60)     # every other live game
 HOT_FOR = timedelta(minutes=5)
-ODDS_SCORES_EVERY = timedelta(seconds=60)
-ODDS_SCORES_WHEN_ESPN_DOWN = timedelta(seconds=30)
+# The Odds API's scores cost a credit a call. The owner cut their use by 75% on 2026-10-15
+# (from every 60 s and every 30 s): they only stand in for ESPN when ESPN lags.
+ODDS_SCORES_EVERY = timedelta(seconds=240)
+ODDS_SCORES_WHEN_ESPN_DOWN = timedelta(seconds=120)
 ESPN_STALE = timedelta(seconds=90)    # older than this, The Odds API's scores are used
 RECHECK_AFTER_FINAL = timedelta(minutes=10)
 IN_PLAY = (EventStatus.IN_PROGRESS, EventStatus.BREAK, EventStatus.DELAYED)
@@ -74,16 +77,18 @@ class LiveSummary:
 
 class PollLive:
     def __init__(self, engine: Engine, router: EspnRouter, odds: OddsSource | None = None,
-                 clock: Callable[[], datetime] = _utcnow):
+                 clock: Callable[[], datetime] = _utcnow, reserve: int = 0):
         self._engine = engine
         self._router = router
         self._odds = odds
         self._clock = clock
+        self._reserve = reserve  # credits the scores never spend: they are kept for prices
         # In memory: a restart just makes everything due once, which is what we want.
         self._scoreboard_at: dict[date, datetime] = {}
         self._probe_at: dict[date, datetime] = {}
         self._odds_at: datetime | None = None
         self._score_changed: set[int] = set()
+        self._cdn_retried: set[int] = set()  # score changes read once from the CDN (no plays)
 
     def __call__(self) -> LiveSummary:
         now = self._clock()
@@ -227,6 +232,8 @@ class PollLive:
         if self._odds_at is not None and now - self._odds_at < every:
             return
         self._odds_at = now
+        if not affordable(self._odds.quota_remaining, 1, self._reserve, priority=False):
+            return
         try:
             scores = self._odds.scores()
         except (FetchError, RateLimited, ProviderOpen, RequestRejected) as e:
@@ -272,7 +279,6 @@ class PollLive:
         except (AllProvidersFailed, FetchError) as e:
             out.errors.append(f"{game.label}: {e}")
             return True
-        self._score_changed.discard(game.id)
         box, raw_plays = routed.value.box, routed.value.plays
         before = deciding.stat_values(session, game.id)
         first_read = game.last_box_at is None
@@ -282,7 +288,14 @@ class PollLive:
                     box.away_score, routed.provider, now)
         deciding.note_crossings(session, game, before, new_plays, first_read, now,
                                 settled=_settled(game, now))
-        self._score_changed.discard(game.id)  # the box score just covered that change
+        # The box score just covered that change, unless it came from the CDN, which has no
+        # plays: then it is read once more on the next tick, for the new chip, from a host with
+        # plays if one is free.
+        if routed.provider is DataSource.ESPN_CDN and game.id not in self._cdn_retried:
+            self._cdn_retried.add(game.id)
+        else:
+            self._score_changed.discard(game.id)
+            self._cdn_retried.discard(game.id)
         game.last_box_at = now
         session.commit()
         out.boxes += 1
@@ -345,50 +358,89 @@ def _team_roster(session: Session, team: str | None) -> list[RosterEntry]:
             for p in session.scalars(select(Player).where(Player.team_espn_id == team))]
 
 
+_RETURNS = (("interception", "pick-six"), ("punt return", "punt return TD"),
+            ("kickoff return", "kick return TD"), ("fumble", "fumble return TD"),
+            ("blocked", "blocked kick TD"))
+
+
 def play_label(name: str | None, raw: espn.RawPlay) -> str:
     who = "Team"
     if name:
         first, _, last = name.partition(" ")
         who = f"{first[:1]}. {last}" if last else name
+    if raw.kind is PlayKind.DEF_INTERCEPTION:
+        return f"{who} interception"[:80]
     yards = f"{raw.yards}-yd " if raw.yards is not None else ""
     if raw.kind is PlayKind.TOUCHDOWN:
-        what = "TD catch" if raw.passer_name else "TD run" if "rush" in raw.text.lower() or \
-            " up the middle" in raw.text.lower() or " left " in raw.text.lower() or \
-            " right " in raw.text.lower() else "TD"
+        kind, text = raw.type_text.lower(), raw.text.lower()
+        what = next((label for word, label in _RETURNS if word in kind), None)
+        if what is None:  # ESPN's type says how; older reads without it, the text
+            what = ("TD catch" if raw.passer_name or "passing" in kind
+                    else "TD run" if "rushing" in kind or "rush" in text
+                    or " up the middle" in text or " left " in text or " right " in text
+                    else "TD")
     else:
         what = {PlayKind.RUN: "run", PlayKind.CATCH: "catch",
                 PlayKind.FIELD_GOAL: "FG"}.get(raw.kind, raw.kind.value)
     return f"{who} {yards}{what}"[:80]
 
 
+def _match_name(name: str | None, roster: list[RosterEntry]) -> str | None:
+    """A play's printed name -> the roster player, only when that is certain."""
+    if not name:
+        return None
+    if "." in name.split(" ")[0]:
+        return match_abbreviated(name, roster)
+    m = match_roster_player(name, roster)
+    return m.espn_athlete_id if m.espn_athlete_id and not m.doubtful else None
+
+
+def _defending(game: Game, offense: str | None) -> str | None:
+    if offense == game.home_espn_id:
+        return game.away_espn_id
+    if offense == game.away_espn_id:
+        return game.home_espn_id
+    return None
+
+
 def write_plays(session: Session, game: Game, raws: list[espn.RawPlay]) -> list[Play]:
-    """Store new notable plays, with the player matched to the team's roster when that is
-    certain. An unmatched play keeps no player (it can still be shown as a team play).
-    Returns the plays added, with their ids."""
-    known = set(session.scalars(select(Play.espn_play_id).where(Play.game_id == game.id)))
+    """Store new notable plays, with the player (and the passer) matched to the roster when that
+    is certain. A play stored with no player is matched again on later reads: the roster may
+    have arrived since. Returns the plays added, with their ids."""
+    known = {p.espn_play_id: p for p in session.scalars(
+        select(Play).where(Play.game_id == game.id))}
     rosters: dict[str | None, list[RosterEntry]] = {}
-    names = {}
+
+    def roster(team: str | None) -> list[RosterEntry]:
+        if team not in rosters:
+            rosters[team] = _team_roster(session, team)
+        return rosters[team]
+
+    def name_of(athlete: str | None) -> str | None:
+        player = session.get(Player, athlete) if athlete else None
+        return player.name if player else None
+
     added: list[Play] = []
     for raw in raws:
-        if raw.espn_play_id in known:
+        held = known.get(raw.espn_play_id)
+        if held is not None and (held.espn_athlete_id is not None or not raw.player_name):
             continue
-        roster = rosters.setdefault(raw.team_espn_id, _team_roster(session, raw.team_espn_id))
-        athlete = None
-        if raw.player_name:
-            if "." in raw.player_name.split(" ")[0]:
-                athlete = match_abbreviated(raw.player_name, roster)
-            else:
-                m = match_roster_player(raw.player_name, roster)
-                athlete = m.espn_athlete_id if m.espn_athlete_id and not m.doubtful else None
-        if athlete and athlete not in names:
-            player = session.get(Player, athlete)
-            names[athlete] = player.name if player else None
+        # An interception is the defender's play: his team is the one without the ball.
+        team = (_defending(game, raw.team_espn_id) if raw.kind is PlayKind.DEF_INTERCEPTION
+                else raw.team_espn_id)
+        athlete = _match_name(raw.player_name, roster(team))
+        passer = _match_name(raw.passer_name, roster(raw.team_espn_id))
+        if held is not None:
+            if athlete is not None:
+                held.espn_athlete_id, held.passer_espn_id = athlete, passer
+                held.label = play_label(name_of(athlete), raw)
+            continue
         play = Play(
             game_id=game.id, espn_play_id=raw.espn_play_id, sequence=raw.sequence,
             period=raw.period, clock=raw.clock, wallclock=raw.wallclock, kind=raw.kind.value,
-            label=play_label(names.get(athlete) if athlete else None, raw), yards=raw.yards,
-            text=raw.text[:500], espn_athlete_id=athlete, team_espn_id=raw.team_espn_id,
-            scoring=raw.scoring)
+            label=play_label(name_of(athlete), raw), yards=raw.yards,
+            text=raw.text[:500], espn_athlete_id=athlete, team_espn_id=team,
+            scoring=raw.scoring, passer_espn_id=passer)
         session.add(play)
         added.append(play)
     session.flush()

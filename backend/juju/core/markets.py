@@ -116,9 +116,24 @@ CATALOG: tuple[Market, ...] = (
 BY_KEY: dict[str, Market] = {m.key: m for m in CATALOG}
 
 # What each capture asks for. The coverage check at T-3h takes the main markets only; the
-# captures around T-45 take everything (docs/GOALS.md section 4).
+# capture at T-45 takes everything (docs/GOALS.md section 4).
 MAIN_KEYS: tuple[str, ...] = tuple(m.key for m in CATALOG if not m.alternate)
 ALL_KEYS: tuple[str, ...] = tuple(m.key for m in CATALOG)
+
+# When credits are short, a lean capture takes the first markets of this list: the bets people
+# ask about most come first (`core/budget.py`). Every key in the catalog appears exactly once.
+CAPTURE_PRIORITY: tuple[str, ...] = (
+    "h2h", "spreads", "totals", "player_anytime_td", "player_rush_yds",
+    "player_reception_yds", "player_pass_yds", "player_receptions", "player_pass_tds",
+    "team_totals", "player_rush_yds_alternate", "player_reception_yds_alternate",
+    "player_1st_td", "player_pass_yds_alternate", "player_receptions_alternate",
+    "player_rush_longest", "player_reception_longest", "player_tds_over",
+    "player_rush_attempts", "player_pass_completions", "player_pass_attempts",
+    "player_pass_interceptions", "player_pass_tds_alternate", "player_field_goals",
+    "player_kicking_points", "player_pass_longest_completion", "alternate_spreads",
+    "alternate_totals", "alternate_team_totals", "player_rush_tds", "player_reception_tds",
+    "player_sacks", "player_tackles_assists", "player_defensive_interceptions",
+)
 
 # The outcome a card prices, and the opposite outcome used for fair value.
 YES, NO, OVER, UNDER = "Yes", "No", "Over", "Under"

@@ -4,6 +4,11 @@
                          history. Costs credits: about 10 per market per game, plus 1 per day.
                          Prints the estimate and asks before spending.
   unmapped               Odds API player names not matched to a roster player.
+  odds-status            Check the Odds API key with one free call, then say how many credits
+                         are left, when they reset and what the captures will take.
+  report --since DATE    What the archive and the lookups did since DATE (YYYY-MM-DD): each
+                         game's captures and credits, its matched player names, the lookups
+                         that didn't find anyone, and the live feeds' state. No prices.
   verify                 Check last week's final games against nflverse now (free), instead of
                          waiting for the worker's 10:07 or 16:07 ET run.
   seed [live|final]      Development and tests only: load the recorded PHI @ CHI game.
@@ -85,6 +90,105 @@ def unmapped() -> int:
         for game, m in rows:
             print(f"{game.label:12} {m.status:9} {m.raw_name!r} (score {m.score})")
         print(f"{len(rows)} names")
+    return 0
+
+
+PLAN_TEXT = {
+    "full": "two captures a game: the main markets at T-3h and every market at T-45",
+    "t45_only": "one capture a game, every market at T-45 (no T-3h check)",
+    "lean": "one capture a game at T-45, the {n} most-asked markets only",
+    "none": "none: the credits are used up until they reset",
+}
+
+
+def odds_status(engine: Engine, odds=None, now: datetime | None = None) -> int:
+    """Check the key with the free games list. Never prints the key."""
+    from juju.core.budget import next_reset
+    from juju.ingest.http import FetchError, RateLimited
+    from juju.ingest.odds_api import OddsApiClient, RequestRejected
+    from juju.ingest.router import Breakers, ProviderOpen
+    from juju.worker.capture import current_plan
+
+    settings = get_settings()
+    if odds is None:
+        if settings.odds_api_key is None:
+            print("No Odds API key is set, so no prices are being saved.")
+            return 2
+        breakers = Breakers(engine)
+        breakers.load()
+        odds = OddsApiClient(settings.odds_api_key.get_secret_value(), breakers)
+    try:
+        events = odds.events()
+    except RequestRejected as e:
+        print(f"The Odds API refused the key (HTTP {e.status_code}). Check JUJU_ODDS_API_KEY.")
+        return 1
+    except (FetchError, RateLimited, ProviderOpen) as e:
+        print(f"The Odds API can't be reached right now: {e}")
+        return 1
+    now = now or datetime.now(tz=UTC)
+    with Session(engine) as session:
+        plan = current_plan(session, odds.quota_remaining, now, settings.odds_api_reset_day,
+                            settings.games_per_week)
+    reset = next_reset(now, settings.odds_api_reset_day)
+    left = ("not known until the first capture" if odds.quota_remaining is None
+            else f"{odds.quota_remaining:,}")
+    print(f"The Odds API key works: it lists {len(events)} NFL games.")
+    print(f"Credits left: {left}. They reset on {reset:%B} {reset.day}.")
+    print(f"Captures: {PLAN_TEXT[plan.tier].format(n=len(plan.markets))}.")
+    return 0
+
+
+def report(engine: Engine, since: date) -> int:
+    """Counts and names only: never a price (docs/licensing.md)."""
+    from sqlalchemy import func
+
+    from juju.core.models import (
+        Game, Lookup, OddsSnapshot, PlayerNameMap, Play, Price, SourceHealth,
+    )
+    start = datetime.combine(since, time(0), UTC)
+    with Session(engine) as session:
+        print("Sources:")
+        for h in session.scalars(select(SourceHealth).order_by(SourceHealth.source)):
+            extra = f", {h.quota_remaining:,} credits left" if h.quota_remaining is not None else ""
+            last = f" (last error: {h.last_error[:120]})" if h.last_error else ""
+            print(f"  {h.source:10} {h.state}{extra}{last}")
+        games = session.scalars(select(Game).where(Game.commence_time >= start)
+                                .order_by(Game.commence_time)).all()
+        print(f"\nGames since {since}: {len(games)}")
+        for g in games:
+            snaps = session.execute(select(OddsSnapshot.slot, OddsSnapshot.observed_at,
+                                           OddsSnapshot.cost).where(OddsSnapshot.game_id == g.id)
+                                    .order_by(OddsSnapshot.observed_at)).all()
+            taken = "; ".join(
+                f"{slot} {int((g.commence_time - at).total_seconds() // 60)} min before, "
+                f"{cost if cost is not None else '?'} credits" for slot, at, cost in snaps)
+            players = session.scalar(select(func.count(func.distinct(Price.espn_athlete_id)))
+                                     .where(Price.game_id == g.id))
+            names = dict(session.execute(select(PlayerNameMap.status, func.count()).where(
+                PlayerNameMap.game_id == g.id).group_by(PlayerNameMap.status)).all())
+            lost = [n for (n,) in session.execute(select(PlayerNameMap.raw_name).where(
+                PlayerNameMap.game_id == g.id, PlayerNameMap.status != "auto"))]
+            no_player = session.scalar(select(func.count()).select_from(Play).where(
+                Play.game_id == g.id, Play.espn_athlete_id.is_(None)))
+            print(f"  {g.label:12} {g.commence_time:%a %d %b %H:%M} UTC  {g.status}  "
+                  f"plan {g.capture_plan or '-'}")
+            print(f"      captures: {taken or 'none'}")
+            if g.capture_note:
+                print(f"      note: {g.capture_note}")
+            print(f"      priced players {players}; names matched {names.get('auto', 0)}, "
+                  f"doubtful {names.get('doubtful', 0)}, unmatched {names.get('unmapped', 0)}"
+                  + (f": {', '.join(sorted(lost))}" if lost else ""))
+            print(f"      plays with no player: {no_player}")
+        lookups = session.scalars(select(Lookup).where(Lookup.created_at >= start)
+                                  .order_by(Lookup.created_at)).all()
+        paths: dict[str, int] = {}
+        for x in lookups:
+            paths[x.path] = paths.get(x.path, 0) + 1
+        print(f"\nLookups since {since}: {len(lookups)} "
+              f"({', '.join(f'{k} {v}' for k, v in sorted(paths.items())) or 'none'})")
+        for x in lookups:
+            if x.path in ("none", "choices"):
+                print(f"  {x.created_at:%a %H:%M} {x.path:8} {x.text!r} -> {x.result}")
     return 0
 
 
@@ -297,6 +401,10 @@ def main(argv: list[str]) -> int:
                         "--yes" in args)
     if cmd == "unmapped":
         return unmapped()
+    if cmd == "odds-status":
+        return odds_status(_engine())
+    if cmd == "report" and _option(args, "--since"):
+        return report(_engine(), date.fromisoformat(_option(args, "--since") or ""))
     if cmd == "verify":
         return verify()
     if cmd == "seed":

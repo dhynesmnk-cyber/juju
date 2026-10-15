@@ -1,4 +1,5 @@
-"""Keeping the game list and rosters current: `sync_schedule` and `sync_rosters`.
+"""Keeping the game list and rosters current: `sync_schedule` and `sync_rosters`. A refreshed
+roster also re-links stored prices whose player name didn't match before (`archive.remap_recent`).
 
 The Odds API's events list is free and names the games we can price. ESPN's scoreboard gives
 each game's ESPN id and team ids (for box scores and rosters). Games are matched by both team
@@ -18,6 +19,7 @@ from juju.ingest.http import FetchError, RateLimited
 from juju.ingest.odds_api import OddsSource
 from juju.ingest.resolve import same_game
 from juju.ingest.router import AllProvidersFailed, EspnRouter
+from juju.worker.archive import remap_recent
 
 log = logging.getLogger("juju.schedule")
 
@@ -124,7 +126,7 @@ class SyncRosters:
 
     def __call__(self) -> int:
         now = self._clock()
-        refreshed = 0
+        refreshed: list[str] = []
         with Session(self._engine, expire_on_commit=False) as session:
             teams: set[str] = set()
             for g in session.scalars(select(Game).where(
@@ -143,8 +145,10 @@ class SyncRosters:
                     continue
                 upsert_roster(session, team, roster, now)
                 session.commit()
-                refreshed += 1
-        return refreshed
+                refreshed.append(team)
+        if refreshed:
+            remap_recent(self._engine, now, teams=refreshed)
+        return len(refreshed)
 
 
 def upsert_roster(session: Session, team: str, roster: list[espn.RosterPlayer],

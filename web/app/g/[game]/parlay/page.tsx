@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ParlayView from "@/components/ParlayView";
-import { backendGet } from "@/lib/backend";
+import { backendPage } from "@/lib/backend";
 import type { ParlayView as View } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ async function load(props: Props) {
   const { legs } = await props.searchParams;
   if (!/^\d+$/.test(game) || typeof legs !== "string" || !LEGS.test(legs)) return null;
   const apiPath = `/api/parlay/${game}?legs=${encodeURIComponent(legs)}`;
-  const view = await backendGet<View>(apiPath);
+  const view = await backendPage<View>(apiPath);
   return view ? { view, apiPath } : null;
 }
 

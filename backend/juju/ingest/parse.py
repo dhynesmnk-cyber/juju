@@ -25,7 +25,7 @@ class Parsed:
 
 
 _WORDS = {
-    "td": r"\b(td|tds|touchdowns?|scores?|scored|scoring|house|endzone|end zone)\b",
+    "td": r"\b(td|tds|touchdowns?|scores?|scored|scoring|house|endzone|end zone|pick (six|6))\b",
     "throw": r"\b(throws?|threw|tosses|tossed|td pass|touchdown pass|passing td|pass td|"
              r"hits|finds|found)\b",
     "catch": r"\b(catch|catches|caught|reception|receptions|grab|grabs|rec|recs|snag)\b",
@@ -44,6 +44,9 @@ _OVER = re.compile(r"\bover\s*(\d{1,3}(?:\.5)?)\b|\bo\s?(\d{1,3}\.5)\b")
 _MARKETS: list[tuple[re.Pattern[str], str]] = [(re.compile(p), k) for p, k in [
     (r"\b(first|1st) (td|touchdown)", "player_1st_td"),
     (r"\bany ?time\b", "player_anytime_td"),
+    # A rushing or receiving touchdown is a touchdown, not yards (the rush and receiving TD
+    # markets are never offered; the anytime TD is the bet people mean).
+    (r"\b(rushing|rush|receiving|rec) (td|tds|touchdowns?)\b", "player_anytime_td"),
     (r"\blongest (rush|run|carry)", "player_rush_longest"),
     (r"\blongest (reception|catch|rec)", "player_reception_longest"),
     (r"\blongest (completion|pass)", "player_pass_longest_completion"),
@@ -61,7 +64,11 @@ _MARKETS: list[tuple[re.Pattern[str], str]] = [(re.compile(p), k) for p, k in [
 ]]
 _FILLER = re.compile(r"\b(a|an|the|for|on|of|and|with|just|what|would|have|paid|bet|yard|"
                      r"yards|yarder|yds|yd|over|under|from|to|in|at|by|he|his|big|huge|long|another|"
-                     r"line|ladder|alt|alternate|milestone|plus|longest|game|total|points?)\b")
+                     r"line|ladder|alt|alternate|milestone|plus|longest|game|total|points?|"
+                     # Time and exclamations ("that TD", "who just scored", "what a play"): never
+                     # a name, but four letters or more would be fuzzy-matched against surnames.
+                     r"that|this|who|whos|last|latest|did|does|was|is|it|its|play|happened|"
+                     r"happen|now|again|wow|great|crazy|nice|insane|unreal|amazing|omg)\b")
 
 
 OFFENSE = frozenset({"QB", "RB", "FB", "WR", "TE"})

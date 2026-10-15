@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /** Share one card: the phone's share sheet where there is one, else copy the link. The link
  *  opens the page with that card first, and its preview is the card's share image. */
 export default function ShareButton({ path, text }: { path: string; text: string }) {
   const [said, setSaid] = useState<string | null>(null);
+  useEffect(() => {  // the note goes after a moment, so a second share says it again
+    if (!said) return;
+    const t = setTimeout(() => setSaid(null), 2500);
+    return () => clearTimeout(t);
+  }, [said]);
   async function share() {
     const url = new URL(path, window.location.origin).toString();
     try {

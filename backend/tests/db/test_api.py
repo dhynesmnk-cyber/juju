@@ -194,10 +194,23 @@ def test_live_lists_games_and_plays_without_prices(client, db):
 def test_there_is_no_endpoint_that_lists_prices_across_players(client):
     # The parlay spans players: only the legs someone picked, at one book, in one game
     # (tests/db/test_parlay.py holds it to that).
+    # /api/game lists one game's plays and players, with no prices (the test below).
     paths = {r.path for r in app_module.app.routes}
     assert paths == {"/health", "/api/status", "/api/live", "/api/suggest", "/api/lookup",
-                     "/api/player/{game_id}/{athlete_id}", "/api/team/{game_id}/{team_id}",
-                     "/api/parlay/{game_id}"}
+                     "/api/game/{game_id}", "/api/player/{game_id}/{athlete_id}",
+                     "/api/team/{game_id}/{team_id}", "/api/parlay/{game_id}"}
+
+
+def test_a_game_lists_its_plays_and_players_without_prices(client, db):
+    game_id = seed(db, "live")
+    body = client.get(f"/api/game/{game_id}").json()
+    assert body["label"] == "PHI @ CHI" and body["status"] == "in_progress"
+    assert body["plays"][0]["label"] == "J. Hurts 20-yd run"  # newest first
+    assert any(p["kind"] == "def_interception" and p["passer_id"] for p in body["plays"])
+    assert {"Saquon Barkley", "DeVonta Smith"} <= {p["name"] for p in body["players"]}
+    text = str(body)
+    assert "american" not in text and "book" not in text and "$" not in text
+    assert client.get("/api/game/999999").status_code == 404
 
 
 def test_health_reports_the_worker(client, db):
@@ -205,3 +218,32 @@ def test_health_reports_the_worker(client, db):
     heartbeat(db, datetime.now(tz=UTC) - timedelta(minutes=10))
     body = client.get("/health").json()
     assert body["ok"] is False and body["worker_heartbeat_seconds_ago"] >= 600
+
+
+def _odds_api(db, *, quota: int | None, ago: timedelta | None) -> None:
+    from juju.core.models import SourceHealth
+    with Session(db) as s:
+        s.merge(SourceHealth(source="odds_api", quota_remaining=quota,
+                             last_success_at=None if ago is None
+                             else datetime.now(tz=UTC) - ago,
+                             consecutive_failures=0, requests_last_hour=0, errors_last_hour=0))
+        s.commit()
+
+
+@pytest.mark.parametrize("quota, ago, prices", [
+    (None, None, "off"),                      # no key: never a successful call
+    (20_000, timedelta(hours=3), "off"),      # a key, but nothing heard for hours
+    (20_000, timedelta(minutes=5), "on"),
+    (None, timedelta(minutes=5), "on"),       # quota not known yet
+    (500, timedelta(minutes=5), "rationed"),  # a free key's month
+    (2, timedelta(minutes=5), "paused"),
+])
+def test_the_status_says_whether_new_games_get_prices(client, db, quota, ago, prices):
+    _odds_api(db, quota=quota, ago=ago)
+    body = client.get("/api/status").json()
+    assert body["prices"] == prices
+    assert (body["prices_message"] is None) is (prices == "on")
+
+
+def test_with_no_odds_api_row_at_all_prices_are_off(client):
+    assert client.get("/api/status").json()["prices"] == "off"

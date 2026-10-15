@@ -175,3 +175,15 @@
 {"text": "Smith over 71.5 receiving yards", "want": ["player:4241478"], "threshold": "71.5", "market": "player_reception_yds", "tags": ["threshold", "market", "ambiguous"]}
 {"text": "Loveland 4+ catches", "want": ["player:4723086"], "threshold": "3.5", "market": "player_receptions", "tags": ["threshold", "market"]}
 {"text": "Goedert receiving yards", "want": ["player:3121023"], "market": "player_reception_yds", "tags": ["market"]}
+{"text": "what just happened", "want": [], "tags": ["unnamed"]}
+{"text": "that TD", "want": [], "play": "touchdown", "tags": ["unnamed"]}
+{"text": "who just scored", "want": [], "play": "touchdown", "tags": ["unnamed"]}
+{"text": "the last play", "want": [], "tags": ["unnamed"]}
+{"text": "that catch", "want": [], "play": "catch", "tags": ["unnamed"]}
+{"text": "pick six", "want": [], "play": "touchdown", "tags": ["unnamed"]}
+{"text": "that pick", "want": [], "play": "interception", "tags": ["unnamed"]}
+{"text": "Barkley rushing touchdown", "want": ["player:3929630"], "play": "touchdown", "market": "player_anytime_td", "tags": ["surname", "market"]}
+{"text": "DeVonta Smith receiving TD", "want": ["player:4241478"], "play": "touchdown", "market": "player_anytime_td", "tags": ["full_name", "market"]}
+{"text": "Philly", "want": ["team:21"], "tags": ["team", "slang"]}
+{"text": "great catch by Smith", "want": ["player:4241478"], "play": "catch", "tags": ["surname", "casual"]}
+{"text": "Hurts TD pass", "want": ["player:4040715"], "play": "pass_td", "tags": ["surname"]}

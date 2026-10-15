@@ -1,6 +1,8 @@
 """The ESPN router and its fault matrix (SPEC.md sections 8.3 and 11).
 
-Ported from parlaytracker@c3bd43c; box_score() is summary() in Juju."""
+Ported from parlaytracker@c3bd43c; box_score() is summary() in Juju. Changed 2026-10-15: one
+game's document that doesn't read benches that game on that host, and the host stays open for
+the others; two games' within ten minutes (a format change) close it, as before."""
 import copy
 import json
 from datetime import date
@@ -10,7 +12,7 @@ import httpx
 import pytest
 import respx
 
-from juju.core.enums import DataSource, EventStatus, FailureKind, Sport
+from juju.core.enums import DataSource, EventStatus, FailureKind, HealthState, Sport
 from juju.ingest.http import RateLimited, RateLimiter
 from juju.ingest.router import (
     AllProvidersFailed,
@@ -131,6 +133,9 @@ def test_fault_matrix(router, samples, provider, failure):
     assert breaker.last_error
     if kind is FailureKind.TRANSIENT:
         assert breaker.allow()  # a single transient failure doesn't open it: three do
+    elif kind in (FailureKind.SCHEMA, FailureKind.IMPLAUSIBLE):
+        # One game's document: that game waits on this host; every other game still reads.
+        assert breaker.allow() and breaker.state is HealthState.DEGRADED
     else:
         assert not breaker.allow() and breaker.failure_kind is kind
         assert (breaker.open_until - breaker.last_failure_at).total_seconds() == \
@@ -332,3 +337,38 @@ def test_the_cdn_is_asked_for_the_sports_own_league(router):
         return_value=httpx.Response(200, json=doc))
     routed = router.box_score("401810723", sport=Sport.NBA, columns={})
     assert routed.provider is DataSource.ESPN_CDN and routed.value.home_score is not None
+
+
+OTHER = "401872963"
+
+
+def route_game(provider: str, game: str):
+    url = URLS[provider].split("?")[0]
+    return respx.get(url, params={"event": game} if provider != "espn_cdn"
+                     else {"xhr": "1", "gameId": game})
+
+
+@respx.mock
+def test_one_games_bad_document_benches_that_game_only(router):
+    bad = route_game("espn_web", GAME).mock(return_value=FAILURES["changed_format"][0]())
+    route_game("espn_site", GAME).mock(return_value=ok_response("espn_site"))
+    other = route_game("espn_web", OTHER).mock(
+        return_value=httpx.Response(200, json=load("nfl_summary_401872963_full.json")))
+    assert router.summary(GAME).provider is DataSource.ESPN_SITE
+    assert router.summary(GAME).provider is DataSource.ESPN_SITE  # benched: not asked again
+    assert bad.call_count == 1
+    assert router.summary(OTHER).provider is DataSource.ESPN_WEB and other.call_count == 1
+    assert router.breakers["espn_web"].allow()
+
+
+@respx.mock
+def test_two_games_bad_documents_are_a_format_change_and_close_the_host(router):
+    for game in (GAME, OTHER):
+        route_game("espn_web", game).mock(return_value=FAILURES["changed_format"][0]())
+        route_game("espn_site", game).mock(return_value=ok_response("espn_site"))
+    router.summary(GAME)
+    router.summary(OTHER)
+    breaker = router.breakers["espn_web"]
+    assert not breaker.allow() and breaker.failure_kind is FailureKind.SCHEMA
+    assert (breaker.open_until - breaker.last_failure_at).total_seconds() == \
+        OPEN_SECONDS["changed_format"]

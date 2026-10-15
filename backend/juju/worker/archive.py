@@ -3,25 +3,32 @@
 A snapshot keeps the response exactly as received (gzipped), its sha256, when it was fetched
 and which moment it represents. Player names are matched to the game's two rosters with
 parlaytracker's rule; a name that doesn't match cleanly is recorded as doubtful or unmapped,
-and its prices keep no player id rather than a guessed one.
+and its prices keep no player id rather than a guessed one. Such a name is tried again with
+each new snapshot and whenever the rosters change (`remap_prices`): a roster that arrives late
+then links the prices already stored. Only which player a price belongs to changes, never the
+price.
 """
 import gzip
 import hashlib
 import logging
 import re
-from datetime import datetime
+from collections.abc import Iterable
+from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import Engine, exists, or_, select, update
 from sqlalchemy.orm import Session
 
 from juju.core.enums import SnapshotSource
-from juju.core.markets import BY_KEY, Scope
+from juju.core.markets import BY_KEY, CATALOG, Scope
 from juju.core.models import Game, OddsSnapshot, Player, PlayerNameMap, Price
 from juju.ingest.odds_api import OddsResponse
 from juju.ingest.resolve import RosterEntry, match_roster_player
 
 log = logging.getLogger("juju.archive")
+
+PLAYER_KEYS = tuple(m.key for m in CATALOG if m.scope is Scope.PLAYER)
+REMAP_DAYS = 14  # how far back a roster change re-links stored prices (repair_gaps' default)
 
 
 def roster_for(session: Session, game: Game) -> list[RosterEntry]:
@@ -55,22 +62,71 @@ class NameMapper:
         if is_not_a_player(raw_name):
             return None  # stored with no player, never matched to one
         held = self._known.get(raw_name)
-        if held is None or (held.status == "unmapped" and self._roster is None):
+        # A name that isn't matched cleanly yet is tried again: the roster may have arrived or
+        # changed since. (Until 2026-10-15 only the first such name in a snapshot was.)
+        if held is None or held.status != "auto":
             if self._roster is None:
                 self._roster = roster_for(self._session, self._game)
             match = match_roster_player(raw_name, self._roster)
             status = ("unmapped" if match.espn_athlete_id is None
                       else "doubtful" if match.doubtful else "auto")
+            changed = held is None or (held.espn_athlete_id, held.status) != (
+                match.espn_athlete_id, status)
             if held is None:
                 held = PlayerNameMap(game_id=self._game.id, raw_name=raw_name)
                 self._session.add(held)
                 self._known[raw_name] = held
             held.espn_athlete_id, held.score, held.status = (
                 match.espn_athlete_id, match.score or None, status)
-            if status != "auto":
+            if status != "auto" and changed:
                 log.warning("%s: %s player name %r (best %s, %.0f)", self._game.label, status,
                             raw_name, match.name, match.score)
         return held.espn_athlete_id if held.status == "auto" else None
+
+
+def remap_prices(session: Session, game: Game) -> int:
+    """Match this game's unmatched and doubtful names again, against the rosters as they are
+    now, and point the prices stored under a name that now matches cleanly at its player.
+    Returns the prices linked. The caller commits."""
+    pending = session.scalars(select(PlayerNameMap).where(
+        PlayerNameMap.game_id == game.id, PlayerNameMap.status != "auto")).all()
+    if not pending:
+        return 0
+    roster = roster_for(session, game)
+    if not roster:
+        return 0
+    linked = 0
+    for held in pending:
+        match = match_roster_player(held.raw_name, roster)
+        if match.espn_athlete_id is None or match.doubtful:
+            continue
+        held.espn_athlete_id, held.score, held.status = match.espn_athlete_id, match.score, "auto"
+        count = session.execute(update(Price).where(
+            Price.game_id == game.id, Price.description == held.raw_name,
+            Price.market_key.in_(PLAYER_KEYS), Price.espn_athlete_id.is_(None))
+            .values(espn_athlete_id=match.espn_athlete_id)).rowcount
+        linked += count
+        log.info("%s: player name %r now matches %s: %d prices linked", game.label,
+                 held.raw_name, match.name, count)
+    session.flush()
+    return linked
+
+
+def remap_recent(engine: Engine, now: datetime, teams: Iterable[str] | None = None) -> int:
+    """`remap_prices` for every game of the last two weeks and the next day and a half with
+    unmatched names, or only those of `teams`. Returns the prices linked."""
+    linked = 0
+    with Session(engine) as session:
+        q = select(Game).where(
+            Game.commence_time.between(now - timedelta(days=REMAP_DAYS), now + timedelta(hours=36)),
+            exists().where(PlayerNameMap.game_id == Game.id, PlayerNameMap.status != "auto"))
+        if teams is not None:
+            wanted = list(teams)
+            q = q.where(or_(Game.home_espn_id.in_(wanted), Game.away_espn_id.in_(wanted)))
+        for game in session.scalars(q):
+            linked += remap_prices(session, game)
+        session.commit()
+    return linked
 
 
 def store_snapshot(session: Session, game: Game, response: OddsResponse, *,

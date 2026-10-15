@@ -18,9 +18,9 @@ from tests.support import FIXTURES
 
 pytestmark = pytest.mark.db
 
-EXACT_AT_LEAST = 125
-MISSED_AT_MOST = 3
-FIELDS_RIGHT_AT_LEAST = 206
+EXACT_AT_LEAST = 138
+MISSED_AT_MOST = 1
+FIELDS_RIGHT_AT_LEAST = 217
 
 
 def test_the_golden_set_is_big_enough_and_names_real_players():
@@ -76,8 +76,9 @@ def test_the_eval_script_scores_the_llm_path(db):
         seed_phi_chi_scenario(s, "live", now)
         base = script.evaluate(s, now)
         report = script.evaluate(s, now, reader)
-    unsure = base.by_path["choices"] + base.by_path["none"]
-    assert reader.calls == unsure and reader.failed == unsure - len(FakeModel.NAMES)
+    # Text naming no one ("touchdown!!!") gets the latest plays without asking the model.
+    unsure = base.by_path["choices"] + base.by_path["none"] + base.by_path["plays"]
+    assert 0 < reader.calls <= unsure and reader.failed == reader.calls - len(FakeModel.NAMES)
     assert report.by_path["llm"] == len(FakeModel.NAMES) and report.wrong == []
     assert report.verdicts[Verdict.EXACT] == base.verdicts[Verdict.EXACT] + 3
     assert script._percentile([10.0, 20.0, 30.0], 50) == 20.0

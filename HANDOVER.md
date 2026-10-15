@@ -5,16 +5,17 @@ product, the owner's decisions and the reasons behind them. Then read
 [CLAUDE.md](CLAUDE.md) for the commands and the rules that are easy to break. This file says
 where the build stands and what to do next. Update it before you finish a session.
 
-## Where things stand (2026-10-08)
+## Where things stand (2026-10-15)
 
 | | |
 |---|---|
 | Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, PR #9 Phase 1 of the tracker (below), and PR #10 its Phase 2. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
 | CI | Green on every merged PR head. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
 | Tests | 1,913 backend tests (1,164 before the tracker), 9 web unit tests (`node --test`), 17 Playwright tests |
-| Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. On 2026-10-08 the owner was setting it up on the laptop (the code wasn't cloned there yet); ask whether it runs. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
-| Real data | No real capture has run. The archive has only been exercised on recorded fixtures. nflverse (free) was read for real, to record its fixtures |
+| Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. It runs: the owner used it through real games on 2026-10-11, with a free Odds API key in `deploy/laptop/.env`. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
+| Real data | The laptop captures real prices: on the free key from about 2026-10-10 (until its 500 credits ran out), and on the owner's 20K-credit key from 2026-10-15, which also filled last weekend's missed games from the vendor's history. `python -m juju.cli report --since DATE` on the laptop shows what it saved. The tests still use only the recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
+| The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. **Stage 2 (lookups and live plays) is done** on the same branch: the latest plays for text naming no one, recent plays deciding between namesakes, the tapped play named on its page, interceptions and return TDs as plays, one bad box score no longer shutting an ESPN host. **Stage 3:** the three mockup directions are on a private canvas for the owner (https://claude.ai/artifact/BvBJUwJFtcd6K5xmiJ6hf8: A feed first, B game first, C answer first, phone and desktop, every number from the recorded game), and the fixes every direction needs are built: times the same on server and phone, loading and error pages, no layout shift (floating typeahead, server-rendered banner and 21+ gate), slimmer cards with Details, unpriced bets as one list, 44 px targets, two cards a row on wide screens. **On 2026-10-15 the owner chose B, game first, and it is built:** the home page shows each game on now as a tile (score, its latest play, "Every play, and what it paid"), then the next and earlier games; a game's page (`/g/[game]`, from `/api/game/{id}`, which lists no prices) has its plays on a timeline by quarter, newest first, and tapping one opens what it paid in place (beside the timeline on a wide screen), plus Players and Game lines tabs. Result pages link back to their game |
 | The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**; Phase 3 (passcode users and `/api/me`) is next. Nothing user-visible yet: no routes and no web change. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
 
 ## First thing to do
@@ -126,13 +127,18 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   golden set with or without an LLM, to choose `LLM_MODEL`).
 
 **Web** (`web/`, Next.js 16):
-- Pages: `/`, `/g/[game]/[player]`, `/g/[game]/team/[team]`, `/g/[game]/parlay?legs=` (M4)
-  and the info pages. Result pages take `?card=` to put a shared card first.
+- Pages: `/` (search, then a tile per game on now, then next and earlier games), `/g/[game]`
+  (the game: its plays by quarter, each opening what it paid in place; Players; Game lines),
+  `/g/[game]/[player]`, `/g/[game]/team/[team]`, `/g/[game]/parlay?legs=` (M4) and the info
+  pages. Result pages take `?card=` to put a shared card first, and `?play_id=` to name the
+  play they were opened from.
 - `app/api/[...path]/route.ts` is the **only** way into the backend: an allowlist of paths.
   It also verifies Turnstile tokens (`lib/turnstile.ts`) and sets a signed one-hour cookie.
 - `.../image/route.tsx` under both result pages (M3): the share image, one card in its world
   with the Jujus (`lib/shareImage.tsx`, next/og). Pages emit Open Graph tags for it.
-- `components/`: `ResultCard` (Verified chip, deciding play, Share and Add to parlay),
+- `components/`: `LiveNow` (the home page's game tiles), `GamePage` (the timeline; a play's
+  answer is the player's or team's own endpoint with `play_id`, its priced touched bets, two
+  at most), `ResultCard` (Verified chip, deciding play, Share and Add to parlay),
   `ResultView`, `ParlayTray` (per game, in the viewer's browser: `lib/parlayTray.ts`),
   `ParlayView` (a light in the sky per leg, each leg's price; gold only when all are lit),
   `SearchBox` (shows `TurnstileWidget` only when challenged), `world/` (option A: shader,
@@ -181,8 +187,61 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
     in Next.js, and its Python logic moves into the backend. Per-user passcodes extend the
     passcode gate. Fresh data: nothing is migrated, but the CSV importer is kept. At the end the
     parlaytracker repo is archived. The Fly launch plan is unchanged; `/me` stays private.
+12. **After the live test** (2026-10-12, `docs/plans/live-test-fixes.md`):
+    - **Prices:** build everything and test it on the free key first; a paid plan comes
+      later. So the capture rations credits on a small quota (one capture per game, the
+      most-asked bets first) and captures everything on a large one.
+    - **A lookup that names nobody** ("what just happened", "that TD") offers the latest
+      plays to tap, newest first, and never picks one by itself.
+    - **The UI gets a bigger redesign**, with mockups for the owner to choose from before
+      it is built. **On 2026-10-15 the owner chose B, game first**, from
+      https://claude.ai/artifact/BvBJUwJFtcd6K5xmiJ6hf8: games on the home page, and a game
+      page whose timeline of plays opens what each paid.
+    - **On 2026-10-15:** a **20K-credit Odds API key** (put on the laptop that evening);
+      **captures at T-3h and T-45 only** (was T-3h, T-60, T-49, T-47 and T-45:30); **75% less
+      credit use during games** (score polling every 4 minutes, not every minute); last
+      weekend's missed games filled from the vendor's history once; **build it all now**. The
+      key is never sent in chat.
 
 ## Decisions made by agents (reasons in the commits; change only with a reason)
+
+- **Lookups that name no one get the latest plays** (2026-10-15, the owner's choice): up to
+  8, newest first by ESPN's wallclock, from games in play or final within the hour, filtered by
+  the kind of play and the yards (±5) described. A touchdown pass is offered twice: as the
+  scorer's and as the thrower's ("J. Hurts 30-yd TD pass"). No prices in them, so
+  `/api/lookup` stays a UI list (licensing).
+- **A namesake who just made the play is the one meant:** among candidates with a strong name
+  match (90+), one with a play of the kind described in the last ten minutes is picked (path
+  `recent`) if he is the only one, and listed first otherwise. A first name alone is still
+  never picked. This refines GOALS §7.3 (the confirmation card when unsure): the play itself
+  removes the doubt.
+- **Games final within the hour are searched with the live ones**, so "Smith TD" about a game
+  that just ended is no longer resolved to a lone Smith in a game still on.
+- **One game's bad box score benches that game on that host for 5 minutes**
+  (`ingest/router.py`), instead of closing the host for 30 minutes for every game. Two
+  different games failing within 10 minutes is a format change and closes it as before. The
+  fault-matrix test was changed to match.
+- **Interceptions are notable plays** (the defender's, with the thrower kept as the passer, so
+  "that pick" finds both), labelled "T. Edwards interception"; return touchdowns are labelled
+  from ESPN's play type ("pick-six", "punt return TD"); a play stored before its team's roster
+  arrived gets its player on a later read. Migration 0008 adds `plays.passer_espn_id`.
+- **The T-45 capture starts at T-46** (2026-10-15), so a failed call has a minute of 20-second
+  retries before T-45:00. With one on-time capture instead of three, a 30-second window was too
+  thin. Its price is still on time (within 5 minutes of T-45).
+- **The credit budget shares what is left over the games left** before the reset, counting at
+  least a full week's games for each week left (`GAMES_PER_WEEK`), because the vendor lists
+  only a few days ahead. An unknown quota is a full plan. The T-45 capture may still spend the
+  reserve; the T-3h check, repair and score polling may not.
+- **"Prices are off" is read from the Odds API's last success** (none for 2 hours), not from
+  a flag the worker writes: with a key, the free games list succeeds every 30 minutes. The API
+  never holds the key.
+- **A market missing from a game's snapshots says why:** not asked for (`NOT_SAVED`; "credits
+  were short" only when the game's plan was lean, since the demo recording simply lacks the
+  moneyline), or asked for and not offered (`NOT_OFFERED`). `NO_SNAPSHOT` is only for a game
+  with no snapshot at all, and uses the worker's note when it skipped the game.
+- **Unmatched and doubtful player names are matched again** with every snapshot and after every
+  roster refresh, for games of the last 14 days (`archive.remap_prices`). The prices keep the
+  vendor's raw name, so pointing them at a player changes no number.
 
 - **A disagreement with nflverse re-opens the payout** with the official number, and the card
   says what changed. That follows GOALS v1 section 9 ("a settled payout can be re-opened and
@@ -234,7 +293,7 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
 | `nflverse/*.csv` | **Recorded 2026-09-30, free**: PHI @ CHI (final 27–7) and PIT @ CLE (not played) from nflverse's schedule, its 65 stat lines and players, and its 155 plays. Re-record with `scripts/record_nflverse.py` |
 | `espn/{nba,nhl}_scoreboard_2026-03-01.json`, `espn/mlb_scoreboard_2026-05-05_postponed.json`, `espn/{nba_roster_18,nhl_roster_16,mlb_roster_10}.json`, `espn/nba_summary_*.json`, `espn/nhl_summary_*.json` | From parlaytracker (free): the other sports' scoreboards, rosters and box scores, for the tracker's slips. Its ten files that share a path with Juju's are byte-identical |
 | `nflverse/tracker/*.csv` | **Recorded 2026-10-08, free** (`scripts/record_nflverse.py --tracker 2026 401872954 401872958`): NYJ @ DET and ARI @ SF (week 3) with snap counts, for the tracker's worker tests. parlaytracker's own slice had 0 in 21 values of its four newest markets; these are nflverse's real numbers |
-| `lookups/golden.jsonl` | 177 lookups about the recorded game with their right answers (`tests/lookups.py`): 125 exact, 49 asked, 3 missed, 0 wrong without the LLM |
+| `lookups/golden.jsonl` | 189 lookups about the recorded game with their right answers (`tests/lookups.py`): 138 exact, 50 asked, 1 missed, 0 wrong without the LLM (2026-10-15; text naming no one counts as exact when it gets the latest plays). `tests/db/test_slate.py` adds a second game (PIT @ CLE, rosters only) for namesakes, recent plays and games just over |
 
 The recorded PHI @ CHI odds have **no TD-scorer markets**; tests that need them add a price to
 the recorded snapshot (see `tests/db/test_deciding.py`). The PIT @ CLE file has them.
@@ -251,7 +310,14 @@ worker with it, and the worker made one free events call before it was stopped. 
 
 In order. None of these needs the owner, except where it says so.
 
-**0. The tracker, Phase 3: passcode users and `/api/me`** (`docs/plans/integrate-parlaytracker.md`
+**0. The live-test fixes** ([docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md)):
+All three stages are done: prices, lookups and live plays, and the UI (direction B, game
+first). Next: the owner pulls the branch on the laptop before Sunday 2026-10-18 and tries the
+game pages during the games. After Sunday, ask the owner for
+`report --since 2026-10-18` from the laptop: it shows whether every game got its two captures
+and how many credits each cost. These come before the tracker's Phase 3.
+
+**0b. The tracker, Phase 3: passcode users and `/api/me`** (`docs/plans/integrate-parlaytracker.md`
 §7 and §10). Read that phase's checklist of what only parlaytracker's Streamlit pages held. It
 needs the owner's two usernames before deploy, not before the code. Then Phases 4–6 in order.
 The owner may interleave M5 (below).
@@ -261,9 +327,9 @@ The owner may interleave M5 (below).
   (the lights in the sky, the combined payout, the correlation note), and Open Graph tags on
   the parlay page.
 - **The golden set:** add parlay lines (they resolve to `kind: "parlay"`; `tests/lookups.py`
-  needs a verdict for them), and consider team nicknames ("Philly", "Birds") and "game total
-  over": the set's 3 misses. Raise the floors in `tests/db/test_golden.py` when the numbers
-  improve.
+  needs a verdict for them). Nicknames were done on 2026-10-15; "game total over" is the one
+  miss left. Raise the floors in `tests/db/test_golden.py` when the numbers improve. A real
+  Sunday's lookups (`report --since`) are the best source of new lines.
 
 **2. M5 engineering that can be done before deploy:**
 - **k6 load test** (`load/` or `web/load/`): the cached card endpoints behind the proxy, and
@@ -282,9 +348,9 @@ pages and of state exposure; then a soft launch.
 
 ## Needs the owner
 
-1. A **Juju-only Odds API key on the 100K plan** ($59/mo): `JUJU_ODDS_API_KEY` in
-   `deploy/laptop/.env` for the preview, a Fly secret for launch. Real captures and historical
-   repair need it: historical data is paid-only.
+1. **Done 2026-10-15:** a Juju-only Odds API key, on a 20K-credit plan, in
+   `deploy/laptop/.env` as `JUJU_ODDS_API_KEY`. For launch it becomes a Fly secret. If its
+   credits don't reset on the 1st, the owner sets `ODDS_API_RESET_DAY` in `.env`.
 2. **Fly.io:** create the apps, or give a deploy token. Then follow `docs/deploy.md`.
 3. **A domain on Cloudflare**, then `SITE_URL` in `web/fly.toml` (share previews).
 4. **Turnstile:** a widget for the domain (site key and secret, `docs/deploy.md` step 5).
@@ -325,6 +391,16 @@ pages and of state exposure; then a soft launch.
     `NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt`.
   - Chromium is at `/opt/pw-browsers`. For WebGL screenshots, launch with `--use-gl=swiftshader`.
     A script importing Playwright must live inside `web/` to resolve `@playwright/test`.
+- **The 21+ gate is a cookie** (`juju21=yes`, a year), read by the server in `app/layout.tsx`
+  (which makes every page dynamic), with the old localStorage key still honoured and carried
+  into the cookie. Playwright's `pastAgeGate` sets both.
+- **Times:** `lib/format.ts` formats in ET unless given the viewer's zone; `LocalTime` adds the
+  local time after hydration. Never format a time in the runtime's own zone in a component: the
+  server is on UTC and the page would redraw. `e2e/juju.spec.ts` runs a page in Los Angeles
+  time and fails on React's hydration errors (#418 and friends in a production build).
+- **Pages:** `lib/backend.ts` `backendPage` turns a 404/422 into `notFound()` and anything else
+  into `app/error.tsx` ("can't reach its data"), with an 8-second timeout. `backendGet` (6 s)
+  is for things a page can do without.
 - **Next.js 16:**
   - The font is `Big_Shoulders` in `next/font/google` (not `Big_Shoulders_Display`).
   - Playwright's reduced-motion option goes under `contextOptions`.
@@ -345,7 +421,9 @@ pages and of state exposure; then a soft launch.
   `position: relative; z-index: 1`. Anything else puts the world on top of the text.
 - **Migrations:** 0001 was regenerated once, before any deploy; 0002 and 0003 came with M3,
   0004 with the first-touchdown check, 0005 renamed its marker to `plays_checked_at` (written
-  by hand: autogenerate turns a rename into a drop and an add, losing the values).
+  by hand: autogenerate turns a rename into a drop and an add, losing the values), 0006 is the
+  tracker's schema, 0007 adds `games.capture_plan` and `capture_note` (the credit budget), 0008
+  `plays.passer_espn_id`.
   From now on, add new migrations and never edit an existing one. Generate against a scratch
   database at head (`alembic revision --autogenerate`), read the file, and run
   `tests/db/test_migrations.py`.
