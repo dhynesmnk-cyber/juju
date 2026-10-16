@@ -85,6 +85,15 @@ test("a game's plays open what they paid, in place", async ({ page }) => {
   const bet = page.getByRole("article").first();
   await expect(bet).toContainText(/at (DraftKings|FanDuel|BetMGM)/);
   await expect(bet).toContainText("Hypothetical");
+  await expect(page.getByRole("link", { name: /All of DeVonta Smith's bets/ }))
+    .toHaveAttribute("href", /^\/g\/1\/4241478\?play_id=\d+$/);
+});
+
+// Its own test: one long walk through four pages went over 30 s on a CI runner (2026-10-15).
+test("a play's page names the play, and leads back to its game", async ({ page }) => {
+  await pastAgeGate(page);
+  await page.goto("/g/1");
+  await page.getByRole("button", { name: /D\. Smith 30-yd catch/ }).click();
   await page.getByRole("link", { name: /All of DeVonta Smith's bets/ }).click();
   await expect(page.getByRole("heading", { name: "DeVonta Smith" })).toBeVisible();
   await expect(page.getByRole("note")).toContainText("D. Smith 30-yd catch");

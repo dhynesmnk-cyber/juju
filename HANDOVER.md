@@ -369,6 +369,10 @@ pages and of state exposure; then a soft launch.
 
 ## Gotchas
 
+- **`up.sh` runs under `pipefail`:** never end a pipe there with `grep -q`. It stops reading at
+  the first match, the writer fails on the closed pipe (curl exits 23), and the check fails.
+  Pages stream since the loading pages arrived, so on 2026-10-16 the demo-page check failed
+  every time on the laptop. Use `grep … > /dev/null`, or capture the output first.
 - **Local Postgres:** `backend/scripts/dev_postgres.py` (pgserver) prints the URL. The database
   lives in `backend/.pgdata/` and stops if its process is killed; rerun the script to restart
   it. Use `juju_test` for tests (it gets wiped) and `juju_dev` for the seed.
