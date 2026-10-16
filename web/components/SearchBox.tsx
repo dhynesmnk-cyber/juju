@@ -71,7 +71,7 @@ export default function SearchBox() {
         return;
       }
       if (!r.ok) {
-        setMessage("Juju couldn't look that up right now. Try again, or pick from Live now.");
+        setMessage("Juju couldn't look that up right now. Try again, or pick a game below.");
         return;
       }
       const body: LookupResponse = await r.json();
@@ -87,7 +87,7 @@ export default function SearchBox() {
         setMessage(body.message);
       }
     } catch {
-      setMessage("Juju couldn't look that up right now. Try again, or pick from Live now.");
+      setMessage("Juju couldn't look that up right now. Try again, or pick a game below.");
     } finally {
       setBusy(false);
     }
@@ -99,7 +99,7 @@ export default function SearchBox() {
   }, [lookup]);
   const checkFailed = useCallback(() => {
     setChallenged(false);
-    setMessage("The check couldn't load. Try again in a minute, or pick from Live now.");
+    setMessage("The check couldn't load. Try again in a minute, or pick a game below.");
   }, []);
 
   async function submit(e: React.FormEvent) {

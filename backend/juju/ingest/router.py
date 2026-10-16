@@ -4,7 +4,8 @@
 # rosters default to the NFL, and take another sport for the tracker; and (2026-10-15) a game's
 # document that doesn't read or isn't plausible benches that game on that host for 5 minutes,
 # instead of closing the host for 30 for every game: only two different games failing within
-# 10 minutes, a format change, close it.
+# 10 minutes, a format change, close it; and (2026-10-16) the Odds API count carries the key it
+# belongs to (a fingerprint) and when it was read, and only a process holding a key writes them.
 """Per-provider circuit breakers and the ESPN router (SPEC.md section 8.3).
 
 `Breakers` keeps one breaker per provider and persists it to `source_health`. `EspnRouter`
@@ -73,7 +74,12 @@ class CircuitBreaker:
         self.last_success_at: datetime | None = None
         self.last_failure_at: datetime | None = None
         self.last_error: str | None = None
-        self.quota_remaining: int | None = None  # Odds API only
+        # Odds API only: the credits left, whose key they belong to (`odds_api.key_fingerprint`)
+        # and when the vendor said so. `held_key` is this process's own key, never stored.
+        self.quota_remaining: int | None = None
+        self.quota_key: str | None = None
+        self.quota_at: datetime | None = None
+        self.held_key: str | None = None
         self._open_count = 0  # consecutive transient openings, for the doubling
         self._requests: deque[datetime] = deque()
         self._errors: deque[datetime] = deque()
@@ -164,6 +170,8 @@ class CircuitBreaker:
     def restore(self, row: SourceHealth) -> None:
         """Pick up where the last process stopped, so a restart doesn't cut a block short."""
         self.quota_remaining = row.quota_remaining
+        self.quota_key = row.quota_key
+        self.quota_at = row.quota_at
         self.last_success_at = row.last_success_at
         self.last_failure_at = row.last_failure_at
         self.last_error = row.last_error
@@ -202,11 +210,29 @@ class Breakers:
             if not breaker.allow():
                 raise ProviderOpen(source, breaker.open_until)
 
-    def success(self, source: str, quota_remaining: int | None = None) -> None:
+    def hold_key(self, source: str, fingerprint: str) -> bool:
+        """This process calls `source` with the key `fingerprint` names: from now on it may write
+        that source's credit count. True when the stored count was another key's (or nobody's),
+        so it no longer counts."""
+        with self._lock:
+            breaker = self._breakers[source]
+            breaker.held_key = fingerprint
+            return breaker.quota_remaining is not None and breaker.quota_key != fingerprint
+
+    def quota(self, source: str) -> tuple[int | None, str | None, datetime | None]:
+        """The stored credit count, the key it belongs to and when it was read, together."""
+        with self._lock:
+            b = self._breakers[source]
+            return b.quota_remaining, b.quota_key, b.quota_at
+
+    def success(self, source: str, quota_remaining: int | None = None,
+                quota_at: datetime | None = None) -> None:
         with self._lock:
             breaker = self._breakers[source]
             if quota_remaining is not None:
                 breaker.quota_remaining = quota_remaining
+                breaker.quota_key = breaker.held_key
+                breaker.quota_at = quota_at or breaker._clock()
             changed = breaker.record_success()
         if changed:
             self.persist(source)
@@ -228,8 +254,6 @@ class Breakers:
                 for row in values:
                     stmt = insert(SourceHealth).values(**row)
                     update = {k: v for k, v in row.items() if k != "source"}
-                    if row["quota_remaining"] is None:
-                        del update["quota_remaining"]  # never wipe a known quota
                     conn.execute(stmt.on_conflict_do_update(
                         index_elements=[SourceHealth.source], set_=update))
         except Exception:
@@ -238,14 +262,22 @@ class Breakers:
     @staticmethod
     def _row(b: CircuitBreaker) -> dict:
         requests, errors = b.hourly_counts()
-        return {
+        row = {
             "source": b.source, "state": b.state, "failure_kind": b.failure_kind,
             "open_until": b.open_until, "last_success_at": b.last_success_at,
             "last_failure_at": b.last_failure_at,
             "consecutive_failures": b.consecutive_failures, "requests_last_hour": requests,
             "errors_last_hour": errors, "last_error": b.last_error,
-            "quota_remaining": b.quota_remaining,
         }
+        # Only a process holding a key writes the count: one without (the API, a CLI command
+        # that never calls the Odds API) leaves it alone. Another key's count is wiped, so a new
+        # key never starts from the old one's.
+        if b.held_key is not None:
+            mine = b.quota_key == b.held_key
+            row |= {"quota_key": b.held_key,
+                    "quota_remaining": b.quota_remaining if mine else None,
+                    "quota_at": b.quota_at if mine else None}
+        return row
 
 
 # --- The ESPN router -------------------------------------------------------------------------

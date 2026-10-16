@@ -120,7 +120,8 @@ def main() -> int:
     breakers.load()
     odds = None
     if settings.odds_api_key is not None:
-        odds = OddsApiClient(settings.odds_api_key.get_secret_value(), breakers)
+        odds = OddsApiClient(settings.odds_api_key.get_secret_value(), breakers,
+                             reset_day=settings.odds_api_reset_day)
     else:
         log.warning("ODDS_API_KEY is not set: nothing will be archived")
     scheduler = build_scheduler(engine, breakers, settings, odds)

@@ -27,6 +27,31 @@ def test_next_reset(now, day, reset):
     assert budget.next_reset(utc(now), day) == utc(reset)
 
 
+@pytest.mark.parametrize("now, day, reset", [
+    ("2026-10-15T22:00:00", 1, "2026-10-01T00:00:00"),
+    ("2026-10-15T22:00:00", 20, "2026-09-20T00:00:00"),
+    ("2026-10-20T00:00:00", 20, "2026-10-20T00:00:00"),  # the moment it resets: this one
+    ("2027-01-10T08:00:00", 15, "2026-12-15T00:00:00"),
+])
+def test_last_reset(now, day, reset):
+    at = utc(now)
+    assert budget.last_reset(at, day) == utc(reset)
+    assert budget.last_reset(at, day) <= at < budget.next_reset(at, day)
+
+
+@pytest.mark.parametrize("read, trusted", [
+    (None, False),                   # nobody said when: a count from before 0009
+    ("2026-09-30T23:59:00", False),  # last month's
+    ("2026-10-01T00:00:00", True),   # read at the reset
+    ("2026-10-14T18:00:00", True),
+])
+def test_a_count_read_before_the_reset_is_not_trusted(read, trusted):
+    now = utc("2026-10-15T22:00:00")
+    count = budget.current_quota(0, read and utc(read), now, 1)
+    assert count == (0 if trusted else None)
+    assert budget.current_quota(None, now, now, 1) is None
+
+
 def test_games_left_is_never_fewer_than_a_full_schedule():
     now, reset = utc("2026-10-15T22:00:00"), utc("2026-11-01T00:00:00")  # 16 days and 2 hours
     assert budget.games_left(3, now, reset, 16) == 37  # the vendor lists only a few days ahead

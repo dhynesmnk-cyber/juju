@@ -212,6 +212,12 @@ if [ -n "$(get JUJU_ODDS_API_KEY)" ]; then
     || die "the Odds API didn't accept JUJU_ODDS_API_KEY:
    ${odds:-no answer}"
   printf '%s\n' "$odds" | sed 's/^/   /'
+  if [[ "$odds" == *"Captures: none"* ]]; then
+    note "no new game will get prices: The Odds API says this key has no credits left until
+   they reset. Check that the one JUJU_ODDS_API_KEY line in .env is the key you meant (to change
+   keys, replace that line; don't add another), and the credits left on your account. Juju
+   forgets an old key's count by itself."
+  fi
 else
   [[ "$archive" == *"archive off"* ]] || {
     compose stop worker > /dev/null 2>&1 || true
@@ -239,7 +245,7 @@ fi
 
 step "Done"
 echo "   Juju:      $url"
-echo "   The demo game isn't on the home page (that lists today's games). Open it directly:"
+echo "   The demo game isn't on the home page (that lists this week's games). Open it directly:"
 echo "              $url/g/$game/team/3          PHI @ CHI, the Bears' lines"
 echo "              $url/g/$game/$DEMO_PLAYER    Saquon Barkley's bets"
 if [ -n "$new_passcode" ]; then

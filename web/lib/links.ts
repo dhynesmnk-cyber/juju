@@ -34,7 +34,7 @@ const PLAY_OF_KIND: Record<string, string> = {
   def_interception: "def_interception",
 };
 
-/** A "Live now" chip: the play is what they are asking about, and it is already in the feed. */
+/** A play from an "On now" tile: the play is what they are asking about, and it is already in the feed. */
 export function playHref(gameId: number, athleteId: string, kind: string,
                          yards: number | null, playId?: number): string {
   return resultHref("player", gameId, athleteId, {

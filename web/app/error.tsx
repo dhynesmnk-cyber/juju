@@ -11,7 +11,7 @@ export default function ErrorPage({ reset }: { error: Error; reset: () => void }
         Saved prices are safe. This usually clears in a minute.
       </p>
       <p><button type="button" className="btn" onClick={() => reset()}>Try again</button></p>
-      <p><Link href="/">← Back to the latest plays</Link></p>
+      <p><Link href="/">← Back to the games</Link></p>
     </section>
   );
 }

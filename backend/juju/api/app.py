@@ -27,6 +27,7 @@ from juju.config import Settings, get_settings
 from juju.core import budget
 from juju.core.enums import EventStatus, HealthState, PlayKind
 from juju.core.parlay import parse_legs
+from juju.core.week import game_week
 from juju.core.models import (
     Game, HotGame, Lookup, OddsSnapshot, Play, Player, Price, SourceHealth,
 )
@@ -157,8 +158,8 @@ def health(session: SessionDep) -> JSONResponse:
         "providers": {s: {"state": r.state, "failure": r.failure_kind, "open_until": r.open_until,
                           "last_error": r.last_error} for s, r in rows.items()
                       if s not in ("worker",)},
-        "odds_api_quota_remaining": rows["odds_api"].quota_remaining if "odds_api" in rows
-        else None,
+        "odds_api_quota_remaining": _trusted_quota(rows.get("odds_api"), now),
+        "odds_api_quota_at": rows["odds_api"].quota_at if "odds_api" in rows else None,
         "next_captures": captures,
     }
     return respond(body)
@@ -167,6 +168,16 @@ def health(session: SessionDep) -> JSONResponse:
 # With a key, the worker lists games (free) every 30 minutes: no success for this long means
 # no key, or The Odds API is out of reach.
 PRICES_STALE = timedelta(hours=2)
+
+
+def _trusted_quota(odds: SourceHealth | None, now: datetime,
+                   settings: Settings | None = None) -> int | None:
+    """The stored Odds API count, unless the credits have reset since it was read (the worker
+    already wipes another key's: `ingest/router.py`)."""
+    if odds is None:
+        return None
+    day = (settings or get_settings()).odds_api_reset_day
+    return budget.current_quota(odds.quota_remaining, odds.quota_at, now, day)
 
 
 def prices_status(session: Session, odds: SourceHealth | None, now: datetime,
@@ -179,7 +190,7 @@ def prices_status(session: Session, odds: SourceHealth | None, now: datetime,
     known = session.scalar(select(func.count()).select_from(Game).where(
         Game.odds_event_id.is_not(None), Game.commence_time > now,
         Game.commence_time <= reset_at)) or 0
-    plan = budget.plan(odds.quota_remaining,
+    plan = budget.plan(_trusted_quota(odds, now, settings),
                        budget.games_left(known, now, reset_at, settings.games_per_week))
     if plan.tier is budget.Tier.NONE:
         return "paused", (f"Juju has used its odds credits for the month. New games get prices "
@@ -228,21 +239,39 @@ def _plays_for(session: Session, game: Game, limit: int = 4) -> list[dict]:
     return out
 
 
+LIVE_LOOKBACK = timedelta(hours=14)   # a game this recent stays, even once the week turns
+UNTRACKED_AFTER = timedelta(hours=8)  # worker/live.py ACTIVE_AFTER: nothing updates it after
+
+
+def _home_order(game: Game) -> tuple[int, float]:
+    """In play first, then upcoming by kickoff, then finished (or called off), newest first."""
+    ts = game.commence_time.timestamp()
+    if game.status in lookup.IN_PLAY:
+        return 0, ts
+    if game.status is EventStatus.SCHEDULED:
+        return 1, ts
+    return 2, -ts
+
+
 @app.get("/api/live")
 def live(session: SessionDep) -> JSONResponse:
-    """Games in play, then upcoming, then just finished, with their latest notable plays. No
-    prices here."""
+    """This NFL week's games for the home page (core/week.py), and the latest notable plays of
+    those in play. No prices here."""
     now = _utcnow()
+    start, end = game_week(now)
     games = session.scalars(select(Game).where(
-        Game.commence_time.between(now - timedelta(hours=14), now + timedelta(hours=36)))
-        .order_by(Game.commence_time)).all()
-    rank = {EventStatus.IN_PROGRESS: 0, EventStatus.BREAK: 0, EventStatus.DELAYED: 0,
-            EventStatus.SCHEDULED: 1, EventStatus.FINAL: 2}
-    games = sorted(games, key=lambda g: (rank.get(g.status, 3), g.commence_time))
-    out = [{**jsonable_encoder(game_view(g, now)), "plays": _plays_for(session, g)}
+        Game.commence_time >= min(start, now - LIVE_LOOKBACK), Game.commence_time < end)).all()
+    # Still "scheduled" long after kickoff: nothing updates it, so it isn't coming up next.
+    games = sorted((g for g in games if not (g.status is EventStatus.SCHEDULED
+                                             and g.commence_time < now - UNTRACKED_AFTER)),
+                   key=_home_order)
+    out = [{**jsonable_encoder(game_view(g, now)),
+            "plays": _plays_for(session, g) if g.status in lookup.IN_PLAY else []}
            for g in games]
-    upcoming = [g for g in games if g.status is EventStatus.SCHEDULED and g.commence_time > now]
-    nxt = min(upcoming, key=lambda g: g.commence_time) if upcoming else None
+    # Its own query, so it shows between weeks too (after Monday night, before Tuesday 06:00).
+    nxt = session.scalars(select(Game).where(
+        Game.status == EventStatus.SCHEDULED, Game.commence_time > now)
+        .order_by(Game.commence_time).limit(1)).first()
     return respond({"games": out,
                     "next_kickoff": None if nxt is None else {
                         "label": nxt.label, "commence_time": nxt.commence_time}},

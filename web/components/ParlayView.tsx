@@ -122,7 +122,7 @@ export default function ParlayView({ initial, apiPath }: { initial: View; apiPat
                         ? ` (line ${l.price.point})` : ""}
                       {`, ${l.price.minutes_before_kickoff} min before kickoff`}
                       {l.price.timing === "early"
-                        && <span className="flag"> (earlier than T-45)</span>}
+                        && <span className="flag"> (earlier than usual)</span>}
                     </>
                   ) : l.no_price}
                 </div>

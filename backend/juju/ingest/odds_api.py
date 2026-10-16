@@ -3,19 +3,22 @@
 After parlaytracker@c3bd43c parlaytracker/ingest/odds_api.py. Added: the `bookmakers`
 parameter, market-level `last_update` (kept for provenance), the historical endpoints (gap repair
 and backfill), `/scores`, the raw body of every odds response (hashed and stored with the
-snapshot), and a `sport_key` on `events` and `event_odds` for the tracker's other sports.
+snapshot), a `sport_key` on `events` and `event_odds` for the tracker's other sports, and
+(2026-10-16) the credits left as a property that forgets another key's count and last month's.
 
 Every call goes through the shared HTTP layer and the `odds_api` circuit breaker. The API key is
 a query parameter, so nothing here may log a URL with its parameters.
 """
+import hashlib
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from juju.core import budget
 from juju.core.enums import FailureKind
 from juju.ingest.http import FetchError, RateLimited, RateLimiter, get_json_response
 from juju.ingest.router import Breakers
@@ -131,16 +134,56 @@ def _iso(moment: datetime) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _utcnow() -> datetime:
+    return datetime.now(tz=UTC)
+
+
+def key_fingerprint(api_key: str) -> str:
+    """Which key a stored credit count belongs to: 12 hex characters of a hash, which can't be
+    turned back into the key. Never logged, shown or returned."""
+    return hashlib.sha256(f"juju quota:{api_key}".encode()).hexdigest()[:12]
+
+
+def _header_int(headers, name: str) -> int | None:
+    try:
+        return int(float(headers[name]))
+    except (KeyError, ValueError):
+        return None
+
+
 class OddsApiClient:
-    def __init__(self, api_key: str, breakers: Breakers, limiter: RateLimiter | None = None):
+    def __init__(self, api_key: str, breakers: Breakers, limiter: RateLimiter | None = None, *,
+                 reset_day: int = 1, clock: Callable[[], datetime] = _utcnow):
         self._api_key = api_key
         self._breakers = breakers
         # The worker is the only caller: a generous limit that never delays a capture.
         self._limiter = limiter or RateLimiter(per_host_interval=0.5, per_minute=60)
-        self.quota_remaining: int | None = breakers[SOURCE].quota_remaining
+        self._reset_day = reset_day
+        self._clock = clock
+        self._key = key_fingerprint(api_key)
+        if breakers.hold_key(SOURCE, self._key):
+            log.info("a new Odds API key: its credits are unknown until The Odds API says")
+        self.quota_reported = False  # did the last reply say how many credits are left?
         self.last_cost: int | None = None
         self.calls = 0
         self._raw = ""
+
+    @property
+    def quota_remaining(self) -> int | None:
+        """The credits left, as The Odds API last said for this key since they reset. None
+        (unknown, a full plan) for another key's count or last month's, so neither can stop the
+        captures: the next reply says."""
+        count, key, at = self._breakers.quota(SOURCE)
+        if key != self._key:
+            return None
+        return budget.current_quota(count, at, self._clock(), self._reset_day)
+
+    @property
+    def quota_read_at(self) -> datetime | None:
+        """When The Odds API reported `quota_remaining`; None while that is unknown."""
+        if self.quota_remaining is None:
+            return None
+        return self._breakers.quota(SOURCE)[2]
 
     def events(self, *, sport_key: str = SPORT) -> list[ApiEvent]:
         """Upcoming games (the NFL's unless the tracker asks for another sport). Costs 0
@@ -202,13 +245,10 @@ class OddsApiClient:
         return response.data
 
     def _read_quota(self, headers) -> None:
-        for name, attr in (("x-requests-remaining", "quota_remaining"),
-                           ("x-requests-last", "last_cost")):
-            try:
-                setattr(self, attr, int(float(headers[name])))
-            except (KeyError, ValueError):
-                pass
-        self._breakers.success(SOURCE, self.quota_remaining)
+        remaining = _header_int(headers, "x-requests-remaining")
+        self.last_cost = _header_int(headers, "x-requests-last")
+        self.quota_reported = remaining is not None
+        self._breakers.success(SOURCE, remaining, self._clock() if remaining is not None else None)
 
     def _parse(self, adapter: TypeAdapter, data):
         try:

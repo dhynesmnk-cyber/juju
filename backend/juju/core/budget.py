@@ -11,8 +11,9 @@ plan resets, and each game gets the best plan that fits:
 - NONE: nothing, and the game's cards say why.
 
 An unknown quota (before the vendor's first response) is FULL: the first reply says how much is
-left. The T-45 capture may still spend below the reserve (`worker/capture.py`); this only makes
-sure the credits last the month.
+left. A count read before the last reset is unknown (`current_quota`), and so is another key's
+(`ingest/odds_api.py`): neither may stop a month's captures. The T-45 capture may still spend
+below the reserve (`worker/capture.py`); this only makes sure the credits last the month.
 """
 import enum
 import math
@@ -61,6 +62,26 @@ def next_reset(now: datetime, day: int) -> datetime:
     if now.month == 12:
         return this_month.replace(year=now.year + 1, month=1)
     return this_month.replace(month=now.month + 1)
+
+
+def last_reset(now: datetime, day: int) -> datetime:
+    """When the credits last reset: the latest `day` of a month, at 00:00 UTC, at or before
+    `now`."""
+    this_month = now.replace(day=day, hour=0, minute=0, second=0, microsecond=0)
+    if this_month <= now:
+        return this_month
+    if now.month == 1:
+        return this_month.replace(year=now.year - 1, month=12)
+    return this_month.replace(month=now.month - 1)
+
+
+def current_quota(quota: int | None, read_at: datetime | None, now: datetime,
+                  day: int) -> int | None:
+    """The credits left, if a count read at `read_at` can still be trusted: not once the credits
+    have reset since. Unknown (None) is a full plan, and the vendor's next reply says."""
+    if quota is None or read_at is None or read_at < last_reset(now, day):
+        return None
+    return quota
 
 
 def games_left(known: int, now: datetime, reset_at: datetime, per_week: int) -> int:

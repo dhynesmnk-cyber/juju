@@ -191,6 +191,62 @@ def test_live_lists_games_and_plays_without_prices(client, db):
     assert any(p["label"] == "J. Hurts 20-yd run" for p in g["plays"])
 
 
+def week_of_games(client, db, monkeypatch, now: datetime, final: tuple[str, ...] = ()) -> dict:
+    """The recorded week (Mon 9/28 to Mon 10/5, 17 games) as the Odds API lists it, the home
+    teams in `final` finished, and /api/live at `now`."""
+    from juju.core.enums import EventStatus
+    from juju.core.models import Game
+    from juju.worker.schedule import upsert_odds_events
+    from tests.support import FakeOdds
+    with Session(db) as s:
+        upsert_odds_events(s, FakeOdds().events(), now)
+        for g in s.query(Game).filter(Game.home_team.in_(final)):
+            g.status = EventStatus.FINAL
+        s.commit()
+    monkeypatch.setattr(app_module, "_utcnow", lambda: now)
+    return client.get("/api/live").json()
+
+
+def homes(body: dict) -> list[str]:
+    return [g["home"]["name"] for g in body["games"]]
+
+
+def test_the_home_page_lists_this_weeks_games(client, db, monkeypatch):
+    friday = datetime(2026, 10, 2, 16, tzinfo=UTC)  # noon ET; Thursday's game is over
+    body = week_of_games(client, db, monkeypatch, friday, final=("Cleveland Browns",))
+    assert len(body["games"]) == 16  # Monday 9/28 was last week
+    assert homes(body)[-1] == "Cleveland Browns" and body["games"][-1]["status"] == "final"
+    kickoffs = [g["commence_time"] for g in body["games"][:-1]]
+    assert kickoffs == sorted(kickoffs) and homes(body)[-2] == "New Orleans Saints"
+    assert body["next_kickoff"]["commence_time"].startswith("2026-10-04T13:30")  # 9:30 am ET
+    assert all(g["plays"] == [] for g in body["games"])  # plays only for games in play
+
+
+def test_a_game_nothing_updated_since_kickoff_is_not_listed_as_next(client, db, monkeypatch):
+    body = week_of_games(client, db, monkeypatch, datetime(2026, 10, 2, 16, tzinfo=UTC))
+    assert "Cleveland Browns" not in homes(body)  # still "scheduled" 16 hours after kickoff
+
+
+def test_on_tuesday_morning_monday_nights_game_stays_and_the_week_turns(client, db, monkeypatch):
+    tuesday = datetime(2026, 10, 6, 13, tzinfo=UTC)  # 9 am ET
+    body = week_of_games(client, db, monkeypatch, tuesday, final=("New Orleans Saints",))
+    assert homes(body) == ["New Orleans Saints"]
+
+
+def test_after_monday_night_the_next_kickoff_is_still_named(client, db, monkeypatch):
+    monday_night = datetime(2026, 9, 29, 3, 30, tzinfo=UTC)  # 11:30 pm ET, PHI @ CHI over
+    body = week_of_games(client, db, monkeypatch, monday_night, final=("Chicago Bears",))
+    assert homes(body) == ["Chicago Bears"]  # Thursday's game is next week's
+    assert body["next_kickoff"]["commence_time"].startswith("2026-10-02T00:15")
+
+
+def test_a_finished_game_lists_no_plays(client, db, monkeypatch):
+    seed(db, "final")  # PHI @ CHI as recorded: kickoff Mon 9/28 8:15 pm ET
+    monkeypatch.setattr(app_module, "_utcnow", lambda: datetime(2026, 9, 29, 8, tzinfo=UTC))
+    games = client.get("/api/live").json()["games"]
+    assert games and all(g["plays"] == [] for g in games)
+
+
 def test_there_is_no_endpoint_that_lists_prices_across_players(client):
     # The parlay spans players: only the legs someone picked, at one book, in one game
     # (tests/db/test_parlay.py holds it to that).
@@ -220,29 +276,54 @@ def test_health_reports_the_worker(client, db):
     assert body["ok"] is False and body["worker_heartbeat_seconds_ago"] >= 600
 
 
-def _odds_api(db, *, quota: int | None, ago: timedelta | None) -> None:
+NOW = datetime(2026, 10, 15, 22, 0, tzinfo=UTC)  # credits reset on the 1st
+
+
+def _odds_api(db, *, quota: int | None, ago: timedelta | None,
+              read: datetime | None = NOW) -> None:
     from juju.core.models import SourceHealth
     with Session(db) as s:
-        s.merge(SourceHealth(source="odds_api", quota_remaining=quota,
-                             last_success_at=None if ago is None
-                             else datetime.now(tz=UTC) - ago,
+        s.merge(SourceHealth(source="odds_api", quota_remaining=quota, quota_at=read,
+                             last_success_at=None if ago is None else NOW - ago,
                              consecutive_failures=0, requests_last_hour=0, errors_last_hour=0))
         s.commit()
 
 
-@pytest.mark.parametrize("quota, ago, prices", [
-    (None, None, "off"),                      # no key: never a successful call
-    (20_000, timedelta(hours=3), "off"),      # a key, but nothing heard for hours
-    (20_000, timedelta(minutes=5), "on"),
-    (None, timedelta(minutes=5), "on"),       # quota not known yet
-    (500, timedelta(minutes=5), "rationed"),  # a free key's month
-    (2, timedelta(minutes=5), "paused"),
+@pytest.mark.parametrize("quota, ago, read, prices", [
+    (None, None, None, "off"),                       # no key: never a successful call
+    (20_000, timedelta(hours=3), NOW, "off"),        # a key, but nothing heard for hours
+    (20_000, timedelta(minutes=5), NOW, "on"),
+    (None, timedelta(minutes=5), None, "on"),        # quota not known yet
+    (500, timedelta(minutes=5), NOW, "rationed"),    # a free key's month
+    (2, timedelta(minutes=5), NOW, "paused"),
+    (0, timedelta(minutes=5), NOW, "paused"),
+    (0, timedelta(minutes=5), datetime(2026, 9, 30, tzinfo=UTC), "on"),  # last month's 0
+    (500, timedelta(minutes=5), None, "on"),         # a count from before 0009: whose? unknown
 ])
-def test_the_status_says_whether_new_games_get_prices(client, db, quota, ago, prices):
-    _odds_api(db, quota=quota, ago=ago)
+def test_the_status_says_whether_new_games_get_prices(client, db, monkeypatch, quota, ago, read,
+                                                      prices):
+    monkeypatch.setattr(app_module, "_utcnow", lambda: NOW)
+    _odds_api(db, quota=quota, ago=ago, read=read)
     body = client.get("/api/status").json()
     assert body["prices"] == prices
     assert (body["prices_message"] is None) is (prices == "on")
+
+
+def test_after_a_key_change_the_status_says_prices_are_on(client, db, monkeypatch):
+    from juju.ingest.odds_api import OddsApiClient, key_fingerprint
+    from juju.ingest.router import Breakers
+    from juju.worker.jobs import heartbeat
+    monkeypatch.setattr(app_module, "_utcnow", lambda: NOW)
+    old = Breakers(db, clock=lambda: NOW)
+    old.hold_key("odds_api", key_fingerprint("old-key"))
+    old.success("odds_api", quota_remaining=0)  # the free key, used up this month
+    old.persist()
+    assert client.get("/api/status").json()["prices"] == "paused"
+    restarted = Breakers(db, clock=lambda: NOW)  # the worker, after .env got the new key
+    restarted.load()
+    OddsApiClient("new-key", restarted, clock=lambda: NOW)
+    heartbeat(db, NOW, breakers=restarted)
+    assert client.get("/api/status").json()["prices"] == "on"
 
 
 def test_with_no_odds_api_row_at_all_prices_are_off(client):

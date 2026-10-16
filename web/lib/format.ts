@@ -31,6 +31,28 @@ export function dayAndTime(iso: string, tz: string | null = null): string {
   return `${day}, ${localAndEt(iso, tz)}`;
 }
 
+const etLongDayFmt = new Intl.DateTimeFormat("en-US", {
+  weekday: "long", month: "short", day: "numeric", timeZone: ET,
+});
+
+/** "Sunday, Oct 18": the NFL's day for a kickoff, always in Eastern time, so the server and every
+ *  phone print the same heading (a Sunday-night game is already Monday in UTC). */
+export function etDay(iso: string): string {
+  return etLongDayFmt.format(new Date(iso));
+}
+
+/** Runs of consecutive items on the same Eastern day, in the order given. */
+export function byEtDay<T extends { commence_time: string }>(items: T[]): [string, T[]][] {
+  const out: [string, T[]][] = [];
+  for (const item of items) {
+    const day = etDay(item.commence_time);
+    const last = out[out.length - 1];
+    if (last && last[0] === day) last[1].push(item);
+    else out.push([day, [item]]);
+  }
+  return out;
+}
+
 export function secondsAgo(s: number | null): string {
   if (s === null) return "not yet updated";
   if (s < 60) return `updated ${s}s ago`;

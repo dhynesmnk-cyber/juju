@@ -57,7 +57,8 @@ def backfill(since: date, until: date, assume_yes: bool = False) -> int:
     engine = _engine()
     breakers = Breakers(engine)
     breakers.load()
-    odds = OddsApiClient(settings.odds_api_key.get_secret_value(), breakers)
+    odds = OddsApiClient(settings.odds_api_key.get_secret_value(), breakers,
+                         reset_day=settings.odds_api_reset_day)
     days = (until - since).days + 1
     per_game = HISTORICAL_MULTIPLIER * len(ALL_KEYS)
     print(f"{days} days: {days} credits to list the games, then up to {per_game} per game not "
@@ -101,6 +102,21 @@ PLAN_TEXT = {
 }
 
 
+def _credits_left(odds) -> str:
+    """The credits left, and where that number comes from: this call, an earlier one (the free
+    games list may not report credits), or nowhere yet."""
+    left = odds.quota_remaining
+    if left is None:
+        return "not known until the first capture"
+    if getattr(odds, "quota_reported", False):
+        return f"{left:,} (The Odds API, just now)"
+    at = getattr(odds, "quota_read_at", None)
+    if at is None:
+        return f"{left:,}"
+    return (f"{left:,} when Juju last saw them, on {at:%B} {at.day} at {at:%H:%M} UTC (the free "
+            f"check doesn't report credits)")
+
+
 def odds_status(engine: Engine, odds=None, now: datetime | None = None) -> int:
     """Check the key with the free games list. Never prints the key."""
     from juju.core.budget import next_reset
@@ -110,13 +126,15 @@ def odds_status(engine: Engine, odds=None, now: datetime | None = None) -> int:
     from juju.worker.capture import current_plan
 
     settings = get_settings()
+    now = now or datetime.now(tz=UTC)
     if odds is None:
         if settings.odds_api_key is None:
             print("No Odds API key is set, so no prices are being saved.")
             return 2
         breakers = Breakers(engine)
         breakers.load()
-        odds = OddsApiClient(settings.odds_api_key.get_secret_value(), breakers)
+        odds = OddsApiClient(settings.odds_api_key.get_secret_value(), breakers,
+                             reset_day=settings.odds_api_reset_day, clock=lambda: now)
     try:
         events = odds.events()
     except RequestRejected as e:
@@ -125,15 +143,12 @@ def odds_status(engine: Engine, odds=None, now: datetime | None = None) -> int:
     except (FetchError, RateLimited, ProviderOpen) as e:
         print(f"The Odds API can't be reached right now: {e}")
         return 1
-    now = now or datetime.now(tz=UTC)
     with Session(engine) as session:
         plan = current_plan(session, odds.quota_remaining, now, settings.odds_api_reset_day,
                             settings.games_per_week)
     reset = next_reset(now, settings.odds_api_reset_day)
-    left = ("not known until the first capture" if odds.quota_remaining is None
-            else f"{odds.quota_remaining:,}")
     print(f"The Odds API key works: it lists {len(events)} NFL games.")
-    print(f"Credits left: {left}. They reset on {reset:%B} {reset.day}.")
+    print(f"Credits left: {_credits_left(odds)}. They reset on {reset:%B} {reset.day}.")
     print(f"Captures: {PLAN_TEXT[plan.tier].format(n=len(plan.markets))}.")
     return 0
 
@@ -149,7 +164,10 @@ def report(engine: Engine, since: date) -> int:
     with Session(engine) as session:
         print("Sources:")
         for h in session.scalars(select(SourceHealth).order_by(SourceHealth.source)):
-            extra = f", {h.quota_remaining:,} credits left" if h.quota_remaining is not None else ""
+            extra = ""
+            if h.quota_remaining is not None:
+                when = f"as of {h.quota_at:%b %d %H:%M} UTC" if h.quota_at else "when, unknown"
+                extra = f", {h.quota_remaining:,} credits left ({when})"
             last = f" (last error: {h.last_error[:120]})" if h.last_error else ""
             print(f"  {h.source:10} {h.state}{extra}{last}")
         games = session.scalars(select(Game).where(Game.commence_time >= start)

@@ -128,7 +128,7 @@ export interface GamePageView extends GameView {
 }
 
 export interface LiveGame extends GameView {
-  plays: LivePlay[];
+  plays: LivePlay[];  // the latest notable plays, for games in play only
 }
 
 export interface LiveResponse {
