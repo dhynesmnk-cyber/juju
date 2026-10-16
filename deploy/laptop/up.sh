@@ -60,7 +60,7 @@ unsafe() {
   if [ "$FUNNEL" = 1 ]; then
     if funnel "$LOCAL" off > /dev/null 2>&1; then
       printf '\n   The site is off the internet. It comes back with the next good run.\n' >&2
-    elif tailscale funnel status 2> /dev/null | grep -q "Funnel on"; then
+    elif tailscale funnel status 2> /dev/null | grep "Funnel on" > /dev/null; then
       printf '\n   TAKE IT OFFLINE NOW: sudo tailscale funnel --https=443 %s off\n' "$LOCAL" >&2
     fi
   fi
@@ -148,7 +148,7 @@ else
 fi
 
 step "Starting the API, the worker and the site"
-if ! compose ps --status running --services 2> /dev/null | grep -qx web \
+if ! compose ps --status running --services 2> /dev/null | grep -x web > /dev/null \
     && (exec 3<> /dev/tcp/127.0.0.1/3000) 2> /dev/null; then
   die "something else is already using port 3000 on this machine. Stop it, then ./up.sh again."
 fi
@@ -181,7 +181,10 @@ status=$(lcurl -H "Cookie: $cookie" "$LOCAL/api/status")
 ok "the site reaches the API"
 
 game=$(sql "select id from games where espn_event_id = '$DEMO_EVENT'")
-lcurl -H "Cookie: $cookie" "$LOCAL/g/$game/$DEMO_PLAYER" | grep -q "Saquon Barkley" \
+# Never `grep -q` after a pipe here: it stops reading at the first match, the writer fails on the
+# closed pipe (curl exits 23), and pipefail makes that a failed check. Pages stream (loading.tsx),
+# and the name is in the <title>, long before the end: on 2026-10-16 this check failed every time.
+lcurl -H "Cookie: $cookie" "$LOCAL/g/$game/$DEMO_PLAYER" | grep "Saquon Barkley" > /dev/null \
   || die "the demo game's page didn't render. See: docker compose logs web api"
 ok "the demo game renders"
 
