@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ParlayView from "@/components/ParlayView";
+import RememberLookup from "@/components/RememberLookup";
 import { backendPage } from "@/lib/backend";
+import { currentOwner } from "@/lib/me";
 import type { ParlayView as View } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +21,7 @@ async function load(props: Props) {
   if (!/^\d+$/.test(game) || typeof legs !== "string" || !LEGS.test(legs)) return null;
   const apiPath = `/api/parlay/${game}?legs=${encodeURIComponent(legs)}`;
   const view = await backendPage<View>(apiPath);
-  return view ? { view, apiPath } : null;
+  return view ? { view, apiPath, legs } : null;
 }
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
@@ -35,5 +37,12 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 export default async function ParlayPage(props: Props) {
   const data = await load(props);
   if (!data) notFound();
-  return <ParlayView initial={data.view} apiPath={data.apiPath} />;
+  const owner = await currentOwner();
+  return (
+    <>
+      <ParlayView initial={data.view} apiPath={data.apiPath} />
+      {owner && <RememberLookup body={{ kind: "parlay", game_id: data.view.game.id,
+                                        target: data.legs }} />}
+    </>
+  );
 }

@@ -6,6 +6,7 @@ import AgeGate from "@/components/AgeGate";
 import StatusBanner from "@/components/StatusBanner";
 import { worldsEnabled } from "@/components/world/worlds";
 import { backendGet } from "@/lib/backend";
+import { currentOwner, trackerOn } from "@/lib/me";
 import { type StatusBody, statusMessage } from "@/lib/status";
 import "./globals.css";
 
@@ -34,13 +35,15 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const confirmed = (await cookies()).get("juju21")?.value === "yes";
   const status = statusMessage(await backendGet<StatusBody>("/api/status", 1500));
+  const owner = await currentOwner();
   return (
     <html lang="en" className={`${display.variable}${worldsEnabled ? " worlds" : ""}`}>
       <body>
         <div className="wrap page">
           <header className="top">
             <Link href="/" className="brand">ju<span>ju</span></Link>
-            <nav aria-label="About Juju">
+            <nav aria-label="Site">
+              {owner && <Link href="/me" prefetch={false}>Your lookups</Link>}
               <Link href="/about">How it works</Link>
             </nav>
           </header>
@@ -58,6 +61,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <p>
               Odds data: The Odds API. Play-by-play verification: nflverse (CC BY 4.0).{" "}
               <Link href="/terms">Terms</Link> · <Link href="/privacy">Privacy</Link>
+              {/* A plain link: the sign-in form is HTML from proxy.ts, not an app page. */}
+              {trackerOn() && !owner && <> · <a href="/me">Owners</a></>}
             </p>
           </footer>
         </div>

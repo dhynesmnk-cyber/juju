@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import MyHistory from "@/components/MyHistory";
+import RememberLookup from "@/components/RememberLookup";
 import ResultView from "@/components/ResultView";
 import { backendPage } from "@/lib/backend";
+import { currentOwner } from "@/lib/me";
 import { CARD_KEY, SIZE, imagePath, pickCard } from "@/lib/shareImage";
-import type { TeamView } from "@/lib/types";
+import type { Remembered, TeamView } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +24,19 @@ async function load(props: Props) {
   const view = await backendPage<TeamView>(`/api/team/${game}/${team}${q}`);
   const pin = typeof sp.card === "string" && CARD_KEY.test(sp.card) ? sp.card : undefined;
   return view ? { view, apiPath: `/api/team/${game}/${team}${q}`,
-                  pagePath: `/g/${game}/team/${team}`, pin } : null;
+                  pagePath: `/g/${game}/team/${team}`, pin, sp } : null;
+}
+
+/** What this page was asked, for a signed-in owner's recap. The backend checks it again. */
+function asked(view: TeamView, sp: Record<string, string | string[] | undefined>,
+               pin?: string): Remembered {
+  const one = (v: string | string[] | undefined) => (typeof v === "string" && v ? v : null);
+  const playId = one(sp.play_id);
+  return {
+    kind: "team", game_id: view.game.id, target: view.team.espn_id, play: one(sp.play),
+    market: one(sp.market) ?? pin ?? null,
+    play_id: playId && /^\d{1,9}$/.test(playId) ? Number(playId) : null,
+  };
 }
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
@@ -39,6 +54,15 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 export default async function TeamPage(props: Props) {
   const data = await load(props);
   if (!data) notFound();
-  return <ResultView initial={data.view} apiPath={data.apiPath} pagePath={data.pagePath}
-                     pin={data.pin} />;
+  const owner = await currentOwner();
+  const { view } = data;
+  return (
+    <>
+      <ResultView initial={view} apiPath={data.apiPath} pagePath={data.pagePath} pin={data.pin}
+                  aside={owner ? <MyHistory kind="team" id={view.team.espn_id}
+                                            gameId={view.game.id} name={view.team.name} />
+                               : undefined} />
+      {owner && <RememberLookup body={asked(view, data.sp, data.pin)} />}
+    </>
+  );
 }
