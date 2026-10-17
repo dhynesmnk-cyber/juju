@@ -45,9 +45,14 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # TRACKER_USERS: each owner's name and passcode for /me, their own lookups and recaps. The API
+  # needs only the names; the site checks the passcodes. Never the worker or the migrations.
   api:
     <<: *backend
     command: ["uvicorn", "juju.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *backend-env
+      TRACKER_USERS: ${TRACKER_USERS:?run ./up.sh}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -81,6 +86,7 @@ services:
       BACKEND_URL: http://api:8000
       SITE_URL: ${SITE_URL:?run ./up.sh}
       SITE_PASSCODE: ${SITE_PASSCODE:?run ./up.sh}
+      TRACKER_USERS: ${TRACKER_USERS:?run ./up.sh}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:

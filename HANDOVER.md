@@ -5,18 +5,19 @@ product, the owner's decisions and the reasons behind them. Then read
 [CLAUDE.md](CLAUDE.md) for the commands and the rules that are easy to break. This file says
 where the build stands and what to do next. Update it before you finish a session.
 
-## Where things stand (2026-10-16)
+## Where things stand (2026-10-17)
 
 | | |
 |---|---|
-| Branch | Everything is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, PR #9 Phase 1 of the tracker (below), and PR #10 its Phase 2. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`). No PR is open |
+| Branch | Everything up to PR #13 is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, PR #9 Phase 1 of the tracker (below), PR #10 its Phase 2, PR #11 the game-first redesign, PR #12 the `up.sh` page check, and PR #13 the credits that follow the key and the week's games on the home page. The owners' lookups and recaps (2026-10-17, below) are on `claude/dazzling-newton-n3hzs2`, in a PR of their own. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`) |
 | CI | Green on every merged PR head. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
-| Tests | 1,913 backend tests (1,164 before the tracker), 9 web unit tests (`node --test`), 17 Playwright tests |
+| Tests | 2,041 backend tests (1,164 before the tracker), 23 web unit tests (`node --test`), 27 Playwright tests (5 of them the owners' section, which run only with `TRACKER_USERS`: CI sets test-only ones) |
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. It runs: the owner used it through real games on 2026-10-11, with a free Odds API key in `deploy/laptop/.env`. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
 | Real data | The laptop captured real prices on the free key from about 2026-10-10, until its 500 credits ran out. **On 2026-10-16 its `odds-status` said 0 credits while the owner's 20K-credit key showed all 20,000 unused**: either `.env` still had the free key, or the laptop kept the free key's count (no longer possible: migration 0009, below). It was the first: `.env` still held the free key. **On 2026-10-17 the owner put the 20K key in**, and `odds-status` read "20,000 (The Odds API, just now)", two captures a game. So Thursday 10-15's game was never captured on time; the worker's repair then filled last weekend's and Thursday's games from the vendor's history (about 340 credits each). `python -m juju.cli report --since DATE` on the laptop shows what it saved. The tests still use only the recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
 | The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. **Stage 2 (lookups and live plays) is done** on the same branch: the latest plays for text naming no one, recent plays deciding between namesakes, the tapped play named on its page, interceptions and return TDs as plays, one bad box score no longer shutting an ESPN host. **Stage 3:** the three mockup directions are on a private canvas for the owner (https://claude.ai/artifact/BvBJUwJFtcd6K5xmiJ6hf8: A feed first, B game first, C answer first, phone and desktop, every number from the recorded game), and the fixes every direction needs are built: times the same on server and phone, loading and error pages, no layout shift (floating typeahead, server-rendered banner and 21+ gate), slimmer cards with Details, unpriced bets as one list, 44 px targets, two cards a row on wide screens. **On 2026-10-15 the owner chose B, game first, and it is built:** the home page shows each game on now as a tile (score, its latest play, "Every play, and what it paid"), then the next and earlier games; a game's page (`/g/[game]`, from `/api/game/{id}`, which lists no prices) has its plays on a timeline by quarter, newest first, and tapping one opens what it paid in place (beside the timeline on a wide screen), plus Players and Game lines tabs. Result pages link back to their game |
-| The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**; Phase 3 (passcode users and `/api/me`) is next. Nothing user-visible yet: no routes and no web change. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
+| The owners' lookups | **On 2026-10-17 the owner asked for their lookups to be saved, with a summary after each game to review before betting on the next.** Built: each owner signs in once per phone at `/me` with their own name and passcode; every bet page they open is saved (player, team, parlay, and a play opened on a game's page); `/me` lists their games, each with a recap of how those bets went (the price 45 minutes before kickoff, the result, what $10 came back as, totals); a player's or team's page shows how their earlier lookups of them went; the home page shows the recaps of games just finished. Nothing is frozen: a recap is worked out again from the archive when read. Only the owner signed in sees it (`docs/licensing.md`). `up.sh` asks for the owners' names and makes up their passcodes |
+| The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**, and **Phase 3's sign-in** (2026-10-17): each owner's name and passcode (`TRACKER_USERS`), `/me` and the `/api/me` router. It serves the owners' saved lookups and game recaps (below) so far; no slip routes or pages yet. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
 
 ## First thing to do
 
@@ -203,8 +204,33 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
       credit use during games** (score polling every 4 minutes, not every minute); last
       weekend's missed games filled from the vendor's history once; **build it all now**. The
       key is never sent in chat.
+13. **The owners' lookups** (2026-10-17, GOALS decision 12): saved per owner, behind their own
+    sign-in (not on the device, and not for the public); every bet page opened counts, not
+    only typed searches; the summary is **each game's recap** and **the history on a player's
+    page**. Not chosen: running totals by bet type, and the price 3 hours before kickoff
+    beside the 45-minute one.
 
 ## Decisions made by agents (reasons in the commits; change only with a reason)
+
+- **The owners' lookups** (2026-10-17):
+  - **Saved once the page is on screen** (`components/RememberLookup.tsx`, and `GamePage`
+    after a play's answer loads), only for a signed-in owner: never for a prefetch, a share
+    image, a metadata render or anyone signed out. The anonymous `lookups` table is unchanged.
+  - **The same page twice is one lookup:** the page, who or which legs (in any order), the
+    market, the threshold and the kind of play (a tapped play becomes its kind). The play's
+    length and which play was tapped follow the latest visit, but a visit that names no play
+    keeps the one known. Remove is a plain delete; opening the page again saves it again.
+  - **Which bets a lookup shows:** the bets it named, else the ones its play touched, else the
+    page's first; priced ones in page order, at most 3. A team touchdown touches all four team
+    markets and a TD run seven of a running back's, hence the cap.
+  - **Totals count each bet once** (a page, a card, a line; a parlay by its sorted legs), and
+    the money counts settled bets only: "$10 on each settled bet: $X in, $Y back".
+  - **History is earlier games only** (`before_game`, by kickoff), at most 10, so next week's
+    page shows how this week's lookups went.
+  - **The cookie is bound to the owner's name and passcode** (`juju_tracker=<name>.<expires>.<mac>`):
+    it can't be renamed to the other owner, and a new passcode signs out only that owner. A
+    `TRACKER_USERS` that doesn't parse turns the site's section off (404); the API refuses to
+    start, and `up.sh` checks the line before either sees it.
 
 - **The Odds API credit count belongs to a key and a month** (2026-10-16). `source_health`
   keeps a fingerprint of the key (12 hex characters of a hash, never the key) and when the
@@ -334,9 +360,15 @@ game pages during the games. After Sunday, ask the owner for
 `report --since 2026-10-18` from the laptop: it shows whether every game got its two captures
 and how many credits each cost. These come before the tracker's Phase 3.
 
-**0b. The tracker, Phase 3: passcode users and `/api/me`** (`docs/plans/integrate-parlaytracker.md`
-§7 and §10). Read that phase's checklist of what only parlaytracker's Streamlit pages held. It
-needs the owner's two usernames before deploy, not before the code. Then Phases 4–6 in order.
+**0a. The owners' lookups** (2026-10-17): after the PR merges, the owner runs
+`git pull && deploy/laptop/up.sh` (it asks for the two names and makes up their passcodes),
+signs in at `<address>/me` on each phone, and looks at the recaps after Sunday's games. Ask how
+the recaps read, and whether they want the two summaries they didn't choose (totals by bet
+type, the 3-hour price beside the 45-minute one).
+
+**0b. The tracker, the rest of Phase 3: the slip endpoints** (`docs/plans/integrate-parlaytracker.md`
+§6.5 and §10). The sign-in, the `/api/me` door and router are built (2026-10-17). Read that
+phase's checklist of what only parlaytracker's Streamlit pages held. Then Phases 4–6 in order.
 The owner may interleave M5 (below).
 
 **1. Follow-ups from M3 and M4** (small, each a commit):
@@ -377,8 +409,9 @@ pages and of state exposure; then a soft launch.
 7. **FYI:** GitHub reports the parlaytracker repository as **public**, while the old goals doc
    said "still private". The owner was told on 2026-09-30.
 8. **For the tracker** (`docs/plans/integrate-parlaytracker.md` §13): the two users are **Chris
-   and Ash** (the owner, 2026-10-08). Their passcodes are theirs to put in `deploy/laptop/.env`
-   once Phase 3 exists: never in the repo or in chat, and long enough for a page on the public
+   and Ash** (the owner, 2026-10-08). Their passcodes are in `deploy/laptop/.env` as
+   `TRACKER_USERS` since Phase 3's sign-in (`up.sh` asks for the names, defaulting to these,
+   and makes the passcodes up): never in the repo or in chat, and long enough for a page on the public
    internet (the owner was told on 2026-10-08 that four digits are not); optionally an OpenRouter key for the screenshot reader
    (`QWEN_API_KEY`, Phase 4g); a backup destination and one restore drill (Phase 6); a real
    game weekend for acceptance; approval to archive the parlaytracker repo at the end; and
@@ -446,13 +479,20 @@ pages and of state exposure; then a soft launch.
   by hand: autogenerate turns a rename into a drop and an add, losing the values), 0006 is the
   tracker's schema, 0007 adds `games.capture_plan` and `capture_note` (the credit budget), 0008
   `plays.passer_espn_id`, 0009 `source_health.quota_key` and `quota_at` (whose credit count it
-  is, and when it was read).
+  is, and when it was read), 0010 `saved_lookups` (the owners' lookups).
   From now on, add new migrations and never edit an existing one. Generate against a scratch
   database at head (`alembic revision --autogenerate`), read the file, and run
   `tests/db/test_migrations.py`.
 - **The licensing guard** in `tests/db/test_api.py` lists every API route. A new endpoint makes
   it fail on purpose: add the route only if it lists prices for one player or team (or is the
-  parlay), never an odds board.
+  parlay), never an odds board. The owners' routes (`/api/me`) are listed apart, and each must
+  depend on `me.owner`. FastAPI 0.143 keeps an included router whole in `app.routes`
+  (`_IncludedRouter`), so the census reads `original_router.routes` (`routes()` there).
+- **The owners' section needs `TRACKER_USERS`** everywhere it runs: the API (the names), the
+  site (the passcodes) and, for `e2e/me.spec.ts`, Playwright. Without it `/me` is a 404 and the
+  spec skips. The laptop's compose file requires it, as it does `SITE_PASSCODE`, so a plain
+  `docker compose -f deploy/laptop/docker-compose.yml …` works only once `up.sh` has run. The
+  sign-in cookie is `Secure`; Chromium keeps it on `http://127.0.0.1`, so local e2e works.
 - **The "live" seed moves times.** Its prices are real but shown as if captured at T-46. That
   is demo data, which is why `dev_seed.py` reads from `tests/` and the production image doesn't
   include the fixtures. Deciding plays and corrections in `juju_dev` survive a reseed: rebuild

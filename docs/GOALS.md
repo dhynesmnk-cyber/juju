@@ -38,6 +38,7 @@ records bets the two of them placed elsewhere, watches and settles them, and tak
 | 9 | The look (2026-09-30) | **Worlds that follow the bet's state**, drawn by one WebGL shader (option A, 7 KB gzipped). Three original characters, the **Jujus** (Pip, Bo and Tuft), sit on the first card and react. The price always renders first; see §7.9. |
 | 10 | Parlay leg prices (2026-09-30) | **Shown.** A same-game parlay card lists each leg's price at the parlay's book, the one exception to "no prices across players" (§3). |
 | 11 | The owners' bet tracker (2026-10-08) | **Folded in.** parlaytracker becomes a passcode-gated `/me` section: its pages rebuilt in Next.js, its logic in the backend, per-user passcodes, fresh data. The plan and its six phases: [plans/integrate-parlaytracker.md](plans/integrate-parlaytracker.md). |
+| 12 | The owners' lookups (2026-10-17) | **Kept, per owner, for a recap after each game.** Each owner signs in with their own name and passcode (the tracker's Phase 3 sign-in, built first). Every bet page they open is saved; each game gets a recap of how those bets went, and a player's page shows how earlier lookups of them went. Worked out again from the archive whenever read, never frozen; the second exception to "no prices across players", for the owner only (§3). Facts, never picks. |
 
 ## 3. Licensing: a design rule, not a blocker
 
@@ -56,6 +57,7 @@ Juju sells the software layer, never the feed. These rules are built into the ar
 2. There are no list, bulk or export endpoints and no odds boards. A response is the computed cards
    for **one** player or team, or a UI list with no prices in it. The one exception (decision 10)
    is a same-game parlay: the 2 to 6 legs someone picked, each at the parlay's book.
+   The other (decision 12) is an owner's own recap, behind their own sign-in.
 3. Rate limits and Turnstile run at Cloudflare, and Juju's own terms forbid scraping.
 4. The historical endpoints fall under the same terms, so they are used for gap repair and backfill.
 
