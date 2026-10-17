@@ -5,7 +5,7 @@ product, the owner's decisions and the reasons behind them. Then read
 [CLAUDE.md](CLAUDE.md) for the commands and the rules that are easy to break. This file says
 where the build stands and what to do next. Update it before you finish a session.
 
-## Where things stand (2026-10-15)
+## Where things stand (2026-10-16)
 
 | | |
 |---|---|
@@ -13,7 +13,7 @@ where the build stands and what to do next. Update it before you finish a sessio
 | CI | Green on every merged PR head. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
 | Tests | 1,913 backend tests (1,164 before the tracker), 9 web unit tests (`node --test`), 17 Playwright tests |
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. It runs: the owner used it through real games on 2026-10-11, with a free Odds API key in `deploy/laptop/.env`. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
-| Real data | The laptop captures real prices: on the free key from about 2026-10-10 (until its 500 credits ran out), and on the owner's 20K-credit key from 2026-10-15, which also filled last weekend's missed games from the vendor's history. `python -m juju.cli report --since DATE` on the laptop shows what it saved. The tests still use only the recorded fixtures. nflverse (free) was read for real, to record its fixtures |
+| Real data | The laptop captured real prices on the free key from about 2026-10-10, until its 500 credits ran out. **On 2026-10-16 its `odds-status` said 0 credits while the owner's 20K-credit key showed all 20,000 unused**: either `.env` still had the free key, or the laptop kept the free key's count (no longer possible: migration 0009, below). So Thursday 10-15's game and last weekend's fill from the vendor's history probably never happened; `python -m juju.cli report --since DATE` on the laptop shows what it saved. The tests still use only the recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
 | The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. **Stage 2 (lookups and live plays) is done** on the same branch: the latest plays for text naming no one, recent plays deciding between namesakes, the tapped play named on its page, interceptions and return TDs as plays, one bad box score no longer shutting an ESPN host. **Stage 3:** the three mockup directions are on a private canvas for the owner (https://claude.ai/artifact/BvBJUwJFtcd6K5xmiJ6hf8: A feed first, B game first, C answer first, phone and desktop, every number from the recorded game), and the fixes every direction needs are built: times the same on server and phone, loading and error pages, no layout shift (floating typeahead, server-rendered banner and 21+ gate), slimmer cards with Details, unpriced bets as one list, 44 px targets, two cards a row on wide screens. **On 2026-10-15 the owner chose B, game first, and it is built:** the home page shows each game on now as a tile (score, its latest play, "Every play, and what it paid"), then the next and earlier games; a game's page (`/g/[game]`, from `/api/game/{id}`, which lists no prices) has its plays on a timeline by quarter, newest first, and tapping one opens what it paid in place (beside the timeline on a wide screen), plus Players and Game lines tabs. Result pages link back to their game |
 | The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**; Phase 3 (passcode users and `/api/me`) is next. Nothing user-visible yet: no routes and no web change. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
@@ -136,7 +136,8 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   It also verifies Turnstile tokens (`lib/turnstile.ts`) and sets a signed one-hour cookie.
 - `.../image/route.tsx` under both result pages (M3): the share image, one card in its world
   with the Jujus (`lib/shareImage.tsx`, next/og). Pages emit Open Graph tags for it.
-- `components/`: `LiveNow` (the home page's game tiles), `GamePage` (the timeline; a play's
+- `components/`: `LiveNow` (the home page: "On now" tiles, then this week's next games by
+  Eastern day, then "Earlier this week"), `GamePage` (the timeline; a play's
   answer is the player's or team's own endpoint with `play_id`, its priced touched bets, two
   at most), `ResultCard` (Verified chip, deciding play, Share and Add to parlay),
   `ResultView`, `ParlayTray` (per game, in the viewer's browser: `lib/parlayTray.ts`),
@@ -204,6 +205,22 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
       key is never sent in chat.
 
 ## Decisions made by agents (reasons in the commits; change only with a reason)
+
+- **The Odds API credit count belongs to a key and a month** (2026-10-16). `source_health`
+  keeps a fingerprint of the key (12 hex characters of a hash, never the key) and when the
+  vendor reported the count. A new key, a count from before migration 0009, or a count read
+  before the last reset (`ODDS_API_RESET_DAY`) is unknown, which is a full plan until the next
+  reply says otherwise. Only a process holding a key writes the count
+  (`Breakers.hold_key`); the API and key-less CLI commands leave it alone. Before this, a stale
+  0 from the free key could block every paid call for good, because the free games list may
+  not report credits. Not covered: a refused call (an exhausted key) never reports credits, so
+  that case still says prices are "on"; fixing it needs a recorded "out of credits" reply.
+- **The home page lists this NFL week's games** (2026-10-16, the owner's choice), Tuesday
+  06:00 ET to Tuesday 06:00 ET (`core/week.py`), plus anything from the last 14 hours. In play
+  first, then next by kickoff (grouped by Eastern day), then earlier this week, newest first.
+  A game still "scheduled" 8 hours after kickoff is left out (nothing updates it). Plays only
+  for games in play, to keep the 10-second poll cheap. Without an Odds API key the database
+  knows only ESPN's current games, so the week is thinner.
 
 - **Lookups that name no one get the latest plays** (2026-10-15, the owner's choice): up to
   8, newest first by ESPN's wallclock, from games in play or final within the hour, filtered by
@@ -348,8 +365,9 @@ pages and of state exposure; then a soft launch.
 
 ## Needs the owner
 
-1. **Done 2026-10-15:** a Juju-only Odds API key, on a 20K-credit plan, in
-   `deploy/laptop/.env` as `JUJU_ODDS_API_KEY`. For launch it becomes a Fly secret. If its
+1. **2026-10-15:** a Juju-only Odds API key, on a 20K-credit plan, for
+   `deploy/laptop/.env` as `JUJU_ODDS_API_KEY` (on 2026-10-16 the laptop still read 0 credits:
+   the owner is checking which key `.env` holds). For launch it becomes a Fly secret. If its
    credits don't reset on the 1st, the owner sets `ODDS_API_RESET_DAY` in `.env`.
 2. **Fly.io:** create the apps, or give a deploy token. Then follow `docs/deploy.md`.
 3. **A domain on Cloudflare**, then `SITE_URL` in `web/fly.toml` (share previews).
@@ -427,7 +445,8 @@ pages and of state exposure; then a soft launch.
   0004 with the first-touchdown check, 0005 renamed its marker to `plays_checked_at` (written
   by hand: autogenerate turns a rename into a drop and an add, losing the values), 0006 is the
   tracker's schema, 0007 adds `games.capture_plan` and `capture_note` (the credit budget), 0008
-  `plays.passer_espn_id`.
+  `plays.passer_espn_id`, 0009 `source_health.quota_key` and `quota_at` (whose credit count it
+  is, and when it was read).
   From now on, add new migrations and never edit an existing one. Generate against a scratch
   database at head (`alembic revision --autogenerate`), read the file, and run
   `tests/db/test_migrations.py`.

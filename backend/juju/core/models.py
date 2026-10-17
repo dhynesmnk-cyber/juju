@@ -273,6 +273,10 @@ class SourceHealth(Base):
     errors_last_hour: Mapped[int] = mapped_column(default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
     quota_remaining: Mapped[int | None]
+    # Whose count that is (`ingest/odds_api.key_fingerprint`, never the key) and when The Odds
+    # API said so: a new key, or a new month, doesn't inherit it.
+    quota_key: Mapped[str | None] = mapped_column(String(12))
+    quota_at: Mapped[datetime | None] = mapped_column(TZ)
 
 
 # The tracker's tables share this metadata: one database, one Alembic history. Imported last, so

@@ -34,8 +34,8 @@ then puts it online and prints:
 
 - the address, `https://<this machine>.<your tailnet>.ts.net`;
 - the passcode, if it made one up (it is kept in `deploy/laptop/.env`, readable only by you);
-- two links to the demo game (PHI @ CHI, Sep 28). The home page lists only today's games, so
-  open the demo from these links.
+- two links to the demo game (PHI @ CHI, Sep 28). The home page lists this week's games
+  (Tuesday to Monday), so open the demo from these links.
 
 Send the address and the passcode to your two users. Each browser asks for the passcode once,
 then remembers it for 30 days.
@@ -83,16 +83,21 @@ The lid setting takes effect after a reboot. To undo: delete that file and
 
 ## Real prices
 
-With Juju's own Odds API key, add one line to `deploy/laptop/.env`:
+With Juju's own Odds API key, put one line in `deploy/laptop/.env` (to change keys, replace
+that line; don't add a second):
 
 ```
 JUJU_ODDS_API_KEY=<the key>
 ```
 
 and run `deploy/laptop/up.sh`. It checks the key with one free call and prints the credits left
-and what the captures will take. The worker then saves prices twice before each kickoff, at
-3 hours and at 45 minutes (about 50 credits a game). Never use parlaytracker's key here, and
-never paste a key into a chat.
+(and where that number came from), when they reset, and what the captures will take. The worker
+then saves prices twice before each kickoff, at 3 hours and at 45 minutes (about 50 credits a
+game). Never use parlaytracker's key here, and never paste a key into a chat.
+
+A new key's credits are unknown until its first capture: Juju never carries an old key's count
+over, and forgets last month's count when the credits reset. If `up.sh` prints "Captures: none",
+it adds a note: the key in `.env` has no credits left until they reset.
 
 Any plan works, even a free one: when credits run short the worker saves fewer bets and the
 site says so. Three optional lines in `.env` tune it:

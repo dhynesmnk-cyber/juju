@@ -48,10 +48,11 @@ relatively.
    - no published port on `api` or `db`;
    - the worker says "archive off" unless `JUJU_ODDS_API_KEY` is set;
    - with a key, `python -m juju.cli odds-status` in the worker: one free call that checks the
-     key and prints the credits left, the reset day and the capture plan (never the key).
+     key and prints the credits left (and where that number came from), the reset day and the
+     capture plan (never the key). A plan of "Captures: none" gets a `note`, not a stop.
 5. **Funnel**, with sudo if needed. Then it prints the address, the passcode only if it just made
-   one up, and direct links to the demo game, which the home page never lists (it shows the last
-   14 hours to the next 36).
+   one up, and direct links to the demo game, which the home page never lists (it shows this
+   week's games, Tuesday 06:00 ET to Tuesday 06:00 ET, and any game from the last 14 hours).
 
 `./up.sh --no-funnel` does steps 1 to 4 and leaves the site on `http://127.0.0.1:3000`.
 
@@ -72,6 +73,7 @@ Read the last `== step` and the `Stopped:` line. Most failures are one of these:
 | The URL doesn't answer right after Funnel starts | The first certificate takes up to a minute; try a browser. |
 | `the worker started archiving without JUJU_ODDS_API_KEY` | A key reached it from somewhere other than `.env`. It has been stopped; find out how before starting it again. Never parlaytracker's key. |
 | `the Odds API didn't accept JUJU_ODDS_API_KEY` | `odds-status` got a 401 (a mistyped or expired key; ask the owner to re-copy it into `.env`, never into chat) or couldn't reach the API. |
+| `odds-status` says "Credits left: 0 … Captures: none" (and up.sh adds a note) | The key in `.env` has no credits until they reset, or `.env` still has an old key (on 2026-10-16 it read 0 while the owner's 20K key was unused). Ask the owner to compare the last 4 characters of the one `JUJU_ODDS_API_KEY` line with their account's key, never to paste it, and to check the credits on their account. A new key's count starts unknown: Juju never inherits an old key's count (migration 0009). |
 | Cards say "No price on file" on real games, or the site says prices are rationed or paused | Ask for `docker compose ... exec api python -m juju.cli report --since <date>`: each game's captures and credits, its matched names. `odds-status` says the credits left and the plan. |
 | Users get the form again and again | Their browser blocks cookies for the site, or the passcode changed (everyone re-enters it). |
 

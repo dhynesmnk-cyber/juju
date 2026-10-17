@@ -1,6 +1,7 @@
 # Ported from parlaytracker@c3bd43c tests/db/test_worker.py. Changes: the heartbeat, `guarded`,
 # the breakers and the lock are Juju's (the same code), so these cases now cover Juju's worker; and
-# the scheduler cases check the tracker's jobs in Juju's one scheduler, beside Juju's own.
+# the scheduler cases check the tracker's jobs in Juju's one scheduler, beside Juju's own; and
+# (2026-10-16) the Odds API count belongs to a key: a new key never starts from the old one's.
 """The worker: single-instance lock, heartbeat, scheduler and breaker persistence (SPEC.md 8)."""
 from datetime import UTC, datetime, timedelta
 
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 from juju.core.enums import FailureKind, HealthState
 from juju.core.models import SourceHealth
 from juju.config import Settings
-from juju.ingest.odds_api import OddsApiClient
+from juju.ingest.odds_api import OddsApiClient, key_fingerprint
 from juju.ingest.router import Breakers
 from juju.worker.__main__ import build_scheduler, try_lock
 from juju.worker.jobs import guarded, heartbeat
@@ -62,17 +63,21 @@ def test_heartbeat_writes_every_providers_breaker_state(engine, clean_health):
 
 def test_a_breaker_transition_is_written_at_once_and_its_quota_survives(engine, clean_health):
     breakers = Breakers(engine)
+    breakers.hold_key("odds_api", key_fingerprint("k"))
     breakers.success("odds_api", quota_remaining=412)
     breakers.persist("odds_api")
     assert health(engine, "odds_api").quota_remaining == 412
     breakers.failure("odds_api", FailureKind.SCHEMA, "format changed")  # no heartbeat needed
     row = health(engine, "odds_api")
     assert (row.state, row.failure_kind) == (HealthState.OPEN, FailureKind.SCHEMA)
-    assert row.quota_remaining == 412  # a breaker that never saw a quota can't wipe it
+    assert row.quota_remaining == 412
+    Breakers(engine).persist()  # a process with no key (the API, a CLI command) can't wipe it
+    assert health(engine, "odds_api").quota_remaining == 412
 
 
 def test_a_restart_keeps_an_open_breaker_and_the_quota(engine, clean_health):
     first = Breakers(engine)
+    first.hold_key("odds_api", key_fingerprint("k"))
     first.success("odds_api", quota_remaining=300)
     first.failure("odds_api", FailureKind.THROTTLED, "429", retry_after=600)
     second = Breakers(engine)
@@ -82,6 +87,21 @@ def test_a_restart_keeps_an_open_breaker_and_the_quota(engine, clean_health):
     assert second["odds_api"].quota_remaining == 300
     assert OddsApiClient("k", second).quota_remaining == 300
     assert second["espn_web"].allow()
+
+
+def test_a_new_key_never_inherits_the_old_keys_count(engine, clean_health):
+    old = Breakers(engine)
+    old.hold_key("odds_api", key_fingerprint("old-key"))
+    old.success("odds_api", quota_remaining=0)  # the free key, used up
+    old.persist("odds_api")
+    restarted = Breakers(engine)
+    restarted.load()
+    assert OddsApiClient("new-key", restarted).quota_remaining is None  # a full plan
+    heartbeat(engine, breakers=restarted)
+    row = health(engine, "odds_api")
+    assert (row.quota_remaining, row.quota_at) == (None, None)
+    assert row.quota_key == key_fingerprint("new-key")
+    assert "new-key" not in str(vars(row)) and "old-key" not in str(vars(row))
 
 
 def test_recovery_is_written_when_the_trial_succeeds(engine, clean_health):

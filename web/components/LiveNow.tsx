@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import LocalTime from "@/components/LocalTime";
 import Jujus from "@/components/world/Jujus";
 import WorldStage from "@/components/world/WorldStage";
-import { quarter } from "@/lib/format";
+import { byEtDay, quarter } from "@/lib/format";
 import { gameHref, playHref } from "@/lib/links";
 import type { LiveGame, LiveResponse, Side } from "@/lib/types";
 
@@ -92,7 +92,7 @@ export default function LiveNow({ initial }: { initial: LiveResponse | null }) {
       {!live.length && <div className="home-crew"><Jujus mood="sleepy" /></div>}
       <h2>{live.length ? "On now" : "No games in play right now"}</h2>
       {failed && <p className="hint" role="alert">Can&apos;t load games right now. Retrying.</p>}
-      {!live.length && data?.next_kickoff && (
+      {!live.length && !next.length && data?.next_kickoff && (
         <p className="muted">
           Next kickoff: {data.next_kickoff.label}, <LocalTime iso={data.next_kickoff.commence_time} withDay />
         </p>
@@ -103,20 +103,25 @@ export default function LiveNow({ initial }: { initial: LiveResponse | null }) {
       {next.length > 0 && (
         <>
           <h2>Next</h2>
-          <div className="tiles">
-            {next.map((g) => (
-              <Link key={g.id} className="tile small" href={gameHref(g.id)}>
-                <strong>{g.label}</strong>
-                <span className="muted"><LocalTime iso={g.commence_time} withDay /></span>
-                <span className="muted small">Prices are saved 45 minutes before kickoff</span>
-              </Link>
-            ))}
-          </div>
+          <p className="muted small">Prices are saved 45 minutes before kickoff.</p>
+          {byEtDay(next).map(([day, games]) => (
+            <section key={day} aria-label={day}>
+              <h3 className="eyebrow day">{day}</h3>
+              <div className="tiles">
+                {games.map((g) => (
+                  <Link key={g.id} className="tile small" href={gameHref(g.id)}>
+                    <strong>{g.label}</strong>
+                    <span className="muted"><LocalTime iso={g.commence_time} /></span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ))}
         </>
       )}
       {earlier.length > 0 && (
         <>
-          <h2>Earlier</h2>
+          <h2>Earlier this week</h2>
           <div className="tiles">
             {earlier.map((g) => (
               <Link key={g.id} className="tile small" href={gameHref(g.id)}>

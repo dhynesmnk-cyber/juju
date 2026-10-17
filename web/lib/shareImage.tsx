@@ -60,7 +60,7 @@ export function shareImage(who: string, game: GameView, card: Card | undefined,
   const [icon, ink, chipBg] = card ? CHIP[card.outcome] : CHIP.pregame;
   const p = card?.price;
   const priced = p ? `${american(p.american)} at ${p.book_name}, ${p.minutes_before_kickoff} min `
-    + `before kickoff${p.timing === "early" ? " (earlier than T-45)" : ""}` : null;
+    + `before kickoff${p.timing === "early" ? " (earlier than usual)" : ""}` : null;
   // "$10 → $18.93 if it hits": the amount large, the condition beside it.
   const headline = card ? card.headline : "—";
   const cut = headline.indexOf(" if ");
