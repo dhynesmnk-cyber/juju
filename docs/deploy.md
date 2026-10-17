@@ -18,6 +18,10 @@ Funnel behind a shared passcode (`SITE_PASSCODE`, `web/proxy.ts`). The passcode 
 Fly too: set `SITE_PASSCODE` as a `juju-web` secret, and let the `/about` health check accept a
 401 (the passcode form), or Fly will mark the site unhealthy.
 
+The owners' own section (`/me`: their saved lookups and game recaps) is off on Fly unless
+`TRACKER_USERS` ("name:passcode,name:passcode") is set, as a secret of both `juju-web` and
+`juju-backend`; without it `/me` and `/api/me` are a 404 and nothing is saved.
+
 ## One-time setup
 
 The owner does this, or a session that has been given a `FLY_API_TOKEN`.

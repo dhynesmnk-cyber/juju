@@ -24,7 +24,8 @@ def test_normalize_database_url(url, expected):
 @pytest.fixture
 def env(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgres://u:p@h/db")
-    for name in ("ODDS_API_KEY", "LLM_API_KEY", "BOOKS", "RECORD_EVENT_IDS", "ODDS_API_RESERVE"):
+    for name in ("ODDS_API_KEY", "LLM_API_KEY", "BOOKS", "RECORD_EVENT_IDS", "ODDS_API_RESERVE",
+                 "TRACKER_USERS"):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 
@@ -56,3 +57,22 @@ def test_api_keys_never_appear_in_errors_or_repr(env):
         Settings(_env_file=None)
     assert secret not in str(info.value)
     assert secret[:7] not in str(info.value)
+
+
+def test_owners_and_their_names(env):
+    assert Settings(_env_file=None).tracker_names == frozenset()  # unset: /me is off
+    env.setenv("TRACKER_USERS", "chris:passcode-one1, ash:passcode-two2")
+    s = Settings(_env_file=None)
+    assert s.tracker_names == {"chris", "ash"}
+    assert "passcode-one1" not in repr(s)
+
+
+@pytest.mark.parametrize("value", [
+    "chris", "chris:zq7short", "Chris:zq7hidden-01", "chris:zq7hidden-01,chris:zq7hidden-02",
+    "chris:zq7 hidden 01", "chris:zq7hidden-01,",
+])
+def test_owner_passcodes_never_appear_in_errors(env, value):
+    env.setenv("TRACKER_USERS", value)
+    with pytest.raises(ValidationError) as info:
+        Settings(_env_file=None)
+    assert "zq7" not in str(info.value)

@@ -14,6 +14,11 @@ cd ../web && BACKEND_URL=http://127.0.0.1:8000 npx next start -p 3000 &
 npx playwright test
 ```
 
+`e2e/me.spec.ts` (the owners' sign-in, saved lookups and recaps) runs only when the API, the
+site and Playwright all have the same test-only `TRACKER_USERS`, as CI does:
+`TRACKER_USERS=chris:ci-chris-passcode,ash:ci-ash-passcode` before `uvicorn`, `next start` and
+`npx playwright test`. Its lookups stay in the database between runs; it never counts them.
+
 `e2e/challenge.spec.ts` (the Turnstile check) runs only with `TURNSTILE_E2E=1`, against a site
 built with `NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA` and started with
 `TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA`: Cloudflare's public test keys, as

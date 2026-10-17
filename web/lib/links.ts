@@ -1,4 +1,4 @@
-import type { Choice, Focus } from "./types";
+import type { Choice, Focus, Remembered } from "./types";
 
 /** The permalink for a player's or a team's cards, carrying what the person asked about (and
  *  the play they tapped, which the page then names). */
@@ -40,4 +40,18 @@ export function playHref(gameId: number, athleteId: string, kind: string,
   return resultHref("player", gameId, athleteId, {
     play: PLAY_OF_KIND[kind] ?? null, yards: yards ?? null, expect: false,
   }, playId);
+}
+
+/** A saved lookup's page again (the owners' recaps): as it was opened. */
+export function lookupHref(l: Remembered): string {
+  if (l.kind === "parlay") return `/g/${l.game_id}/parlay?legs=${encodeURIComponent(l.target)}`;
+  return resultHref(l.kind, l.game_id, l.target, {
+    play: l.play ?? null, market: l.market ?? null, threshold: l.threshold ?? null,
+    yards: l.yards ?? null, expect: l.expect ?? false,
+  }, l.play_id);
+}
+
+/** An owner's recap of one game. */
+export function recapHref(gameId: number): string {
+  return `/me/recaps/${gameId}`;
 }

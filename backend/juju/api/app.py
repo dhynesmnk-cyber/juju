@@ -8,12 +8,11 @@ import logging
 import threading
 import time
 from collections import defaultdict, deque
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -21,22 +20,23 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from juju.api import lookup
-from juju.api.views import Focus, game_view, parlay_view, player_view, team_view
+from juju.api import lookup, me
+from juju.api.common import SessionDep, get_session, respond  # noqa: F401 (tests override it)
+from juju.api.views import game_view, parlay_view, parse_focus, player_view, team_view
 from juju.config import Settings, get_settings
 from juju.core import budget
-from juju.core.enums import EventStatus, HealthState, PlayKind
+from juju.core.enums import EventStatus, HealthState
 from juju.core.parlay import parse_legs
 from juju.core.week import game_week
 from juju.core.models import (
     Game, HotGame, Lookup, OddsSnapshot, Play, Player, Price, SourceHealth,
 )
-from juju.db import session_factory
 from juju.ingest.llm import Budget, LlmReader
 
 log = logging.getLogger("juju.api")
 
 app = FastAPI(title="Juju internal API", docs_url=None, redoc_url=None, openapi_url=None)
+app.include_router(me.router)  # the owners' own section, behind their sign-in (api/me.py)
 
 LOOKUPS_PER_MINUTE = 30
 # Past this many lookups in the window, a client is asked to pass Cloudflare Turnstile, when
@@ -53,20 +53,6 @@ DISCLAIMER = ("Hypothetical: what a $10 bet at the archived price would have ret
 
 def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
-
-
-def get_session() -> Iterator[Session]:
-    with session_factory()() as session:
-        yield session
-
-
-SessionDep = Annotated[Session, Depends(get_session)]
-
-
-def respond(data, cache: str | None = None) -> JSONResponse:
-    body = jsonable_encoder(data, custom_encoder={Decimal: lambda d: format(d, "f")})
-    headers = {"Cache-Control": cache or "no-store"}
-    return JSONResponse(body, headers=headers)
 
 
 # --- Abuse control ---------------------------------------------------------------------------
@@ -344,23 +330,6 @@ def do_lookup(body: LookupIn, request: Request, session: SessionDep) -> JSONResp
                     "legs": result.legs, "focus": focus})
 
 
-def _focus(play: str | None, market: str | None, threshold: str | None,
-           expect: bool, yards: int | None = None) -> Focus:
-    try:
-        kind = PlayKind(play) if play else None
-    except ValueError:
-        kind = None
-    try:
-        t = Decimal(threshold) if threshold else None
-        if t is not None and (t < 0 or t > 999 or (t * 2) % 1 != 0):
-            t = None
-    except ArithmeticError:
-        t = None
-    if yards is not None and not 0 < yards < 110:
-        yards = None
-    return Focus(kind, market, t, expect, yards)
-
-
 def _cache_for(status: EventStatus) -> str:
     return FINAL_CACHE if status is EventStatus.FINAL else LIVE_CACHE
 
@@ -375,7 +344,7 @@ def player(game_id: int, athlete_id: str, session: SessionDep, response: Respons
         raise HTTPException(404, "No such game")
     now = _utcnow()
     view = player_view(session, game, athlete_id, now, get_settings().books,
-                       _focus(play, market, threshold, expect, yards), play_id)
+                       parse_focus(play, market, threshold, expect, yards), play_id)
     if view is None:
         raise HTTPException(404, "No such player")
     mark_hot(session, game.id, now)
@@ -391,7 +360,7 @@ def team(game_id: int, team_id: str, session: SessionDep, play: str | None = Non
         raise HTTPException(404, "No such game")
     now = _utcnow()
     view = team_view(session, game, team_id, now, get_settings().books,
-                     _focus(play, market, None, False), play_id)
+                     parse_focus(play, market, None, False), play_id)
     if view is None:
         raise HTTPException(404, "No such team in this game")
     mark_hot(session, game.id, now)

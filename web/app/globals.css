@@ -532,3 +532,35 @@ html.worlds .game-head { text-shadow: 0 1px 8px rgb(0 0 0 / 85%); }
   .answer-panel > p { margin: 0 0 8px; }
   .answer-panel .mini.crewed { margin-top: 76px; }
 }
+
+/* The owners' own section (/me): their lookups, recaps and history. */
+.me-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap; margin: 4px 0 8px;
+}
+.me-bar form { margin: 0; }
+.link-button {
+  min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--accent);
+  font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer;
+}
+.totals { font-weight: 650; margin: 8px 0 12px; }
+.recap-list {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px;
+}
+.recap-list > li { display: flex; flex-direction: column; gap: 8px; }
+.recap-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.recap-open { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; }
+.recap-legs { margin: 4px 0 0; padding-left: 18px; font-size: 0.9rem; }
+.recap-legs li { margin: 2px 0; }
+.undo {
+  position: sticky; bottom: 12px; margin: 16px 0 0; padding: 8px 14px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.my-history, .my-recaps { margin: 20px 0; }
+.my-history {
+  padding: 14px; border-radius: 18px; border: 1px dashed var(--border); background: var(--surface);
+}
+.my-history h2 { margin: 2px 0 6px; font-size: 1.1rem; }
+.history-game { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.history-game h3 { margin: 0; font-size: 1rem; }
+.history-game h3 a { display: inline-flex; align-items: center; min-height: 44px; }
