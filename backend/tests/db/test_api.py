@@ -247,14 +247,41 @@ def test_a_finished_game_lists_no_plays(client, db, monkeypatch):
     assert games and all(g["plays"] == [] for g in games)
 
 
+def routes() -> list:
+    """Every route, the included routers' too (FastAPI keeps an included router whole)."""
+    out = []
+    for r in app_module.app.routes:
+        if hasattr(r, "path"):
+            out.append(r)
+        else:
+            assert r.include_context.prefix == ""
+            out.extend(r.original_router.routes)
+    return out
+
+
+PRIVATE_ROUTES = {"/api/me/lookups", "/api/me/lookups/{lookup_id}", "/api/me/recaps",
+                  "/api/me/recaps/{game_id}", "/api/me/history/{kind}/{target}"}
+
+
 def test_there_is_no_endpoint_that_lists_prices_across_players(client):
     # The parlay spans players: only the legs someone picked, at one book, in one game
     # (tests/db/test_parlay.py holds it to that).
     # /api/game lists one game's plays and players, with no prices (the test below).
-    paths = {r.path for r in app_module.app.routes}
-    assert paths == {"/health", "/api/status", "/api/live", "/api/suggest", "/api/lookup",
-                     "/api/game/{game_id}", "/api/player/{game_id}/{athlete_id}",
-                     "/api/team/{game_id}/{team_id}", "/api/parlay/{game_id}"}
+    paths = {r.path for r in routes()}
+    assert paths - PRIVATE_ROUTES == {
+        "/health", "/api/status", "/api/live", "/api/suggest", "/api/lookup",
+        "/api/game/{game_id}", "/api/player/{game_id}/{athlete_id}",
+        "/api/team/{game_id}/{team_id}", "/api/parlay/{game_id}"}
+
+
+def test_the_owners_routes_all_need_their_sign_in(client):
+    # A recap lists prices across players, and history across games: only an owner's own
+    # lookups, behind their own sign-in (docs/licensing.md; tests/db/test_me.py).
+    from juju.api.me import owner
+    private = [r for r in routes() if r.path.startswith("/api/me")]
+    assert {r.path for r in private} == PRIVATE_ROUTES
+    for route in private:
+        assert owner in {d.call for d in route.dependant.dependencies}, route.path
 
 
 def test_a_game_lists_its_plays_and_players_without_prices(client, db):

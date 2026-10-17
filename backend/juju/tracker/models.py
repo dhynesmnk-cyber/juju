@@ -2,9 +2,10 @@
 # Changes: the tables sit on Juju's Base (one metadata, one Alembic history: migration 0006);
 # Sport, EventStatus and LegResult come from juju.core.enums, with the same values; PT's
 # `DataSource` is `LegSource` here, because Juju's DataSource has odds_api and no manual; and
-# SourceHealth is Juju's own table, which has the same shape.
-"""The tracker's tables: slips and their legs, the events they are on, tags, sportsbooks, and
-raw provider samples."""
+# SourceHealth is Juju's own table, which has the same shape. SavedLookup is Juju's own, not
+# ported (migration 0010).
+"""The tracker's tables: slips and their legs, the events they are on, tags, sportsbooks, raw
+provider samples, and the bet pages each owner opened."""
 import enum
 from datetime import datetime
 from decimal import Decimal
@@ -234,4 +235,33 @@ class RawSample(Base):
     __table_args__ = (
         CheckConstraint("reason IN ('failure', 'recording')", name="reason_valid"),
         Index("ix_raw_samples_source_fetched_at", "source", "fetched_at"),
+    )
+
+
+class SavedLookup(Base):
+    """A bet page an owner opened, for their own game recaps and history (/me). Written only
+    through `juju/tracker/saved.py`. Only what the page was asked is kept: every number a recap
+    shows is worked out again from the archive when it is read."""
+    __tablename__ = "saved_lookups"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(32))  # a TRACKER_USERS name
+    game_id: Mapped[int] = mapped_column(ForeignKey("games.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(10))  # player, team or parlay
+    target: Mapped[str] = mapped_column(String(600))  # athlete id, team id, or the legs
+    play: Mapped[str | None] = mapped_column(String(20))  # a PlayKind value
+    market_key: Mapped[str | None] = mapped_column(String(60))
+    threshold: Mapped[Decimal | None] = mapped_column(Numeric(6, 1))
+    yards: Mapped[int | None]
+    expect: Mapped[bool] = mapped_column(server_default=false())
+    play_id: Mapped[int | None] = mapped_column(ForeignKey("plays.id", ondelete="SET NULL"))
+    signature: Mapped[str] = mapped_column(String(700))  # what makes two lookups the same
+    times: Mapped[int] = mapped_column(server_default="1")
+    first_seen_at: Mapped[datetime] = mapped_column(TZ)
+    last_seen_at: Mapped[datetime] = mapped_column(TZ)
+
+    __table_args__ = (
+        UniqueConstraint("owner", "game_id", "signature",
+                         name="uq_saved_lookups_owner_game_signature"),
+        CheckConstraint("kind IN ('player', 'team', 'parlay')", name="kind_valid"),
+        Index("ix_saved_lookups_owner_target", "owner", "kind", "target"),
     )
