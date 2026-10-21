@@ -105,6 +105,11 @@ umask 077
 touch "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 [ -n "$(get POSTGRES_PASSWORD)" ] || put POSTGRES_PASSWORD "$(openssl rand -hex 24)"
+make_code() {  # three groups of four, easy to type on a phone
+  python3 -c 'import secrets
+a = "abcdefghjkmnpqrstuvwxyz23456789"
+print("-".join("".join(secrets.choice(a) for _ in range(4)) for _ in range(3)))'
+}
 new_passcode=""
 if [ -z "$(get SITE_PASSCODE)" ]; then
   code=""
@@ -113,21 +118,51 @@ if [ -z "$(get SITE_PASSCODE)" ]; then
     read -r -p "   Or press Enter and one is made up for you: " code
   fi
   if [ -z "$code" ]; then
-    code=$(python3 -c 'import secrets
-a = "abcdefghjkmnpqrstuvwxyz23456789"
-print("-".join("".join(secrets.choice(a) for _ in range(4)) for _ in range(3)))')
+    code=$(make_code)
     new_passcode=$code
   fi
   [[ "$code" =~ ^[A-Za-z0-9._-]{10,200}$ ]] \
     || die "the passcode needs 10 or more characters: letters, digits, - _ or ."
   put SITE_PASSCODE "$code"
 fi
+# The owners' own sign-in for /me (their lookups and game recaps): a name and a passcode each.
+new_owners=""
+if [ -z "$(get TRACKER_USERS)" ]; then
+  names="chris ash" pairs=""
+  if [ -t 0 ]; then
+    echo "   Your own sign-in for your lookups and game recaps (/me): one name for each owner."
+    read -r -p "   Names, separated by spaces [chris ash]: " typed
+    names=${typed:-$names}
+  fi
+  for name in $names; do
+    name=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
+    code=""
+    if [ -t 0 ]; then
+      read -r -p "   A passcode for $name (10 or more letters, digits, - _ or .), or Enter to make one up: " code
+    fi
+    if [ -z "$code" ]; then
+      code=$(make_code)
+      new_owners+="              $name: $code\n"
+    fi
+    pairs+="${pairs:+,}$name:$code"
+  done
+  put TRACKER_USERS "$pairs"
+fi
+IFS=, read -r -a owner_pairs <<< "$(get TRACKER_USERS)"
+seen=" "
+for pair in "${owner_pairs[@]}"; do
+  [[ "$pair" =~ ^([a-z][a-z0-9_-]{0,31}):[A-Za-z0-9._-]{10,200}$ ]] \
+    || die "TRACKER_USERS in .env must be name:passcode pairs, separated by commas: a lowercase
+   name, and a passcode of 10 or more letters, digits, - _ or . Fix that line, then ./up.sh again."
+  [[ "$seen" != *" ${BASH_REMATCH[1]} "* ]] || die "TRACKER_USERS in .env names ${BASH_REMATCH[1]} twice."
+  seen+="${BASH_REMATCH[1]} "
+done
 if [ "$FUNNEL" = 1 ]; then
   put SITE_URL "https://$dns"
 elif [ -z "$(get SITE_URL)" ]; then
   put SITE_URL "$LOCAL"
 fi
-ok "passcode, database password and address are set"
+ok "passcodes, database password and address are set"
 
 # --- 3. Build and start ----------------------------------------------------------------------
 step "Building the images (the first time takes several minutes)"
@@ -179,6 +214,26 @@ status=$(lcurl -H "Cookie: $cookie" "$LOCAL/api/status")
 [[ "$status" == *'"degraded"'* ]] \
   || die "the site can't reach the API ($status). See: docker compose logs api web"
 ok "the site reaches the API"
+
+# The owners' own section needs their own sign-in as well: lookups are theirs alone.
+code=$(lcurl -o /dev/null -w '%{http_code}' -H "Cookie: $cookie" "$LOCAL/api/me/recaps")
+[ "$code" = 401 ] || unsafe "with only the site passcode, the owners' lookups answered $code, not
+   401. See: docker compose logs web api"
+page=$(lcurl -H "Cookie: $cookie" "$LOCAL/me")
+[[ "$page" == *'action="/me/unlock/check"'* ]] \
+  || unsafe "the owners' section didn't ask them to sign in. See: docker compose logs web"
+owner_file=$(mktemp "$HERE/.passcode.XXXXXX")
+trap 'rm -f "$secret_file" "$owner_file"' EXIT
+printf '%s' "${owner_pairs[0]#*:}" > "$owner_file"
+me_cookie=$(lcurl -D - -o /dev/null -H "Cookie: $cookie" --data-urlencode "passcode@$owner_file" \
+              -d "name=${owner_pairs[0]%%:*}" -d next=/me "$LOCAL/me/unlock/check" | tr -d '\r' \
+            | sed -n 's/^[Ss]et-[Cc]ookie: \(juju_tracker=[^;]*\).*/\1/p')
+rm -f "$owner_file"
+[ -n "$me_cookie" ] || die "${owner_pairs[0]%%:*}'s passcode in .env didn't sign in. See: docker compose logs web"
+mine=$(lcurl -H "Cookie: $cookie; $me_cookie" "$LOCAL/api/me/recaps")
+[[ "$mine" == *'"games"'* ]] \
+  || die "the owners' section can't reach the API ($mine). See: docker compose logs api web"
+ok "the owners' section asks them to sign in, and their passcodes open it"
 
 game=$(sql "select id from games where espn_event_id = '$DEMO_EVENT'")
 # Never `grep -q` after a pipe here: it stops reading at the first match, the writer fails on the
@@ -254,6 +309,12 @@ else
   echo "   Passcode:  the one in deploy/laptop/.env"
 fi
 echo "   Share both with your two users. Each browser asks once, then remembers for 30 days."
+echo "   Your lookups: $url/me   (each owner signs in once per phone, with their own passcode)"
+if [ -n "$new_owners" ]; then
+  printf '   Owners:    made up just now; kept in deploy/laptop/.env (TRACKER_USERS)\n%b' "$new_owners"
+else
+  echo "   Owners:    their names and passcodes are TRACKER_USERS in deploy/laptop/.env"
+fi
 echo "   Update:    git pull && deploy/laptop/up.sh"
 echo "   Logs:      docker compose -f deploy/laptop/docker-compose.yml logs -f web api worker"
 echo "   More, including taking it offline: deploy/laptop/README.md"

@@ -30,6 +30,15 @@ its "last updated" date changes.
     to 6 legs the person picked, in one game, never the other books' prices. The owner decided
     this on 2026-09-30; it is display in a UI, which the terms permit, not a feed.
     `tests/db/test_parlay.py` holds the parlay to it.
+  - The owners' own recaps (`/me`, 2026-10-17) are the other exception, and only for the owner
+    signed in. Each owner signs in with their own passcode; the bet pages they open are kept
+    under their name, and a game's recap lists the bets they looked up across players, with
+    the price each page showed (its book only, never the other books). The history box on a
+    player's page lists that player's bets across the owner's earlier games. It is the owner's
+    own record, behind their own sign-in, never in a cached response, a share image, an OG
+    tag or `/api/status`, and nothing can be downloaded or exported. The backend's `/api/me`
+    has its own door in the site (`web/app/api/me/`), never on the public allowlist;
+    `tests/db/test_me.py` and `web/lib/publicApi.test.ts` hold it to that.
   - Rate limits and Turnstile run at Cloudflare, and Juju's terms forbid scraping.
   - The footer credits The Odds API, which is appreciated but not required.
 

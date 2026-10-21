@@ -28,12 +28,14 @@ deploy/laptop/up.sh
 ```
 
 The first run asks for a passcode (10 or more letters, digits, `-`, `_` or `.`), or makes one up
-if you press Enter. It builds everything (several minutes the first time), loads the recorded
+if you press Enter. Then it asks for the owners' names and a passcode for each, for your own
+lookups and recaps (below); Enter makes those up too. It builds everything (several minutes the first time), loads the recorded
 demo game, checks that the site is locked, that the passcode opens it and that the pages work,
 then puts it online and prints:
 
 - the address, `https://<this machine>.<your tailnet>.ts.net`;
 - the passcode, if it made one up (it is kept in `deploy/laptop/.env`, readable only by you);
+- the owners' passcodes, if it made them up (also in `.env`, as `TRACKER_USERS`);
 - two links to the demo game (PHI @ CHI, Sep 28). The home page lists this week's games
   (Tuesday to Monday), so open the demo from these links.
 
@@ -49,6 +51,17 @@ then remembers it for 30 days.
   home page with live plays. Their prices are saved only with Juju's own Odds API key (below);
   without one, their cards say "No price on file" and the site says prices aren't being saved.
 
+## Your lookups (the owners only)
+
+Each owner signs in once per phone at `<address>/me`, with their own name and passcode. From
+then on, every bet page they open is kept under their name: a player's or team's bets, a play
+tapped open on a game's page, a parlay. `/me` lists the games, each with its recap: every bet
+looked up, the price 45 minutes before kickoff, how it went and what $10 came back as, worked
+out again from the archive each time it is opened. A player's page also shows how earlier
+lookups of that player went, and the home page shows the recaps of games that just finished.
+Only the owner signed in sees any of it; the two users see none of it, and nothing from it is
+public. "Remove" takes a lookup out of a recap.
+
 ## Day to day
 
 | To | Run, from the `juju` folder |
@@ -56,6 +69,7 @@ then remembers it for 30 days.
 | Update to the latest code | `git pull && deploy/laptop/up.sh` |
 | See the logs | `docker compose -f deploy/laptop/docker-compose.yml logs -f web api worker` |
 | Change the passcode | edit `SITE_PASSCODE` in `deploy/laptop/.env`, then `deploy/laptop/up.sh` (everyone enters the new one) |
+| Change an owner's passcode | edit that owner's `name:passcode` in the `TRACKER_USERS` line of `deploy/laptop/.env`, then `deploy/laptop/up.sh` (only that owner signs in again) |
 | Take it off the internet | `sudo tailscale funnel --https=443 http://127.0.0.1:3000 off` (it keeps running on this machine; `tailscale funnel status` shows what's online) |
 | Stop it | `docker compose -f deploy/laptop/docker-compose.yml down` (keeps the data) |
 | Back up the database | `docker compose -f deploy/laptop/docker-compose.yml exec -T db pg_dump -U juju juju \| gzip > juju-$(date +%F).sql.gz` |

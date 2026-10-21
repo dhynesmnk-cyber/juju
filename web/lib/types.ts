@@ -196,3 +196,105 @@ export interface ParlayView {
   notes: string[];
   disclaimer: string;
 }
+
+// The owners' own section (/api/me): the bet pages each opened, worked out again when read.
+// A recap's price is the one its page shows, with no other book (docs/licensing.md).
+export interface RecapPrice {
+  american: number;
+  book_name: string;
+  minutes_before_kickoff: number;
+  timing: "on_time" | "early";
+}
+
+export interface RecapBet {
+  key: string;
+  label: string;
+  bet: string;
+  line: string | null;
+  outcome: Outcome;
+  outcome_text: string;
+  headline: string;
+  current: string | null;
+  needed: string | null;
+  price: RecapPrice | null;
+  no_price: string | null;
+  verified: boolean;
+  decided_by: Card["decided_by"];
+  notes: string[];
+  back: string | null;  // what $10 came back as, once settled
+}
+
+export interface RecapParlay {
+  outcome: Outcome;
+  outcome_text: string;
+  headline: string;
+  book_name: string | null;
+  priced: boolean;
+  back: string | null;
+  legs: { key: string; kind: "player" | "team"; id: string; who: string; bet: string;
+          outcome: Outcome; outcome_text: string; price: RecapPrice | null;
+          no_price: string | null }[];
+}
+
+/** A bet page as it was opened: what /api/me/lookups saves. */
+export interface Remembered {
+  kind: "player" | "team" | "parlay";
+  game_id: number;
+  target: string;  // an athlete id, a team id, or a parlay's legs
+  play?: string | null;
+  market?: string | null;
+  threshold?: string | null;
+  yards?: number | null;
+  expect?: boolean;
+  play_id?: number | null;
+}
+
+export interface RecapLookup extends Remembered {
+  id: number;
+  times: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  who: string | null;
+  asked: string | null;
+  bets: RecapBet[];
+  parlay: RecapParlay | null;
+  unpriced: number;
+  no_price: string | null;
+}
+
+export interface RecapTotals {
+  bets: number;
+  won: number;
+  lost: number;
+  stake_back: number;
+  open: number;
+  unpriced: number;
+  staked: string;
+  back: string;
+}
+
+export type RecapState = "pregame" | "in_play" | "final" | "checked" | "off";
+
+export interface Recap {
+  game: GameView;
+  state: RecapState;
+  totals: RecapTotals;
+  lookups: RecapLookup[];
+}
+
+export interface RecapGame {
+  game: GameView;
+  state: RecapState;
+  lookups: number;
+  last_seen_at: string;
+  totals?: RecapTotals;
+}
+
+export interface History {
+  kind: "player" | "team";
+  id: string;
+  name: string | null;
+  games: { game: GameView; state: RecapState; bets: RecapBet[]; unpriced: number;
+           lookup_ids: number[] }[];
+  totals: RecapTotals;
+}

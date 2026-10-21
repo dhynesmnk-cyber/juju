@@ -1,12 +1,15 @@
 import LiveNow from "@/components/LiveNow";
+import MyRecaps from "@/components/MyRecaps";
 import SearchBox from "@/components/SearchBox";
 import { backendGet } from "@/lib/backend";
+import { currentOwner } from "@/lib/me";
 import type { LiveResponse } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const live = await backendGet<LiveResponse>("/api/live");
+  const owner = await currentOwner();
   return (
     <>
       <p className="tagline">
@@ -14,6 +17,7 @@ export default async function Home() {
         kickoff</strong> would have paid, at the real price.
       </p>
       <SearchBox />
+      {owner && <MyRecaps />}
       <LiveNow initial={live} />
     </>
   );

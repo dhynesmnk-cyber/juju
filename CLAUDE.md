@@ -41,9 +41,13 @@ for any live HTTP call through the proxy.
 - **Requests from users never reach a data provider** (ESPN, The Odds API, nflverse). Only the
   worker does. The optional LLM fallback is the one outbound call the API makes.
 - **Licensing** (docs/licensing.md): no endpoint may list prices across players or games, or
-  export raw odds. The one exception, the owner's call on 2026-09-30: a same-game parlay card
-  shows the price of each of the 2 to 6 legs someone picked, in one game, at one book (never
-  the other books). The backend has no public address.
+  export raw odds. Two exceptions, both the owner's calls:
+  - 2026-09-30: a same-game parlay card shows the price of each of the 2 to 6 legs someone
+    picked, in one game, at one book (never the other books).
+  - 2026-10-17: an owner's own recaps and history under `/me` (`api/me.py`), behind their own
+    sign-in, never cached or shared.
+
+  The backend has no public address.
 - **Secrets:** never print, log or commit API keys. `Settings` holds them as `SecretStr`. httpx
   loggers stay at WARNING, because the Odds API key is a query parameter.
 - **Tests:** no test uses the network (`tests/conftest.py` blocks it); use `tests/fixtures/`.
@@ -51,7 +55,8 @@ for any live HTTP call through the proxy.
 - **Ported files** keep their `Ported from parlaytracker@c3bd43c …` header. Say what changed.
 - **Migrations:** after a new Alembic migration, read the generated file and run
   `tests/db/test_migrations.py`.
-- **The tracker:** slips and legs are written only through `juju/tracker/services.py`. Services
+- **The tracker:** slips and legs are written only through `juju/tracker/services.py`, and the
+  owners' saved lookups only through `juju/tracker/saved.py`. Services
   flush; callers commit. Its data never reaches a public response, a share image or
   `/api/status`.
 - **Workers:** exactly one worker runs (Postgres advisory lock), and it never scales to zero.

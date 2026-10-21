@@ -65,3 +65,32 @@ export function quarter(period: number | null): string {
   if (period <= 4) return `Q${period}`;
   return period === 5 ? "OT" : `${period - 4}OT`;
 }
+
+/** "4 bets: 3 won, 1 lost. $10 on each settled bet: $40.00 in, $52.10 back." Each bet once,
+ *  however many lookups showed it; the money counts only settled bets. */
+export function totalsLine(t: {
+  bets: number; won: number; lost: number; stake_back: number; open: number; unpriced: number;
+  staked: string; back: string;
+}): string {
+  if (t.bets === 0) {
+    return t.unpriced ? "No price on file for the bets you looked up." : "No bets to count yet.";
+  }
+  const parts = [[t.won, "won"], [t.lost, "lost"], [t.stake_back, "stake back"],
+                 [t.open, "not settled yet"]]
+    .filter(([n]) => n).map(([n, what]) => `${n} ${what}`);
+  let line = `${t.bets} ${t.bets === 1 ? "bet" : "bets"}: ${parts.join(", ")}.`;
+  if (t.won + t.lost + t.stake_back > 0) {
+    line += ` $10 on each settled bet: $${t.staked} in, $${t.back} back.`;
+  }
+  if (t.unpriced) line += ` ${t.unpriced} more had no price on file.`;
+  return line;
+}
+
+/** A game as a short score line: "PHI 7 – 27 CHI", or "PHI @ CHI" before it starts. */
+export function scoreline(g: {
+  label: string; away: { abbr: string | null; name: string; score: number | null };
+  home: { abbr: string | null; name: string; score: number | null };
+}): string {
+  if (g.away.score === null || g.home.score === null) return g.label;
+  return `${g.away.abbr ?? g.away.name} ${g.away.score} – ${g.home.score} ${g.home.abbr ?? g.home.name}`;
+}

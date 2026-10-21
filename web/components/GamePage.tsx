@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import LocalTime from "@/components/LocalTime";
-import { TONE } from "@/components/ResultCard";
+import MiniCard from "@/components/MiniCard";
 import Jujus from "@/components/world/Jujus";
 import WorldStage from "@/components/world/WorldStage";
-import { american, quarter, secondsAgo } from "@/lib/format";
+import { quarter, secondsAgo } from "@/lib/format";
 import { resultHref } from "@/lib/links";
-import type { Card, GamePageView, GamePlay, PlayerView, TeamView } from "@/lib/types";
+import { remember as rememberLookup } from "@/lib/remember";
+import type { GamePageView, GamePlay, PlayerView, TeamView } from "@/lib/types";
 
 const IN_PLAY = new Set(["in_progress", "break", "delayed"]);
 type Tab = "plays" | "players" | "lines";
@@ -44,31 +45,6 @@ function quarterName(period: number | null): string {
   return period === 5 ? "Overtime" : `${period - 4}OT`;
 }
 
-function MiniCard({ c }: { c: Card }) {
-  const [tone, icon] = TONE[c.outcome];
-  const cashed = c.outcome === "locked" || c.outcome === "won";
-  const p = c.price;
-  return (
-    <article className={`mini-card${cashed ? " cashed" : ""}`} aria-label={`${c.label}: ${c.outcome_text}`}>
-      <div className="mini-top">
-        <span className="muted">{c.bet}</span>
-        <span className={`status-chip ${tone}`}><span aria-hidden="true">{icon}</span> {c.outcome_text}</span>
-      </div>
-      <div className="headline">{c.headline}</div>
-      {c.outcome === "live" && c.current !== null && c.needed !== null && (
-        <div className="detail">{Number(c.current)} so far. Needs {Number(c.needed)} more.</div>
-      )}
-      {p && (
-        <div className="detail">
-          {american(p.american)} at {p.book_name}, {p.minutes_before_kickoff} min before kickoff
-          {p.timing !== "on_time" && <span className="flag"> (earlier than usual)</span>}
-        </div>
-      )}
-      <p className="hypo-line">Hypothetical. Juju is not a sportsbook.</p>
-    </article>
-  );
-}
-
 /** What a play paid: the priced bets it touched (two at most), and the way to the rest. */
 function MiniAnswer({ gameId, play, answer }: { gameId: number; play: GamePlay; answer: Answer | null }) {
   const t = target(play);
@@ -101,8 +77,11 @@ function MiniAnswer({ gameId, play, answer }: { gameId: number; play: GamePlay; 
 }
 
 /** One game (docs/plans/live-test-fixes.md, direction B): its plays on a timeline, newest
- *  first, each opening what it paid in place; its players; its game lines. */
-export default function GamePage({ initial }: { initial: GamePageView }) {
+ *  first, each opening what it paid in place; its players; its game lines. `remember`: a
+ *  signed-in owner, whose opened plays are saved for their recap. */
+export default function GamePage({ initial, remember = false }: {
+  initial: GamePageView; remember?: boolean;
+}) {
   const [g, setG] = useState(initial);
   const [tab, setTab] = useState<Tab>("plays");
   const [open, setOpen] = useState<number | null>(null);
@@ -139,11 +118,12 @@ export default function GamePage({ initial }: { initial: GamePageView }) {
       const r = await fetch(`/api/${t.kind}/${g.id}/${t.id}?play_id=${p.id}`);
       if (!r.ok) throw new Error();
       next = { playId: p.id, view: await r.json(), failed: false };
+      if (remember) rememberLookup({ kind: t.kind, game_id: g.id, target: t.id, play_id: p.id });
     } catch {
       next = { playId: p.id, view: null, failed: true };
     }
     if (wanted.current === p.id) setAnswer(next);  // a later tap wins over a slow answer
-  }, [g.id]);
+  }, [g.id, remember]);
 
   const onTabKey = (e: KeyboardEvent<HTMLButtonElement>) => {
     const i = TABS.findIndex(([t]) => t === tab);

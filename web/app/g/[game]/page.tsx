@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import GamePage from "@/components/GamePage";
 import { backendPage } from "@/lib/backend";
+import { currentOwner } from "@/lib/me";
 import type { GamePageView } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -25,5 +26,5 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 export default async function Game(props: Props) {
   const g = await load(props);
   if (!g) notFound();
-  return <GamePage initial={g} />;
+  return <GamePage initial={g} remember={(await currentOwner()) !== null} />;
 }

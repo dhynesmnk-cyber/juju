@@ -1,4 +1,5 @@
 """Settings: the only place environment variables are read. Keys are SecretStr, never logged."""
+import re
 from functools import lru_cache
 from typing import Annotated
 
@@ -19,6 +20,25 @@ def normalize_database_url(url: str) -> str:
         if url.startswith(prefix):
             return "postgresql+psycopg://" + url.removeprefix(prefix)
     return url
+
+
+OWNER_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+OWNER_PASSCODE = re.compile(r"[A-Za-z0-9._-]{10,200}")  # the site passcode's rule (up.sh)
+
+
+def parse_tracker_users(text: str) -> dict[str, str]:
+    """"name:passcode,name:passcode" (web/lib/trackerPass.ts reads the same). The error never
+    repeats the text: it holds the passcodes."""
+    users: dict[str, str] = {}
+    for pair in text.split(","):
+        name, sep, code = pair.strip().partition(":")
+        if not (sep and OWNER_NAME.fullmatch(name) and OWNER_PASSCODE.fullmatch(code)
+                and name not in users):
+            raise ValueError("TRACKER_USERS must be name:passcode pairs, separated by commas: "
+                             "a lowercase name, and a passcode of 10 or more letters, digits, "
+                             "- _ or .")
+        users[name] = code
+    return users
 
 
 class Settings(BaseSettings):
@@ -48,6 +68,9 @@ class Settings(BaseSettings):
     # ESPN event ids whose every response is kept in raw_samples, to replay a game in tests
     # (the tracker's `export-recording`). Comma-separated; empty records nothing.
     record_event_ids: Annotated[list[str], NoDecode] = []
+    # The owners' own sign-in (/me): "name:passcode,name:passcode". The site checks the
+    # passcodes; the API only needs the names. Unset: /api/me answers 404.
+    tracker_users: SecretStr | None = None
 
     @field_validator("database_url")
     @classmethod
@@ -82,9 +105,22 @@ class Settings(BaseSettings):
             raise ValueError("BOOKS must list 1 to 10 bookmaker keys (10 cost one region)")
         return v
 
+    @field_validator("tracker_users")
+    @classmethod
+    def _owner_pairs(cls, v: SecretStr | None) -> SecretStr | None:
+        if v is not None:
+            parse_tracker_users(v.get_secret_value())
+        return v
+
     @property
     def llm_enabled(self) -> bool:
         return self.llm_api_key is not None and bool(self.llm_model)
+
+    @property
+    def tracker_names(self) -> frozenset[str]:
+        if self.tracker_users is None:
+            return frozenset()
+        return frozenset(parse_tracker_users(self.tracker_users.get_secret_value()))
 
 
 @lru_cache

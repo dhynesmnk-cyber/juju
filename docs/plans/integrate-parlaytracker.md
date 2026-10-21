@@ -1,7 +1,9 @@
 # Plan: fold ParlayTracker into Juju as "Watch my parlays"
 
-**Status:** approved direction (owner, 2026-10-08). **Phases 1 and 2 are done** (see §10);
-Phases 3–6 are not started.
+**Status:** approved direction (owner, 2026-10-08). **Phases 1 and 2 are done** (see §10).
+Phase 3's sign-in is built (2026-10-17), for the owners' saved lookups and game recaps:
+`TRACKER_USERS`, the `juju_tracker` cookie, the `/me` gate, the `/api/me` door and router
+(`juju/api/me.py`). Its slip endpoints, and Phases 4–6, are not started.
 **Source:** `parlaytracker@c3bd43c`, its current HEAD and the commit Juju's ported files
 already cite.
 **Target:** `juju@ef6fa70` and onward.
@@ -379,6 +381,10 @@ closing-line captures off one key. Juju's `odds_api_reserve` default is 1000; PT
 | `/api/me/screenshot` | POST | multipart ≤8 MB → `prepare_image` → `Extractor` → `resolve_slip` → prefill JSON. 45 s upstream timeout; the tracker proxy route needs a longer `AbortSignal.timeout` than the public proxy's 8 s |
 | `/api/me/settings/tags`, `/sportsbooks` | GET/POST/PATCH | tag and book management via services |
 | `/api/me/health` | GET | `source_health` rows + heartbeat age, for the banner |
+| `/api/me/lookups` | POST | **built 2026-10-17:** save a bet page the owner opened (`tracker/saved.py`) |
+| `/api/me/lookups/{id}` | DELETE | **built:** remove one of the owner's lookups |
+| `/api/me/recaps[/{game}]` | GET | **built:** the owner's games, and one game's recap (`api/recaps.py`) |
+| `/api/me/history/{player\|team}/{id}` | GET | **built:** the owner's earlier lookups of one player or team |
 
 `/api/status` (public) stays as it is. It must not gain tracker data.
 

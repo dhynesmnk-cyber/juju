@@ -92,6 +92,25 @@ class Focus:
 NO_FOCUS = Focus()
 
 
+def parse_focus(play: str | None, market: str | None, threshold: str | None,
+                expect: bool, yards: int | None = None) -> Focus:
+    """A Focus from a page's query: anything that doesn't parse is left out, as the page
+    would."""
+    try:
+        kind = PlayKind(play) if play else None
+    except ValueError:
+        kind = None
+    try:
+        t = Decimal(threshold) if threshold else None
+        if t is not None and (t < 0 or t > 999 or (t * 2) % 1 != 0):
+            t = None
+    except ArithmeticError:
+        t = None
+    if yards is not None and not 0 < yards < 110:
+        yards = None
+    return Focus(kind, market, t, expect, yards)
+
+
 @dataclass
 class CardView:
     key: str

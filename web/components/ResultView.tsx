@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ParlayTray from "@/components/ParlayTray";
 import ResultCard from "@/components/ResultCard";
 import WorldStage from "@/components/world/WorldStage";
@@ -55,9 +55,10 @@ function parlayLeg(v: View, c: Card) {
   return { game: v.game.id, leg: { key, who, bet: c.bet } };
 }
 
-/** Shows the price straight away and keeps the status current: every 10 s until settled. */
-export default function ResultView({ initial: fromServer, apiPath, pagePath, pin }: {
-  initial: View; apiPath: string; pagePath: string; pin?: string;
+/** Shows the price straight away and keeps the status current: every 10 s until settled.
+ *  `aside`: what follows the cards for a signed-in owner (their history, components/MyHistory). */
+export default function ResultView({ initial: fromServer, apiPath, pagePath, pin, aside }: {
+  initial: View; apiPath: string; pagePath: string; pin?: string; aside?: ReactNode;
 }) {
   const initial = useMemo(() => pinned(fromServer, pin), [fromServer, pin]);
   const [view, setView] = useState<View>(initial);
@@ -174,6 +175,7 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
           </section>
         )}
       </div>
+      {aside}
       <ParlayTray game={view.game.id} />
       <p><Link className="back" href="/">← Look up another play</Link></p>
     </>
