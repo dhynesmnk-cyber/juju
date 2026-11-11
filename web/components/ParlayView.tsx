@@ -2,17 +2,20 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import CountUp from "@/components/CountUp";
-import { TONE } from "@/components/ResultCard";
+import Payout, { payoutText } from "@/components/Payout";
+import RoundRobin from "@/components/RoundRobin";
+import ShareButton from "@/components/ShareButton";
+import StatusChip, { CASHED, TONE } from "@/components/StatusChip";
 import WorldStage from "@/components/world/WorldStage";
 import { worldFor } from "@/components/world/worlds";
 import { american } from "@/lib/format";
+import { gameHref } from "@/lib/links";
 import { legCardHref } from "@/lib/parlayTray";
 import type { Outcome, ParlayLeg, ParlayView as View } from "@/lib/types";
 
 const SETTLED = new Set<Outcome>(["won", "lost", "push", "void", "no_stat_line"]);
 
-/** Each leg is a light in the sky: lit once it has cashed, out once it has lost. */
+/** Each leg is a light: lit once it has cashed, out once it has lost. */
 function light(o: Outcome): string {
   if (o === "locked" || o === "won") return "lit";
   if (o === "lost" || o === "gone") return "out";
@@ -28,9 +31,11 @@ function progress(leg: ParlayLeg): string | null {
   return `${Number(leg.current)} so far`;
 }
 
-/** The parlay card: the price at once, the status every 10 s until it settles. The gold
- *  shockwave fires only when every leg is lit. */
-export default function ParlayView({ initial, apiPath }: { initial: View; apiPath: string }) {
+/** The parlay as a ticket: the price at once, the status every 10 s until it settles. The gold
+ *  shockwave fires only when every leg is lit. `sharePath`: this parlay's own address. */
+export default function ParlayView({ initial, apiPath, sharePath }: {
+  initial: View; apiPath: string; sharePath: string;
+}) {
   const [view, setView] = useState<View>(initial);
   const [offline, setOffline] = useState(false);
   const [shockAt, setShockAt] = useState<number | null>(null);
@@ -53,7 +58,7 @@ export default function ParlayView({ initial, apiPath }: { initial: View; apiPat
         if (!r.ok) throw new Error();
         const next: View = await r.json();
         if (next.outcome !== previous.current) {
-          setAnnounce(`Parlay: ${next.outcome_text}. ${next.headline}`);
+          setAnnounce(`Parlay: ${next.outcome_text}. ${payoutText(next)}`);
           if (next.outcome === "locked") setShockAt(Date.now());
         }
         previous.current = next.outcome;
@@ -70,8 +75,7 @@ export default function ParlayView({ initial, apiPath }: { initial: View; apiPat
   const score = g.home.score !== null && g.away.score !== null
     ? `${g.away.abbr ?? g.away.name} ${g.away.score} – ${g.home.score} ${g.home.abbr ?? g.home.name}`
     : g.label;
-  const [tone, icon] = TONE[view.outcome];
-  const cashed = view.outcome === "locked" || view.outcome === "won";
+  const cashed = CASHED.has(view.outcome);
   const lit = view.legs.filter((l) => light(l.outcome) === "lit").length;
   return (
     <>
@@ -79,45 +83,51 @@ export default function ParlayView({ initial, apiPath }: { initial: View; apiPat
                   shockFrom={shockFrom} />
       <div className="sr-only" aria-live="polite">{announce}</div>
       <div className="result-head">
+        <Link className="pill" href={gameHref(g.id)}>
+          <span aria-hidden="true">‹</span> {g.away.abbr ?? g.away.name} @ {g.home.abbr ?? g.home.name}, every play
+        </Link>
         <h1>Same-game parlay</h1>
-        <div className="sub">{[score, g.status_text].filter(Boolean).join(" · ")}</div>
-        {offline && <div className="fresh red" role="alert">Can&apos;t refresh right now. Retrying.</div>}
+        <div className="scorebug">
+          <span>{[score, g.status_text].filter(Boolean).join(" · ")}</span>
+          {offline && <span className="fresh red" role="alert">Can&apos;t refresh right now. Retrying.</span>}
+        </div>
       </div>
-      <ol className="sky" aria-label={`${lit} of ${view.legs.length} legs cashed`}>
-        {view.legs.map((l) => (
-          <li key={l.key} className={`light ${light(l.outcome)}`} title={`${l.who}: ${l.outcome_text}`} />
-        ))}
-      </ol>
-      <article id="parlay-card" className={`card${cashed ? " cashed" : ""}`}
+      <article id="parlay-card"
+               className={`ticket tone-${TONE[view.outcome][0]}${cashed ? " cashed" : ""}`}
                aria-label={`Parlay: ${view.outcome_text}`}>
-        <div className="label">
-          {view.legs.length} legs{view.book_name ? ` · ${view.book_name}` : ""}
-        </div>
-        <span className={`status-chip ${tone}`}>
-          <span aria-hidden="true">{icon}</span> {view.outcome_text}
-        </span>
-        <div className="headline">
-          {cashed && view.returns ? <CountUp to={view.returns} run /> : view.headline}
-        </div>
-        {view.fair_returns && (
-          <div className="fair">Without the books&apos; margins: $10 → ${view.fair_returns}.</div>
-        )}
-        <ol className="legs">
-          {view.legs.map((l) => {
-            const [legTone, legIcon] = TONE[l.outcome];
-            return (
+        <div className="ticket-body">
+          <div className="ticket-top">
+            <span className="eyebrow">
+              {view.legs.length} legs{view.book_name ? ` · ${view.book_name}` : ""}
+            </span>
+            <StatusChip outcome={view.outcome} text={view.outcome_text} />
+          </div>
+          <ol className="lights" aria-label={`${lit} of ${view.legs.length} legs cashed`}>
+            {view.legs.map((l) => (
+              <li key={l.key} className={`light ${light(l.outcome)}`} title={`${l.who}: ${l.outcome_text}`} />
+            ))}
+          </ol>
+          {view.returns
+            ? <Payout outcome={view.outcome} back={view.back} returns={view.returns}
+                      count={cashed ? true : undefined} />
+            : <p className="payout none">{view.headline}</p>}
+          {view.fair_returns && (
+            <p className="ticket-detail">Without the books&apos; margins: $10 → ${view.fair_returns}.</p>
+          )}
+          <ol className="legs">
+            {view.legs.map((l) => (
               <li key={l.key}>
-                <div>
-                  <Link href={legCardHref(g.id, l.key)}>{l.who}</Link>: {l.bet}
+                <div className="leg-main">
+                  <span>
+                    <Link href={legCardHref(g.id, l.key)}>{l.who}</Link>: {l.bet}
+                  </span>
+                  <StatusChip outcome={l.outcome} text={l.outcome_text} />
                 </div>
-                <span className={`status-chip ${legTone}`}>
-                  <span aria-hidden="true">{legIcon}</span> {l.outcome_text}
-                </span>
-                {progress(l) && <div className="detail">{progress(l)}</div>}
-                <div className="detail">
+                {progress(l) && <p className="ticket-detail">{progress(l)}</p>}
+                <p className="ticket-price">
                   {l.price ? (
                     <>
-                      {american(l.price.american)} at {l.price.book_name}
+                      <span className="num">{american(l.price.american)}</span> at {l.price.book_name}
                       {l.price.point !== null && l.line !== null && l.price.point !== l.line
                         ? ` (line ${l.price.point})` : ""}
                       {`, ${l.price.minutes_before_kickoff} min before kickoff`}
@@ -125,16 +135,26 @@ export default function ParlayView({ initial, apiPath }: { initial: View; apiPat
                         && <span className="flag"> (earlier than usual)</span>}
                     </>
                   ) : l.no_price}
-                </div>
+                </p>
               </li>
-            );
-          })}
-        </ol>
-        <ul className="notes">{view.notes.map((n) => <li key={n}>{n}</li>)}</ul>
+            ))}
+          </ol>
+          <ul className="sgp-notes">{view.notes.map((n) => <li key={n}>{n}</li>)}</ul>
+        </div>
+        <div className="ticket-tear" aria-hidden="true" />
+        <div className="ticket-stub">
+          {view.returns && (
+            <div className="ticket-actions">
+              <ShareButton path={sharePath}
+                           text={`${view.legs.length}-leg parlay: ${payoutText(view)} (hypothetical)`} />
+            </div>
+          )}
+          <p className="hypo-line">Tap a name for that bet&apos;s own card, with the other books&apos; prices.</p>
+          <p className="hypo-line">{view.disclaimer}</p>
+        </div>
       </article>
-      <p className="hint">Tap a name for that bet&apos;s own card, with the other books&apos; prices.</p>
-      <p className="hint hypo">{view.disclaimer}</p>
-      <p><Link href={`/`}>← Look up another play</Link></p>
+      <RoundRobin view={view} />
+      <p><Link className="pill" href="/"><span aria-hidden="true">←</span> Look up another play</Link></p>
     </>
   );
 }

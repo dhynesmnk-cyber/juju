@@ -1,6 +1,6 @@
 // The parlay tray: the legs someone has picked for one game, kept in their own browser only
 // (a per-viewer convenience: nothing is sent anywhere until they open the parlay).
-import type { Card } from "./types";
+import type { Card } from "./types.ts";
 
 export interface TrayLeg { key: string; who: string; bet: string }
 
@@ -43,6 +43,22 @@ export function toggleLeg(game: number, leg: TrayLeg): TrayLeg[] {
 
 export function clearTray(game: number): void {
   write(game, []);
+}
+
+/** Put exactly these legs in the tray: a quick pick, which is a ticket of its own. */
+export function fillTray(game: number, legs: TrayLeg[]): void {
+  write(game, legs.slice(0, MAX_LEGS));
+}
+
+export function removeLeg(game: number, key: string): TrayLeg[] {
+  const next = readTray(game).filter((l) => l.key !== key);
+  write(game, next);
+  return next;
+}
+
+/** The tray's legs as the parlay URL writes them. */
+export function legsParam(legs: TrayLeg[]): string {
+  return legs.map((l) => l.key).join(",");
 }
 
 /** A card's leg, as the parlay URL writes it; null for a card that can't be a leg. */

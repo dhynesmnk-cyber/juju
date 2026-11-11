@@ -17,9 +17,10 @@ test("the price is in the server's HTML, before any world code runs", async ({ r
   const html = await (await request.get(CASHED)).text();
   const text = html.replace(/<!-- -->/g, "");
   expect(text).toContain("Over 73.5 rush yards");
-  expect(text).toContain("-112 at DraftKings");
+  expect(text.replace(/<[^>]+>/g, "")).toContain("-112 at DraftKings");
+  expect(text).toContain("$10 would have returned");
   // The server sends the real payout, never the count-up's starting value.
-  expect(text).toMatch(/<span class="count" data-final="18.93">\$10 → \$18\.93<\/span>/);
+  expect(text).toMatch(/<span class="count payout-amount" data-final="18.93">\$18\.93<\/span>/);
 });
 
 test("a cashed card: gold world, jumping Jujus, count-up lands on the exact number", async ({ page }) => {
@@ -28,7 +29,7 @@ test("a cashed card: gold world, jumping Jujus, count-up lands on the exact numb
   await expect(page.locator(".world")).toHaveAttribute("data-world", "cash");
   await expect(page.locator("#first-card").locator("..").locator(".crew")).toHaveAttribute("data-mood", "joy");
   const count = page.locator("#first-card .count");
-  await expect(count).toHaveText("$10 → $18.93", { timeout: 3000 });
+  await expect(count).toHaveText("$18.93", { timeout: 3000 });
   await expect(count).toHaveAttribute("data-final", "18.93");
   await expect(page.getByText(/Hypothetical/).first()).toBeVisible();
 });
@@ -52,7 +53,7 @@ test.describe("reduced motion", () => {
   test("shows the final number at once and keeps the Jujus still", async ({ page }) => {
     await pastAgeGate(page);
     await page.goto(CASHED);
-    await expect(page.locator("#first-card .count")).toHaveText("$10 → $18.93", { timeout: 500 });
+    await expect(page.locator("#first-card .count")).toHaveText("$18.93", { timeout: 500 });
     const moving = await page.locator(".crew .j").first().evaluate(
       (el) => getComputedStyle(el).animationName);
     expect(moving).toBe("none");

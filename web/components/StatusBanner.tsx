@@ -27,5 +27,10 @@ export default function StatusBanner({ initial }: { initial: string | null }) {
     return () => { alive = false; clearInterval(t); };
   }, []);
   if (!message) return null;
-  return <div className="banner" role="status">{message}</div>;
+  return (
+    <div className="banner" role="status">
+      <span className="banner-icon" aria-hidden="true">!</span>
+      <span>{message}</span>
+    </div>
+  );
 }

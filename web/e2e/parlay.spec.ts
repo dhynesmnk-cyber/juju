@@ -27,13 +27,17 @@ test("build a parlay from two cards: two lights lit, and it has cashed", async (
   await expect(rush.getByRole("button", { name: "In parlay" })).toHaveAttribute(
     "aria-pressed", "true");
   const tray = page.getByRole("complementary", { name: "Parlay" });
-  await expect(tray).toContainText("Parlay: 1 leg");
+  await expect(tray).toContainText("Parlay · 1 leg");
+  await expect(tray).toContainText("Add one more leg");
 
   await openPlayer(page, "devonta", /DeVonta Smith/, "DeVonta Smith");
   await page.getByRole("article", { name: /^Receptions/ })
     .getByRole("button", { name: "Add to parlay" }).click();
-  await expect(tray).toContainText("Parlay: 2 legs");
-  await tray.getByRole("link", { name: "See the parlay" }).click();
+  await expect(tray).toContainText("Parlay · 2 legs · DraftKings");
+  // The bar already has the combined payout, and the note every parlay carries.
+  await expect(tray.locator(".slip-amount")).toContainText(/^\$\d+\.\d\d$/);
+  await expect(tray).toContainText(/Books adjust same-game parlays for correlation/);
+  await tray.getByRole("link", { name: "See what it would have paid" }).click();
 
   await expect(page.getByRole("heading", { name: "Same-game parlay" })).toBeVisible();
   await expect(page.getByRole("list", { name: "2 of 2 legs cashed" })).toBeVisible();
@@ -45,7 +49,7 @@ test("build a parlay from two cards: two lights lit, and it has cashed", async (
   await expect(card).toContainText("-112 at DraftKings");  // Barkley, over 73.5 rush yards
   await expect(card).toContainText("-120 at DraftKings");  // Smith, over 5.5 receptions
   await expect(card).toContainText(/Books adjust same-game parlays for correlation/);
-  await expect(card).toContainText("$10 →");
+  await expect(card).toContainText("$10 would have returned");
   // Each leg's own price is on its card, one tap away.
   await card.getByRole("link", { name: "Saquon Barkley" }).click();
   await expect(page.getByRole("article").first()).toHaveAccessibleName(/^Rush yards/);

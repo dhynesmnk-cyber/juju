@@ -40,7 +40,8 @@ test("typeahead goes straight to a player", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Saquon Barkley" })).toBeVisible();
   const rush = page.getByRole("article", { name: /Rush yards/ });
   await expect(rush).toContainText("Over 73.5 rush yards");
-  await expect(rush).toContainText("$10 → $18.93");
+  await expect(rush).toContainText("$10 would have returned");
+  await expect(rush.locator(".payout-amount")).toHaveText("$18.93");
   await expect(rush).toContainText("Cashed, if the play stands");
   await expect(rush).toContainText(/Without the book's margin/);
 });

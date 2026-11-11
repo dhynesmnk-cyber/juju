@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-/** Share one card: the phone's share sheet where there is one, else copy the link. The link
- *  opens the page with that card first, and its preview is the card's share image. */
+/** Share one card or one parlay: the phone's share sheet where there is one, else copy the
+ *  link. The link opens the page with that card first, and its preview is its share image. */
 export default function ShareButton({ path, text }: { path: string; text: string }) {
   const [said, setSaid] = useState<string | null>(null);
   useEffect(() => {  // the note goes after a moment, so a second share says it again
@@ -26,10 +26,10 @@ export default function ShareButton({ path, text }: { path: string; text: string
   }
   return (
     <>
-      <button type="button" className="share" onClick={share}>
+      <button type="button" className="chip-button" onClick={share}>
         <span aria-hidden="true">↗</span> Share
       </button>
-      <span className="muted" role="status">{said}</span>
+      <span className="said" role="status">{said}</span>
     </>
   );
 }

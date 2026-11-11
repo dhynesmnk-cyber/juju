@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-/** "$10 → $19.52", counting up from $10 when `run` is set. It only ever counts towards the
+/** A cashed payout, counting up from $10 when `run` is set. It only ever counts towards the
  *  number the API sent, and always ends exactly on it. The server renders the final number
  *  (so the page is right without JavaScript); the count runs in the browser only. Reduced
  *  motion shows the final number at once. */
@@ -28,5 +28,5 @@ export default function CountUp({ to, run }: { to: string; run: boolean }) {
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
   }, [run, target, to]);
-  return <span className="count" data-final={to}>$10 → ${shown}</span>;
+  return <span className="count payout-amount" data-final={to}>${shown}</span>;
 }

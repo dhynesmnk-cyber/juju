@@ -1,19 +1,15 @@
-import CountUp from "@/components/CountUp";
+import LocalTime from "@/components/LocalTime";
 import ParlayButton from "@/components/ParlayButton";
+import Payout, { payoutText } from "@/components/Payout";
 import ShareButton from "@/components/ShareButton";
+import StatusChip, { CASHED, TONE } from "@/components/StatusChip";
 import Jujus from "@/components/world/Jujus";
 import type { Mood } from "@/components/world/worlds";
-import LocalTime from "@/components/LocalTime";
 import { american, quarter } from "@/lib/format";
 import type { TrayLeg } from "@/lib/parlayTray";
-import type { Card, Outcome } from "@/lib/types";
+import type { Card } from "@/lib/types";
 
-export const TONE: Record<Outcome, [string, string]> = {
-  won: ["good", "✓"], locked: ["good", "✓"], lost: ["bad", "✕"], gone: ["bad", "✕"],
-  live: ["live", "●"], waiting_for_feed: ["live", "…"], pregame: ["neutral", "◷"],
-  push: ["neutral", "="], void: ["neutral", "="], no_stat_line: ["neutral", "–"],
-  untracked: ["neutral", "–"], unavailable: ["neutral", "!"],
-};
+export { TONE };
 
 function decidedBy(d: NonNullable<Card["decided_by"]>): string {
   const when = [quarter(d.period), d.clock].filter(Boolean).join(" ");
@@ -39,85 +35,87 @@ function splitNotes(notes: string[]): [string[], string[]] {
   return [shown, notes.filter((n) => !shown.includes(n))];
 }
 
-/** One bet: what it was, where it stands, and what $10 paid at the price 45 minutes before
- *  kickoff. The rest (other books, the price without the book's margin, when it was priced,
- *  the next-day check) is one tap away, in Details. */
+/** One bet as a ticket: what it was, where it stands, and, loudest, what $10 came back as at
+ *  the price 45 minutes before kickoff, with the book named. Under the tear line: Share, Add
+ *  to parlay, and Details (the other books, the price without the book's margin, when it was
+ *  priced, the next-day check). */
 export default function ResultCard({ card, changed, crew, countUp, id, sharePath, parlay }: {
   card: Card; changed?: boolean; crew?: Mood; countUp?: boolean; id?: string; sharePath?: string;
   parlay?: { game: number; leg: TrayLeg };
 }) {
-  const [tone, icon] = TONE[card.outcome];
   const p = card.price;
   const detail = progress(card);
-  const cashed = !!p && (card.outcome === "locked" || card.outcome === "won");
+  const cashed = !!p && CASHED.has(card.outcome);
   const [shownNotes, moreNotes] = splitNotes(card.notes);
   const article = (
     <article id={id}
-             className={`card${card.touched ? " touched" : ""}${changed ? " changed" : ""}${cashed ? " cashed" : ""}`}
+             className={`ticket tone-${TONE[card.outcome][0]}${card.touched ? " touched" : ""}${changed ? " changed" : ""}${cashed ? " cashed" : ""}`}
              aria-label={`${card.label}: ${card.outcome_text}`}>
-      <div className="card-top">
-        <div className="label">{card.label}</div>
-        <span className={`status-chip ${tone}`}>
-          <span aria-hidden="true">{icon}</span> {card.outcome_text}
-        </span>
-      </div>
-      <div className="bet">{card.bet}</div>
-      <div className="headline">
-        {cashed && card.returns ? <CountUp to={card.returns} run={!!countUp} /> : card.headline}
-      </div>
-      {detail && <div className="detail">{detail}</div>}
-      {card.decided_by && <div className="decided">{decidedBy(card.decided_by)}</div>}
-      {p ? (
-        <div className="detail">
-          {american(p.american)} at {p.book_name}
-          {p.point !== null && card.line !== null && p.point !== card.line ? ` (line ${p.point})` : ""}
-          {`, ${p.minutes_before_kickoff} min before kickoff`}
-          {p.timing !== "on_time" && <span className="flag"> (earlier than usual)</span>}
+      <div className="ticket-body">
+        <div className="ticket-top">
+          <span className="eyebrow">{card.label}</span>
+          <StatusChip outcome={card.outcome} text={card.outcome_text} />
         </div>
-      ) : (
-        <div className="detail">{card.no_price}</div>
-      )}
-      {shownNotes.length > 0 && <ul className="notes">{shownNotes.map((n) => <li key={n}>{n}</li>)}</ul>}
-      {p && (sharePath || parlay) && (
-        <div className="share-row">
-          {sharePath && (
-            <ShareButton path={sharePath} text={`${card.bet}: ${card.headline} (hypothetical)`} />
-          )}
-          {parlay && <ParlayButton game={parlay.game} leg={parlay.leg} />}
-        </div>
-      )}
-      {p && (
-        <details className="more">
-          <summary>Details</summary>
-          <dl>
-            {card.others.length > 0 && (
-              <>
-                <dt>Other books</dt>
-                <dd>{card.others.map((o) => `${o.book_name} ${american(o.american)}${o.point && o.point !== card.line ? ` (${o.point})` : ""}`).join(" · ")}</dd>
-              </>
+        <p className="ticket-bet">{card.bet}</p>
+        <Payout outcome={card.outcome} back={card.back} returns={card.returns}
+                count={cashed ? !!countUp : undefined} />
+        {p ? (
+          <p className="ticket-price">
+            <span className="num">{american(p.american)}</span> at {p.book_name}
+            {p.point !== null && card.line !== null && p.point !== card.line ? ` (line ${p.point})` : ""}
+            {`, ${p.minutes_before_kickoff} min before kickoff`}
+            {p.timing !== "on_time" && <span className="flag"> (earlier than usual)</span>}
+          </p>
+        ) : (
+          <p className="ticket-price">{card.no_price}</p>
+        )}
+        {detail && <p className="ticket-detail">{detail}</p>}
+        {card.decided_by && <p className="ticket-decided">{decidedBy(card.decided_by)}</p>}
+        {shownNotes.length > 0 && <ul className="notes">{shownNotes.map((n) => <li key={n}>{n}</li>)}</ul>}
+      </div>
+      <div className="ticket-tear" aria-hidden="true" />
+      <div className="ticket-stub">
+        {p && (sharePath || parlay) && (
+          <div className="ticket-actions">
+            {sharePath && (
+              <ShareButton path={sharePath} text={`${card.bet}: ${payoutText(card)} (hypothetical)`} />
             )}
-            {card.fair_returns && (
-              <>
-                <dt>Without the book&apos;s margin</dt>
-                <dd>
-                  $10 → ${card.fair_returns}
-                  {card.returns ? `. The margin cost $${(Number(card.fair_returns) - Number(card.returns)).toFixed(2)}.` : ""}
-                </dd>
-              </>
-            )}
-            {card.fair_note && (<><dt>Fair value</dt><dd>{card.fair_note}</dd></>)}
-            <dt>Priced</dt>
-            <dd>
-              <LocalTime iso={p.observed_at} />
-              {p.timing !== "on_time" ? ", the latest price Juju has before the 45-minute mark" : ""}
-              {p.source === "historical" ? ", from the odds vendor's history" : ""}
-            </dd>
-            {card.verified && (<><dt>Checked</dt><dd>The number matches the official stats.</dd></>)}
-          </dl>
-          {moreNotes.length > 0 && <ul className="notes">{moreNotes.map((n) => <li key={n}>{n}</li>)}</ul>}
-        </details>
-      )}
-      <p className="hypo-line">Hypothetical. Juju is not a sportsbook.</p>
+            {parlay && <ParlayButton game={parlay.game} leg={parlay.leg} />}
+          </div>
+        )}
+        {p && (
+          <details className="more">
+            <summary>Details</summary>
+            <dl>
+              {card.others.length > 0 && (
+                <>
+                  <dt>Other books</dt>
+                  <dd>{card.others.map((o) => `${o.book_name} ${american(o.american)}${o.point && o.point !== card.line ? ` (${o.point})` : ""}`).join(" · ")}</dd>
+                </>
+              )}
+              {card.fair_returns && (
+                <>
+                  <dt>Without the book&apos;s margin</dt>
+                  <dd>
+                    $10 → ${card.fair_returns}
+                    {card.returns ? `. The margin cost $${(Number(card.fair_returns) - Number(card.returns)).toFixed(2)}.` : ""}
+                  </dd>
+                </>
+              )}
+              {card.fair_note && (<><dt>Fair value</dt><dd>{card.fair_note}</dd></>)}
+              <dt>Priced</dt>
+              <dd>
+                <LocalTime iso={p.observed_at} />
+                {p.timing !== "on_time" ? ", the latest price Juju has before the 45-minute mark" : ""}
+                {p.source === "historical" ? ", from the odds vendor's history" : ""}
+              </dd>
+              {card.verified && (<><dt>Checked</dt><dd>The number matches the official stats.</dd></>)}
+            </dl>
+            {moreNotes.length > 0 && <ul className="notes">{moreNotes.map((n) => <li key={n}>{n}</li>)}</ul>}
+          </details>
+        )}
+        <p className="hypo-line">Hypothetical. Juju is not a sportsbook.</p>
+      </div>
     </article>
   );
   if (!crew) return article;

@@ -1,66 +1,70 @@
 import type { ReactNode } from "react";
-import { TONE } from "@/components/ResultCard";
+import Payout from "@/components/Payout";
+import StatusChip, { CASHED } from "@/components/StatusChip";
 import { american } from "@/lib/format";
 import type { Card, RecapParlay, RecapPrice } from "@/lib/types";
 
-type MiniCardData = Pick<Card, "label" | "bet" | "outcome" | "outcome_text" | "headline"
-  | "current" | "needed"> & { price: RecapPrice | null };
+type MiniCardData = Pick<Card, "label" | "bet" | "outcome" | "outcome_text" | "current"
+  | "needed" | "returns" | "back"> & { price: RecapPrice | null };
 
 function priceLine(p: RecapPrice) {
   return (
     <>
-      {american(p.american)} at {p.book_name}, {p.minutes_before_kickoff} min before kickoff
+      <span className="num">{american(p.american)}</span> at {p.book_name},{" "}
+      {p.minutes_before_kickoff} min before kickoff
       {p.timing !== "on_time" && <span className="flag"> (earlier than usual)</span>}
     </>
   );
 }
 
-/** A bet in a few lines: what it was, how it went, what $10 paid and at what price. A list of
- *  them (a recap) says "hypothetical" once, so `hypo` is off there. */
+/** A bet as a small ticket: what it was, how it went, what $10 came back as and at what price.
+ *  A list of them (a recap) says "hypothetical" once, so `hypo` is off there. `children`: what
+ *  goes under it (Add to parlay on a game's page; the deciding play in a recap). */
 export default function MiniCard({ c, hypo = true, children }: {
   c: MiniCardData; hypo?: boolean; children?: ReactNode;
 }) {
-  const [tone, icon] = TONE[c.outcome];
-  const cashed = c.outcome === "locked" || c.outcome === "won";
   return (
-    <article className={`mini-card${cashed ? " cashed" : ""}`} aria-label={`${c.label}: ${c.outcome_text}`}>
+    <article className={`mini-card${CASHED.has(c.outcome) ? " cashed" : ""}`}
+             aria-label={`${c.label}: ${c.outcome_text}`}>
       <div className="mini-top">
-        <span className="muted">{c.bet}</span>
-        <span className={`status-chip ${tone}`}><span aria-hidden="true">{icon}</span> {c.outcome_text}</span>
+        <span className="mini-bet">{c.bet}</span>
+        <StatusChip outcome={c.outcome} text={c.outcome_text} />
       </div>
-      <div className="headline">{c.headline}</div>
+      <Payout outcome={c.outcome} back={c.back} returns={c.returns} small />
       {c.outcome === "live" && c.current !== null && c.needed !== null && (
-        <div className="detail">{Number(c.current)} so far. Needs {Number(c.needed)} more.</div>
+        <p className="ticket-detail">{Number(c.current)} so far. Needs {Number(c.needed)} more.</p>
       )}
-      {c.price && <div className="detail">{priceLine(c.price)}</div>}
+      {c.price && <p className="ticket-price">{priceLine(c.price)}</p>}
       {children}
       {hypo && <p className="hypo-line">Hypothetical. Juju is not a sportsbook.</p>}
     </article>
   );
 }
 
-/** A same-game parlay in a recap: its result, and each leg at the parlay's book. */
+/** A same-game parlay in a recap: its result, each leg at the parlay's book, and the note
+ *  every parlay carries. */
 export function ParlayMini({ p }: { p: RecapParlay }) {
-  const [tone, icon] = TONE[p.outcome];
-  const cashed = p.outcome === "locked" || p.outcome === "won";
   return (
-    <article className={`mini-card${cashed ? " cashed" : ""}`}
+    <article className={`mini-card${CASHED.has(p.outcome) ? " cashed" : ""}`}
              aria-label={`Same-game parlay: ${p.outcome_text}`}>
       <div className="mini-top">
-        <span className="muted">{p.legs.length}-leg parlay{p.book_name ? ` at ${p.book_name}` : ""}</span>
-        <span className={`status-chip ${tone}`}><span aria-hidden="true">{icon}</span> {p.outcome_text}</span>
+        <span className="mini-bet">{p.legs.length}-leg parlay{p.book_name ? ` at ${p.book_name}` : ""}</span>
+        <StatusChip outcome={p.outcome} text={p.outcome_text} />
       </div>
-      <div className="headline">{p.headline}</div>
+      {p.priced
+        ? <Payout outcome={p.outcome} back={p.back} returns={p.returns} small />
+        : <p className="payout none small">{p.headline}</p>}
       <ul className="recap-legs">
         {p.legs.map((leg) => (
           <li key={leg.key}>
             <span>{leg.who}: {leg.bet}</span>
-            <span className="muted small">
+            <span className="leg-meta">
               {" "}{leg.outcome_text}{leg.price ? ` · ${american(leg.price.american)}` : ""}
             </span>
           </li>
         ))}
       </ul>
+      {p.notes[0] && <p className="sgp-note">{p.notes[0]}</p>}
     </article>
   );
 }

@@ -1,30 +1,33 @@
-// The share image (Open Graph, 1200x630): one card, in its world, with the Jujus. Built with
-// next/og from the same view the page shows, so every number on it is the card's own. No font
-// is fetched: next/og's built-in font keeps the image working without the network.
+// The share images (Open Graph, 1200x630): one card, or one parlay, as a ticket in its world
+// with the Jujus. Built with next/og from the same view the page shows, so every number on it
+// is the page's own. No font is fetched: next/og's built-in font keeps the image working
+// without the network. Colours are lib/tokens.ts's.
 import { ImageResponse } from "next/og";
 import { stillJujuSvg } from "@/components/world/Jujus";
-import { FALLBACK, MOOD, worldFor } from "@/components/world/worlds";
+import { MOOD, type World, worldFor } from "@/components/world/worlds";
 import { american, quarter } from "@/lib/format";
-import type { Card, GameView, Outcome } from "@/lib/types";
+import { color, worldGradient } from "@/lib/tokens";
+import type { Card, GameView, Outcome, ParlayView } from "@/lib/types";
 
 export const SIZE = { width: 1200, height: 630 };
 const SETTLED = new Set<Outcome>(["won", "lost", "push", "void", "no_stat_line"]);
+const CASHED = new Set<Outcome>(["won", "locked"]);
+const LOST = new Set<Outcome>(["lost", "gone"]);
 
-const CHIP: Record<Outcome, [string, string, string]> = {  // icon, text colour, background
-  won: ["✓", "#7ee2b0", "rgba(24,120,80,.35)"], locked: ["✓", "#7ee2b0", "rgba(24,120,80,.35)"],
-  lost: ["✕", "#ff9a9a", "rgba(150,40,40,.35)"], gone: ["✕", "#ff9a9a", "rgba(150,40,40,.35)"],
-  live: ["●", "#8fd3ff", "rgba(30,90,150,.35)"], waiting_for_feed: ["…", "#8fd3ff",
-    "rgba(30,90,150,.35)"],
-  pregame: ["◷", "#c9cfdb", "rgba(120,130,150,.3)"], push: ["=", "#c9cfdb", "rgba(120,130,150,.3)"],
-  void: ["=", "#c9cfdb", "rgba(120,130,150,.3)"], no_stat_line: ["–", "#c9cfdb",
-    "rgba(120,130,150,.3)"],
-  untracked: ["–", "#c9cfdb", "rgba(120,130,150,.3)"], unavailable: ["!", "#c9cfdb",
-    "rgba(120,130,150,.3)"],
+const GOOD: [string, string] = [color.gold, color.goldTint];
+const BAD: [string, string] = [color.lost, color.lostTint];
+const LIVE: [string, string] = [color.orangeBright, color.orangeTint];
+const NEUTRAL: [string, string] = [color.muted, color.surface3];
+const CHIP: Record<Outcome, [string, [string, string]]> = {  // icon, [text, background]
+  won: ["✓", GOOD], locked: ["✓", GOOD], lost: ["✕", BAD], gone: ["✕", BAD],
+  live: ["●", LIVE], waiting_for_feed: ["…", LIVE], pregame: ["◷", NEUTRAL],
+  push: ["=", NEUTRAL], void: ["=", NEUTRAL], no_stat_line: ["–", NEUTRAL],
+  untracked: ["–", NEUTRAL], unavailable: ["!", NEUTRAL],
 };
 
 // The image font has no ✓ ✕ ◷ ☑, so those icons are drawn; the rest are plain characters.
-function Icon({ glyph, color }: { glyph: string; color: string }) {
-  const line = { stroke: color, strokeWidth: 3, fill: "none", strokeLinecap: "round" as const };
+function Icon({ glyph, ink }: { glyph: string; ink: string }) {
+  const line = { stroke: ink, strokeWidth: 3, fill: "none", strokeLinecap: "round" as const };
   const path = glyph === "✓" || glyph === "☑" ? <path d="M5 12.5l4.5 4.5L19 7.5" {...line} />
     : glyph === "✕" ? <path d="M6 6l12 12M18 6L6 18" {...line} />
     : glyph === "◷" ? <path d="M12 3a9 9 0 1 0 0.01 0M12 7v5l3 2" {...line} />
@@ -32,6 +35,16 @@ function Icon({ glyph, color }: { glyph: string; color: string }) {
   if (!path) return <div style={{ display: "flex", marginRight: 10 }}>{glyph}</div>;
   return (
     <svg width="26" height="26" viewBox="0 0 24 24" style={{ marginRight: 10 }}>{path}</svg>
+  );
+}
+
+function Chip({ outcome, text }: { outcome: Outcome; text: string }) {
+  const [icon, [ink, bg]] = CHIP[outcome];
+  return (
+    <div style={{ display: "flex", alignItems: "center", padding: "6px 18px", borderRadius: 999,
+                  background: bg, color: ink, fontWeight: 700, fontSize: 26 }}>
+      <Icon glyph={icon} ink={ink} />{text}
+    </div>
   );
 }
 
@@ -43,101 +56,169 @@ function clip(text: string, n: number): string {
   return text.length > n ? `${text.slice(0, n - 1)}…` : text;
 }
 
+function scoreOf(game: GameView): string {
+  return game.home.score !== null && game.away.score !== null
+    ? `${game.away.abbr ?? game.away.name} ${game.away.score} – ${game.home.score} ${game.home.abbr ?? game.home.name}`
+    : game.label;
+}
+
 /** How long the image may be cached: a settled card no longer changes. */
-export function imageCache(game: GameView, card: Card | undefined): string {
-  const done = game.status === "final" && (!card || SETTLED.has(card.outcome));
+export function imageCache(game: GameView, outcome: Outcome | undefined): string {
+  const done = game.status === "final" && (!outcome || SETTLED.has(outcome));
   return done ? "public, max-age=3600, s-maxage=86400"
     : "public, max-age=30, s-maxage=30, stale-while-revalidate=60";
 }
 
-export function shareImage(who: string, game: GameView, card: Card | undefined,
-                           cache: string): ImageResponse {
-  const world = worldFor(card?.outcome, !!card?.price);
+/** The payout, as on the page: its label, the amount (the API's own string) and whether it
+ *  still hangs on the bet hitting. */
+function Payout({ outcome, back, returns }: {
+  outcome: Outcome; back: string | null; returns: string | null;
+}) {
+  if (returns === null) {
+    return <div style={{ display: "flex", fontSize: 44, fontWeight: 800 }}>No price on file</div>;
+  }
+  const open = back === null;
+  const ink = CASHED.has(outcome) ? color.gold : LOST.has(outcome) ? color.lost : color.text;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", marginTop: 14 }}>
+      <div style={{ display: "flex", fontSize: 22, letterSpacing: 2, color: color.muted }}>
+        {open ? "$10 WOULD RETURN" : "$10 WOULD HAVE RETURNED"}
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline" }}>
+        <div style={{ display: "flex", fontSize: 96, fontWeight: 800, letterSpacing: -2, color: ink }}>
+          {`$${back ?? returns}`}
+        </div>
+        {open && <div style={{ display: "flex", fontSize: 34, marginLeft: 16,
+                               color: color.muted }}>if it hits</div>}
+      </div>
+    </div>
+  );
+}
+
+/** The frame both images share: the wordmark and score, a ticket, the Jujus, the disclaimer. */
+function frame(world: World, game: GameView, ticket: React.ReactNode, foot: string,
+               cache: string): ImageResponse {
   const mood = MOOD[world];
-  const score = game.home.score !== null && game.away.score !== null
-    ? `${game.away.abbr ?? game.away.name} ${game.away.score} – ${game.home.score} ${game.home.abbr ?? game.home.name}`
-    : game.label;
-  const [icon, ink, chipBg] = card ? CHIP[card.outcome] : CHIP.pregame;
-  const p = card?.price;
-  const priced = p ? `${american(p.american)} at ${p.book_name}, ${p.minutes_before_kickoff} min `
-    + `before kickoff${p.timing === "early" ? " (earlier than usual)" : ""}` : null;
-  // "$10 → $18.93 if it hits": the amount large, the condition beside it.
-  const headline = card ? card.headline : "—";
-  const cut = headline.indexOf(" if ");
-  const [amount, qualifier] = cut > 0 ? [headline.slice(0, cut), headline.slice(cut + 1)]
-    : [headline, null];
-  const d = card?.decided_by;
-  const decided = d ? clip(`${d.exact ? "Decided by" : "On or around"}: ${d.text ?? "the game clock"}`
-    + ` (${[quarter(d.period), d.clock].filter(Boolean).join(" ")})`, 110) : null;
   return new ImageResponse(
     (
       <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column",
-                    backgroundImage: FALLBACK[world], color: "#f4f6fb", padding: "40px 56px",
-                    fontSize: 28 }}>
+                    backgroundColor: color.bg, backgroundImage: worldGradient(world, true),
+                    color: color.text, padding: "36px 56px", fontSize: 28 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                      color: "#c9cfdb" }}>
-          <div style={{ display: "flex", fontSize: 44, fontWeight: 800, color: "#fff" }}>
-            ju<span style={{ color: "#ffc53d" }}>ju</span>
+                      color: color.text }}>
+          <div style={{ display: "flex", fontSize: 44, fontWeight: 800 }}>
+            ju<span style={{ color: color.orange }}>ju</span>
           </div>
-          <div style={{ display: "flex" }}>{`${score} · ${game.status_text}`}</div>
-        </div>
-        <div style={{ display: "flex", flex: 1, alignItems: "center", margin: "16px 0" }}>
-          <div style={{ display: "flex", flexDirection: "column", width: 820, padding: "26px 36px",
-                        borderRadius: 28, background: "rgba(8,10,18,.72)",
-                        border: "2px solid rgba(255,255,255,.12)" }}>
-            <div style={{ display: "flex", fontSize: 26, color: "#aab2c3" }}>
-              {clip(`${who}${card ? ` · ${card.label}` : ""}`.toUpperCase(), 60)}
-            </div>
-            <div style={{ display: "flex", fontSize: 38, fontWeight: 700, marginTop: 6 }}>
-              {card ? clip(card.bet, 48) : "No archived prices"}
-            </div>
-            {card && (
-              <div style={{ display: "flex", marginTop: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", padding: "6px 18px",
-                              borderRadius: 999, background: chipBg, color: ink,
-                              fontWeight: 700 }}>
-                  <Icon glyph={icon} color={ink} />{card.outcome_text}
-                </div>
-                {card.verified && (
-                  <div style={{ display: "flex", alignItems: "center", padding: "6px 18px",
-                                borderRadius: 999, marginLeft: 12,
-                                background: "rgba(120,130,150,.3)", color: "#c9cfdb",
-                                fontWeight: 700 }}>
-                    <Icon glyph="☑" color="#c9cfdb" />Verified
-                  </div>
-                )}
-              </div>
-            )}
-            <div style={{ display: "flex", alignItems: "baseline", marginTop: 10 }}>
-              <div style={{ display: "flex", fontSize: 80, fontWeight: 800, letterSpacing: -1 }}>
-                {amount}
-              </div>
-              {qualifier && <div style={{ display: "flex", fontSize: 34, marginLeft: 16,
-                                          color: "#c9cfdb" }}>{qualifier}</div>}
-            </div>
-            {priced && <div style={{ display: "flex", color: "#c9cfdb", marginTop: 6 }}>{priced}</div>}
-            {decided && <div style={{ display: "flex", color: "#c9cfdb", marginTop: 8,
-                                      fontSize: 24 }}>{decided}</div>}
-          </div>
-          <div style={{ display: "flex", alignItems: "flex-end", marginLeft: 28, height: 220 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={svgSrc(stillJujuSvg("pip", mood))} width={96} height={112} alt="" />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={svgSrc(stillJujuSvg("bo", mood))} width={70} height={112} alt=""
-                 style={{ marginLeft: 6 }} />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={svgSrc(stillJujuSvg("tuft", mood))} width={96} height={112} alt=""
-                 style={{ marginLeft: 6 }} />
+          <div style={{ display: "flex", padding: "6px 18px", borderRadius: 999, fontSize: 26,
+                        background: color.surface1, border: `2px solid ${color.line}` }}>
+            {`${scoreOf(game)} · ${game.status_text}`}
           </div>
         </div>
-        <div style={{ display: "flex", fontSize: 22, color: "#aab2c3" }}>
-          Hypothetical: what $10 at the price 45 minutes before kickoff would have paid. Juju is
-          not a sportsbook.
+        <div style={{ display: "flex", flex: 1, alignItems: "center", margin: "14px 0" }}>
+          <div style={{ display: "flex", flexDirection: "column", width: 850, padding: "24px 34px",
+                        borderRadius: 24, background: color.surface1,
+                        borderTop: `6px solid ${color.orange}` }}>
+            {ticket}
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end", marginLeft: 24, height: 220 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={svgSrc(stillJujuSvg("pip", mood))} width={84} height={98} alt="" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={svgSrc(stillJujuSvg("bo", mood))} width={62} height={98} alt=""
+                 style={{ marginLeft: 4 }} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={svgSrc(stillJujuSvg("tuft", mood))} width={84} height={98} alt=""
+                 style={{ marginLeft: 4 }} />
+          </div>
         </div>
+        <div style={{ display: "flex", fontSize: 21, color: color.text }}>{foot}</div>
       </div>
     ),
     { ...SIZE, headers: { "cache-control": cache } },
   );
+}
+
+const LABEL = { display: "flex", fontSize: 24, letterSpacing: 2, color: color.muted } as const;
+
+export function shareImage(who: string, game: GameView, card: Card | undefined,
+                           cache: string): ImageResponse {
+  const world = worldFor(card?.outcome, !!card?.price);
+  const p = card?.price;
+  const priced = p ? `${american(p.american)} at ${p.book_name}, ${p.minutes_before_kickoff} min `
+    + `before kickoff${p.timing === "early" ? " (earlier than usual)" : ""}` : null;
+  const d = card?.decided_by;
+  const decided = d ? clip(`${d.exact ? "Decided by" : "On or around"}: ${d.text ?? "the game clock"}`
+    + ` (${[quarter(d.period), d.clock].filter(Boolean).join(" ")})`, 110) : null;
+  return frame(world, game, (
+    <>
+      <div style={LABEL}>{clip(`${who}${card ? ` · ${card.label}` : ""}`.toUpperCase(), 56)}</div>
+      <div style={{ display: "flex", fontSize: 38, fontWeight: 700, marginTop: 6 }}>
+        {card ? clip(card.bet, 46) : "No archived prices"}
+      </div>
+      {card && (
+        <div style={{ display: "flex", marginTop: 12 }}>
+          <Chip outcome={card.outcome} text={card.outcome_text} />
+          {card.verified && (
+            <div style={{ display: "flex", alignItems: "center", padding: "6px 18px",
+                          borderRadius: 999, marginLeft: 12, background: color.surface3,
+                          color: color.muted, fontWeight: 700, fontSize: 26 }}>
+              <Icon glyph="☑" ink={color.muted} />Verified
+            </div>
+          )}
+        </div>
+      )}
+      {card && <Payout outcome={card.outcome} back={card.back} returns={card.returns} />}
+      {priced && <div style={{ display: "flex", color: color.muted, marginTop: 2 }}>{priced}</div>}
+      {decided && <div style={{ display: "flex", color: color.muted, marginTop: 6,
+                                fontSize: 23 }}>{decided}</div>}
+    </>
+  ), "Hypothetical: what $10 at the price 45 minutes before kickoff would have paid. "
+     + "Juju is not a sportsbook.", cache);
+}
+
+/** A parlay's image: its legs as lights, the combined payout, and the note every parlay
+ *  carries. Only the legs' names and bets are listed, with the parlay's one number. */
+export function parlayShareImage(view: ParlayView, cache: string): ImageResponse {
+  const world = worldFor(view.outcome, view.returns !== null);
+  const shown = view.legs.slice(0, 4);
+  const more = view.legs.length - shown.length;
+  return frame(world, view.game, (
+    <>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={LABEL}>
+          {`SAME-GAME PARLAY · ${view.legs.length} LEGS${view.book_name ? ` · ${view.book_name.toUpperCase()}` : ""}`}
+        </div>
+        <div style={{ display: "flex" }}>
+          {view.legs.map((l) => {
+            const lit = CASHED.has(l.outcome), out = LOST.has(l.outcome);
+            return (
+              <div key={l.key} style={{
+                display: "flex", width: 22, height: 22, borderRadius: 11, marginLeft: 8,
+                background: lit ? color.gold : out ? color.surface3 : color.surface2,
+                border: `2px solid ${lit ? color.gold : out ? color.lost : color.lineStrong}`,
+              }} />
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ display: "flex", marginTop: 10 }}>
+        <Chip outcome={view.outcome} text={view.outcome_text} />
+      </div>
+      {view.returns
+        ? <Payout outcome={view.outcome} back={view.back} returns={view.returns} />
+        : <div style={{ display: "flex", fontSize: 40, fontWeight: 800, marginTop: 14 }}>
+            {view.headline}
+          </div>}
+      <div style={{ display: "flex", flexDirection: "column", marginTop: 4, fontSize: 24 }}>
+        {shown.map((l) => (
+          <div key={l.key} style={{ display: "flex", color: color.text }}>
+            {clip(`${l.who}: ${l.bet}`, 62)}
+          </div>
+        ))}
+        {more > 0 && <div style={{ display: "flex", color: color.muted }}>{`and ${more} more`}</div>}
+      </div>
+    </>
+  ), `Hypothetical. ${view.notes[0] ?? ""} Juju is not a sportsbook.`, cache);
 }
 
 /** The card a share link points at (`?card=`), else the page's first card. */
@@ -155,3 +236,4 @@ export function imagePath(pagePath: string, card: Card | undefined): string {
 
 export const CARD_KEY = /^[a-z0-9_]{1,60}$/;
 export const THRESHOLD = /^\d{1,3}(\.5)?$/;
+export const LEGS = /^[a-z0-9_.,-]{1,600}$/;
