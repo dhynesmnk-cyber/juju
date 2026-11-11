@@ -11,7 +11,8 @@
                          that didn't find anyone, and the live feeds' state. No prices.
   verify                 Check last week's final games against nflverse now (free), instead of
                          waiting for the worker's 10:07 or 16:07 ET run.
-  seed [live|final]      Development and tests only: load the recorded PHI @ CHI game.
+  seed [live|final|stale|pregame]
+                         Development and tests only: load the recorded PHI @ CHI game.
 
 The tracker's (the private section: docs/plans/integrate-parlaytracker.md):
   import-slips CSV --user NAME [--apply] [--include-doubtful]

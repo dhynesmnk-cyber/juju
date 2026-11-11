@@ -132,6 +132,10 @@ class CardView:
     touched: bool
     named: bool
     alternate: bool
+    # What $10 comes back as on this outcome, the number the headline prints: the payout once
+    # won or cashed, 0.00 once lost or gone, the stake on a push or a void. None while it can
+    # still go either way, and with no price.
+    back: Decimal | None = None
     verified: bool = False  # the settled number matches the official stats
     # The play that took it past the line: {text, period, clock, exact}. `exact` False is the
     # live feed's "on or around" (text may be None: only the game clock is known).
@@ -245,7 +249,7 @@ def _offers(rows: list[_Row], names: set[str], opposite: dict[str, str],
 def _money_fields(sel: Selection, outcome: Outcome) -> dict:
     if sel.quote is None:
         return {"returns": None, "profit": None, "fair_returns": None, "fair_note": None,
-                "headline": "No price on file"}
+                "back": None, "headline": "No price on file"}
     m = card.money(sel.quote.offer.american, sel.quote.offer.opposite_american)
     back = card.settled_returns(outcome, m)
     if outcome in (Outcome.WON, Outcome.LOCKED):
@@ -258,7 +262,7 @@ def _money_fields(sel: Selection, outcome: Outcome) -> dict:
     if m.fair_returns is None:
         note = "The book offered one side only, so there is no fair value to show."
     return {"returns": m.returns, "profit": m.profit, "fair_returns": m.fair_returns,
-            "fair_note": note, "headline": headline}
+            "fair_note": note, "back": back, "headline": headline}
 
 
 def _price_dict(q: Quote) -> dict:
@@ -682,6 +686,7 @@ class ParlayView:
     book_name: str | None      # None: no single book priced every leg
     legs_counted: int
     notes: list[str]
+    back: Decimal | None = None  # as on a card: what $10 comes back as on this outcome
 
 
 @dataclass
@@ -769,4 +774,4 @@ def parlay_view(session: Session, game: Game, legs: Sequence[parlay.LegKey], now
         headline = f"$10 → ${m.returns} if it hits"
     return ParlayView(game_view(game, now), views, result, OUTCOME_TEXT[result], headline,
                       m.returns, m.fair_returns,
-                      BOOK_NAMES.get(book, book) if book else None, m.legs_counted, notes)
+                      BOOK_NAMES.get(book, book) if book else None, m.legs_counted, notes, back)

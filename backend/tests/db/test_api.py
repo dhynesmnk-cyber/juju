@@ -70,6 +70,47 @@ def test_final_game_settles_and_flags_early_prices(client, db):
     assert receptions["outcome"] == "won"  # 6 > 5.5
 
 
+def test_a_card_says_what_ten_dollars_comes_back_as(client, db):
+    """`back` is the number the headline prints, so the site never reads it out of a
+    sentence: the payout once cashed, nothing once lost, and none while it can go either way."""
+    game = seed(db, "live")
+    view = client.get(f"/api/player/{game}/{BARKLEY}").json()
+    rush, catches = card(view, "player_rush_yds"), card(view, "player_receptions")
+    assert rush["outcome"] == "locked" and rush["back"] == rush["returns"] == "18.93"
+    assert catches["outcome"] == "live" and catches["back"] is None
+    assert catches["headline"] == f"$10 → ${catches['returns']} if it hits"
+    game = seed(db, "final")
+    view = client.get(f"/api/player/{game}/{SMITH}").json()
+    lost, won = card(view, "player_reception_yds"), card(view, "player_receptions")
+    assert lost["back"] == "0.00" and lost["headline"] == "$10 → $0.00"
+    assert lost["returns"] != "0.00"  # what it would have paid had it hit: still on the card
+    assert won["back"] == won["returns"] and won["headline"] == f"$10 → ${won['back']}"
+    moneyline = card(client.get(f"/api/team/{game}/3").json(), "h2h")  # never priced
+    assert moneyline["price"] is None and moneyline["back"] is None
+
+
+def test_a_stale_feed_keeps_the_price_and_says_the_status_is_unavailable(client, db):
+    game = seed(db, "stale")  # in play, last read six minutes ago
+    view = client.get(f"/api/player/{game}/{BARKLEY}").json()
+    assert view["game"]["freshness"] == "red"
+    rush = card(view, "player_rush_yds")
+    assert rush["outcome"] == "unavailable" and rush["back"] is None
+    assert rush["price"]["american"] == -112 and rush["headline"].endswith("if it hits")
+
+
+def test_before_kickoff_the_price_is_there_and_nothing_has_been_played(client, db):
+    seed(db, "live")
+    game = seed(db, "pregame")  # the same game again: an earlier seed's plays must go
+    body = client.get(f"/api/game/{game}").json()
+    assert body["status"] == "scheduled" and body["plays"] == []
+    assert body["home"]["score"] is None and body["players"]
+    rush = card(client.get(f"/api/player/{game}/{BARKLEY}").json(), "player_rush_yds")
+    assert rush["outcome"] == "pregame" and rush["current"] is None and rush["back"] is None
+    assert rush["price"]["timing"] == "on_time" and rush["price"]["minutes_before_kickoff"] == 46
+    with pytest.raises(ValueError, match="scenario is one of"):
+        seed(db, "halftime")
+
+
 def test_a_play_that_is_not_in_the_feed_yet_waits(client, db):
     game = seed(db, "live")
     # "Smith 45-yd catch": his longest in the feed is 30, so the feed is behind.
