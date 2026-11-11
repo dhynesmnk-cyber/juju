@@ -101,6 +101,11 @@ jobs:
         working-directory: backend
       - run: uvicorn juju.api.app:app --port 8000 &
         working-directory: backend
+      # `playwright install --with-deps` only knows the Ubuntu releases its own version lists.
+      # `ubuntu-latest` became 26.04 between 2026-10-17 and 2026-10-21, and Playwright 1.56.1
+      # stopped here with "does not support chromium on ubuntu26.04-x64" before any test ran
+      # (main was red from PR #14's merge until 1.63.0, which lists 26.04). When the label
+      # moves again, raise @playwright/test in web/package.json first.
       - run: npm ci && npx playwright install --with-deps chromium && npm run build
         working-directory: web
       - run: |
