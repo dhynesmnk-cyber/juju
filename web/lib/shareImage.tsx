@@ -138,6 +138,7 @@ function frame(world: World, game: GameView, ticket: React.ReactNode, foot: stri
   );
 }
 
+const COLUMN = { display: "flex", flexDirection: "column", width: "100%" } as const;
 const LABEL = { display: "flex", fontSize: 24, letterSpacing: 2, color: color.muted } as const;
 
 export function shareImage(who: string, game: GameView, card: Card | undefined,
@@ -150,7 +151,7 @@ export function shareImage(who: string, game: GameView, card: Card | undefined,
   const decided = d ? clip(`${d.exact ? "Decided by" : "On or around"}: ${d.text ?? "the game clock"}`
     + ` (${[quarter(d.period), d.clock].filter(Boolean).join(" ")})`, 110) : null;
   return frame(world, game, (
-    <>
+    <div style={COLUMN}>
       <div style={LABEL}>{clip(`${who}${card ? ` · ${card.label}` : ""}`.toUpperCase(), 56)}</div>
       <div style={{ display: "flex", fontSize: 38, fontWeight: 700, marginTop: 6 }}>
         {card ? clip(card.bet, 46) : "No archived prices"}
@@ -171,7 +172,7 @@ export function shareImage(who: string, game: GameView, card: Card | undefined,
       {priced && <div style={{ display: "flex", color: color.muted, marginTop: 2 }}>{priced}</div>}
       {decided && <div style={{ display: "flex", color: color.muted, marginTop: 6,
                                 fontSize: 23 }}>{decided}</div>}
-    </>
+    </div>
   ), "Hypothetical: what $10 at the price 45 minutes before kickoff would have paid. "
      + "Juju is not a sportsbook.", cache);
 }
@@ -183,7 +184,7 @@ export function parlayShareImage(view: ParlayView, cache: string): ImageResponse
   const shown = view.legs.slice(0, 4);
   const more = view.legs.length - shown.length;
   return frame(world, view.game, (
-    <>
+    <div style={COLUMN}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={LABEL}>
           {`SAME-GAME PARLAY · ${view.legs.length} LEGS${view.book_name ? ` · ${view.book_name.toUpperCase()}` : ""}`}
@@ -217,7 +218,7 @@ export function parlayShareImage(view: ParlayView, cache: string): ImageResponse
         ))}
         {more > 0 && <div style={{ display: "flex", color: color.muted }}>{`and ${more} more`}</div>}
       </div>
-    </>
+    </div>
   ), `Hypothetical. ${view.notes[0] ?? ""} Juju is not a sportsbook.`, cache);
 }
 

@@ -53,7 +53,7 @@ main { padding-top: 14px; }
 header.top { background: var(--bg); border-bottom: 1px solid var(--line); }
 header.top .bar { display: flex; align-items: center; justify-content: space-between; min-height: 56px; }
 .brand {
-  display: inline-flex; align-items: center; min-height: 44px; font-weight: 800; font-size: 1.45rem;
+  display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; font-weight: 800; font-size: 1.45rem;
   letter-spacing: -0.01em; text-decoration: none; color: var(--text);
 }
 .brand span { color: var(--orange); }
@@ -69,7 +69,7 @@ footer.foot {
 }
 footer.foot p { margin: 6px 0; line-height: 2; }
 /* Inline, so a sentence's full stop stays with its link; the padding keeps the tap target tall. */
-footer.foot a { color: var(--muted); padding: 12px 0; white-space: nowrap; }
+footer.foot a { color: var(--muted); padding: 14px 0; white-space: nowrap; }
 
 /* ---------- Controls ---------- */
 .btn {
