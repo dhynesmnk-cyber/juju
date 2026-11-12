@@ -125,8 +125,19 @@ export interface WorldRenderer {
 }
 
 export function makeWorld(canvas: HTMLCanvasElement): WorldRenderer | null {
-  const gl = canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "low-power" });
+  // No context where WebGL would be drawn in software (no GPU, or a blocked driver): there
+  // every frame runs on the main thread, and the page keeps its still picture instead.
+  const gl = canvas.getContext("webgl", { antialias: false, alpha: false,
+                                          powerPreference: "low-power",
+                                          failIfMajorPerformanceCaveat: true });
   if (!gl) return null;
+  // Chrome doesn't count its own software renderer as a caveat, so ask by name.
+  const info = gl.getExtension("WEBGL_debug_renderer_info");
+  const renderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+  if (/swiftshader|llvmpipe|software/i.test(renderer)) {
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    return null;
+  }
   const compile = (type: number, src: string) => {
     const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); return s;
   };

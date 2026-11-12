@@ -44,8 +44,8 @@ function MatchCard({ g, crew }: { g: LiveGame; crew: boolean }) {
         <span className="live-tag"><span className="dot" aria-hidden="true" /> LIVE</span>
         <span className="match-clock">{g.status_text}</span>
       </p>
-      <Link className="match-score" href={gameHref(g.id)} aria-label={`${g.label}, every play`}>
-        <TeamRows g={g} />
+      <Link className="match-score" href={gameHref(g.id)}>
+        <TeamRows g={g} /><span className="sr-only">: the game, play by play</span>
       </Link>
       {latest && latest.athlete_id && (
         <Link className="match-latest"

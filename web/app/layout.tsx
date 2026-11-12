@@ -11,7 +11,9 @@ import { color, cssVariables } from "@/lib/tokens";
 import "./globals.css";
 
 const display = Big_Shoulders({
-  subsets: ["latin"], weight: ["800", "900"], variable: "--font-display", display: "swap",
+  // "optional": the font is preloaded and used if it is there for the first paint; it never
+  // swaps in afterwards, so a heading never re-wraps under the finger.
+  subsets: ["latin"], weight: ["800", "900"], variable: "--font-display", display: "optional",
 });
 
 export const metadata: Metadata = {
