@@ -28,6 +28,7 @@ export TEST_DATABASE_URL="$(.venv/bin/python scripts/dev_postgres.py)"   # local
 
 cd ../web && npm ci && npm run lint && npm run typecheck && npm run build
 npm run e2e          # Playwright; see web/README.md for the seeded backend it needs
+scripts/visual.sh    # visual snapshots, in Playwright's container image (web/README.md)
 ```
 
 In the Claude Code cloud environment, set `SSL_CERT_FILE=/root/.ccr/ca-bundle.crt` for pip and
@@ -59,4 +60,8 @@ for any live HTTP call through the proxy.
   owners' saved lookups only through `juju/tracker/saved.py`. Services
   flush; callers commit. Its data never reaches a public response, a share image or
   `/api/status`.
+- **Colours:** only `web/lib/tokens.ts` names one (the look of 2026-11-11). Text with no panel
+  under it is `var(--text)`; `npm test` and `e2e/audit.spec.ts` hold both.
+- **Suggested bets** (quick picks) carry no price and are never prefetched: a price is first
+  asked for when one is opened.
 - **Workers:** exactly one worker runs (Postgres advisory lock), and it never scales to zero.

@@ -27,3 +27,17 @@ start being asked for the check.
 
 In the Claude Code cloud environment Chromium is pre-installed (`PLAYWRIGHT_BROWSERS_PATH`).
 Elsewhere, run `npx playwright install chromium` once.
+
+## Visual snapshots
+
+`scripts/visual.sh` compares every page and every world with the pictures in
+`e2e/visual.spec.ts-snapshots/` (`--update` retakes them). It needs Docker, the backend's API on
+:8000 and `DATABASE_URL`: it builds the site again with `NEXT_PUBLIC_WORLDS=off` into
+`.next-off`, serves it on :3001, reseeds the recorded game as live, final, stale and pregame,
+and runs `e2e/visual.spec.ts` inside Playwright's container image, so the browser and fonts
+are the same everywhere. Set `PYTHON` to the backend's interpreter (`../backend/.venv/bin/python`).
+
+## Colours
+
+Every colour is in `lib/tokens.ts`. `npm test` checks each pairing against WCAG AA and fails
+if `app/globals.css` names a colour of its own; `e2e/audit.spec.ts` checks the pages as drawn.
