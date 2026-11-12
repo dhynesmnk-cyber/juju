@@ -113,3 +113,15 @@ jobs:
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3000/about >/dev/null && break; sleep 1; done
           npx playwright test
         working-directory: web
+      # Every page and every world as a still picture, compared with the baselines in
+      # web/e2e/visual.spec.ts-snapshots. The script builds the site again with the worlds off,
+      # reseeds the game in each state, and runs Playwright in its own container image, so the
+      # browser and fonts are the ones the baselines were taken with.
+      - run: scripts/visual.sh
+        working-directory: web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: web/test-results
+          retention-days: 7

@@ -85,7 +85,7 @@ export default function ParlaySlip({ game }: { game: number }) {
           <span className="slip-badge num" aria-hidden="true">{legs.length}</span>
           <span className="slip-text">
             <span className="eyebrow">
-              Parlay · {count}{view?.book_name ? ` · ${view.book_name}` : ""}
+              Parlay · {count}
             </span>
             <span className={`slip-amount${tone}`}>
               <span className={view?.returns ? "num big" : undefined}>{amount}</span>
@@ -96,7 +96,11 @@ export default function ParlaySlip({ game }: { game: number }) {
         </button>
         {enough && go}
       </div>
-      {view?.notes[0] && <p className="sgp-note">{view.notes[0]}</p>}
+      {view?.notes[0] && (
+        <p className="sgp-note">
+          {view.book_name ? `Priced at ${view.book_name}. ` : ""}{view.notes[0]}
+        </p>
+      )}
       <dialog ref={sheet} id={sheetId} className="sheet" aria-label="Parlay slip"
               onClose={() => setOpen(false)}
               onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>

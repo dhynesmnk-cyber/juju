@@ -33,7 +33,8 @@ test("build a parlay from two cards: two lights lit, and it has cashed", async (
   await openPlayer(page, "devonta", /DeVonta Smith/, "DeVonta Smith");
   await page.getByRole("article", { name: /^Receptions/ })
     .getByRole("button", { name: "Add to parlay" }).click();
-  await expect(tray).toContainText("Parlay · 2 legs · DraftKings");
+  await expect(tray).toContainText("Parlay · 2 legs");
+  await expect(tray).toContainText("Priced at DraftKings.");
   // The bar already has the combined payout, and the note every parlay carries.
   await expect(tray.locator(".slip-amount")).toContainText(/^\$\d+\.\d\d$/);
   await expect(tray).toContainText(/Books adjust same-game parlays for correlation/);

@@ -18,7 +18,8 @@ test("from a tapped play to a priced parlay in three taps", async ({ page }) => 
   await answer.getByRole("button", { name: "Add to parlay" }).first().click();
   const slip = page.getByRole("complementary", { name: "Parlay" });
   // Priced already, in the bar: the count, the book, the combined payout, the caveat.
-  await expect(slip).toContainText("Parlay · 2 legs · DraftKings");
+  await expect(slip).toContainText("Parlay · 2 legs");
+  await expect(slip).toContainText("Priced at DraftKings.");
   await expect(slip.locator(".slip-badge")).toHaveText("2");
   const amount = (await slip.locator(".slip-amount .big").textContent()) ?? "";
   expect(amount).toMatch(/^\$\d+\.\d\d$/);

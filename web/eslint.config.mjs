@@ -4,7 +4,7 @@ import typescript from "eslint-config-next/typescript";
 const config = [
   ...coreWebVitals,
   ...typescript,
-  { ignores: [".next/**", "node_modules/**", "playwright-report/**", "test-results/**"] },
+  { ignores: [".next/**", ".next-off/**", "node_modules/**", "playwright-report/**", "test-results/**"] },
 ];
 
 export default config;

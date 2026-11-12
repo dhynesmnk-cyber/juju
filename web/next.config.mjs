@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // A second build beside the first: the worlds-off one the visual snapshots are taken from
+  // (scripts/visual.sh). Unset everywhere else.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,

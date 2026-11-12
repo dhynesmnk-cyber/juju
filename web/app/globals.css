@@ -429,7 +429,8 @@ footer.foot a { color: var(--muted); padding: 14px 0; white-space: nowrap; }
 .slip-amount.good .big { color: var(--gold); }
 .slip-amount.bad .big { color: var(--lost); }
 .slip-open { color: var(--muted); }
-.slip-go { flex: 0 1 46%; padding: 0 10px; font-size: 0.9rem; line-height: 1.15; }
+.slip-go { flex: 0 1 44%; padding: 0 10px; font-size: 0.9rem; line-height: 1.15; }
+.slip-amount { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .page:has(.slip) { padding-bottom: 132px; }
 .sheet {
   width: 100%; max-width: 680px; max-height: 86dvh; margin: auto auto 0; padding: 0; border: 0;
