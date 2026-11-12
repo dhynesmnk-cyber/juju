@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import MyHistory from "@/components/MyHistory";
 import RememberLookup from "@/components/RememberLookup";
 import ResultView from "@/components/ResultView";
+import { payoutText } from "@/components/Payout";
 import { backendPage } from "@/lib/backend";
 import { currentOwner } from "@/lib/me";
 import { CARD_KEY, SIZE, imagePath, pickCard } from "@/lib/shareImage";
@@ -58,7 +59,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const data = await load(props);
   if (!data) return { title: "Juju" };
   const top = pickCard(data.view.cards, data.pin ?? null);
-  const what = top ? `${top.bet}: ${top.headline}` : "No archived prices";
+  const what = top ? `${top.bet}: ${payoutText(top)}` : "No archived prices";
   const title = `${data.view.player.name}, ${data.view.game.label} | Juju`;
   const description = `${what}. What $10 at the price 45 minutes before kickoff would have paid.`;
   const image = { url: imagePath(data.pagePath, top), ...SIZE, alt: `${title}: ${what}` };

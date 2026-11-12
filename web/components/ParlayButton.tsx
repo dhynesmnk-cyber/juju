@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { MAX_LEGS, TRAY_EVENT, readTray, toggleLeg, type TrayLeg } from "@/lib/parlayTray";
 
-/** Add a card to this game's parlay tray, or take it out. */
+/** Add a card to this game's parlay slip, or take it out. */
 export default function ParlayButton({ game, leg }: { game: number; leg: TrayLeg }) {
   const [inTray, setInTray] = useState(false);
   const [full, setFull] = useState(false);
@@ -22,8 +22,8 @@ export default function ParlayButton({ game, leg }: { game: number; leg: TrayLeg
     };
   }, [game, leg.key]);
   return (
-    <button type="button" className="share" aria-pressed={inTray} disabled={!inTray && full}
-            onClick={() => toggleLeg(game, leg)}>
+    <button type="button" className="chip-button add" aria-pressed={inTray}
+            disabled={!inTray && full} onClick={() => toggleLeg(game, leg)}>
       <span aria-hidden="true">{inTray ? "✓" : "+"}</span>{" "}
       {inTray ? "In parlay" : full ? `Parlay full (${MAX_LEGS})` : "Add to parlay"}
     </button>

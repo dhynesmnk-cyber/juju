@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.next-off/
 next-env.d.ts
 playwright-report/
 test-results/

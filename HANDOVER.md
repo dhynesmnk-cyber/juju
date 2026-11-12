@@ -5,19 +5,55 @@ product, the owner's decisions and the reasons behind them. Then read
 [CLAUDE.md](CLAUDE.md) for the commands and the rules that are easy to break. This file says
 where the build stands and what to do next. Update it before you finish a session.
 
-## Where things stand (2026-10-17)
+## Where things stand (2026-11-12)
 
 | | |
 |---|---|
 | Branch | Everything up to PR #13 is in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, PR #9 Phase 1 of the tracker (below), PR #10 its Phase 2, PR #11 the game-first redesign, PR #12 the `up.sh` page check, and PR #13 the credits that follow the key and the week's games on the home page. The owners' lookups and recaps (2026-10-17, below) are on `claude/dazzling-newton-n3hzs2`, in a PR of their own. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`) |
-| CI | Green on every merged PR head. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 17 Playwright tests at phone width, with Cloudflare's public Turnstile test keys). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
-| Tests | 2,041 backend tests (1,164 before the tracker), 23 web unit tests (`node --test`), 27 Playwright tests (5 of them the owners' section, which run only with `TRACKER_USERS`: CI sets test-only ones) |
+| The new look | **On 2026-11-11 the owner chose an orange-toned sportsbook look** (GOALS decision 13: it replaces decision 9's look and nothing else), and asked for the parlay flow to be finished around it. Built on `claude/optimistic-mccarthy-ldd5sz`, in a PR of its own: one token file (`web/lib/tokens.ts`) with a contrast test; ticket-style result cards whose headline is the payout; match cards on the home page; a parlay **slip** fixed to the bottom (leg count, combined payout, a sheet with each leg at the parlay's book); **quick picks** (ready-made parlays built in the browser, no prices until opened); a **round robin** on 3- or 4-leg parlays; a parlay share image with Open Graph tags; the worlds and Jujus recoloured behind a scrim. Details under "The look of 2026-11-11" below |
+| CI | **main was red from PR #14's merge (2026-10-21) until this branch:** `ubuntu-latest` became Ubuntu 26.04, and Playwright 1.56.1's `install --with-deps` stops there ("does not support chromium on ubuntu26.04-x64") before any test runs. One re-run on 2026-11-11 failed the same way. Fixed by raising `@playwright/test` to 1.63.0, which knows 26.04 (and is the version this cloud environment ships). Green on every merged PR head before that. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 46 Playwright tests at phone width, with Cloudflare's public Turnstile test keys, then `web/scripts/visual.sh`: 21 visual snapshots inside Playwright's container image). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
+| Tests | 2,045 backend tests (1,164 before the tracker), 44 web unit tests (`node --test`: the token contrast audit, quick picks and the round robin's maths among them), 46 Playwright tests (5 of them the owners' section, which run only with `TRACKER_USERS`: CI sets test-only ones) and 21 visual snapshots |
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. It runs: the owner used it through real games on 2026-10-11, with a free Odds API key in `deploy/laptop/.env`. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
 | Real data | The laptop captured real prices on the free key from about 2026-10-10, until its 500 credits ran out. **On 2026-10-16 its `odds-status` said 0 credits while the owner's 20K-credit key showed all 20,000 unused**: either `.env` still had the free key, or the laptop kept the free key's count (no longer possible: migration 0009, below). It was the first: `.env` still held the free key. **On 2026-10-17 the owner put the 20K key in**, and `odds-status` read "20,000 (The Odds API, just now)", two captures a game. So Thursday 10-15's game was never captured on time; the worker's repair then filled last weekend's and Thursday's games from the vendor's history (about 340 credits each). `python -m juju.cli report --since DATE` on the laptop shows what it saved. The tests still use only the recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
 | The live test | **On Sunday 2026-10-11 the owner ran the laptop preview through real games with a free Odds API key** (500 credits a month). Lookups of "what just happened" failed, many cards had no price, and the UI felt janky. The causes and the fix, in three stages, are in [docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md): the backup score polling spent about a credit a minute, every capture asked for all 34 markets, a name-matching bug left prices with no player, a lookup needs a name, and one bad box score can shut an ESPN host for 30 minutes. **On 2026-10-15 the owner put a 20K-credit key on the laptop** (with the old code, so TNF that night was captured) **and asked for all of it to be built. Stage 1 (prices) is done** on `claude/dazzling-newton-n3hzs2`: two captures a game, score polling cut by 75%, the credit budget, re-matched names, no-price reasons, `/api/status` prices, `odds-status` and `report`. **Stage 2 (lookups and live plays) is done** on the same branch: the latest plays for text naming no one, recent plays deciding between namesakes, the tapped play named on its page, interceptions and return TDs as plays, one bad box score no longer shutting an ESPN host. **Stage 3:** the three mockup directions are on a private canvas for the owner (https://claude.ai/artifact/BvBJUwJFtcd6K5xmiJ6hf8: A feed first, B game first, C answer first, phone and desktop, every number from the recorded game), and the fixes every direction needs are built: times the same on server and phone, loading and error pages, no layout shift (floating typeahead, server-rendered banner and 21+ gate), slimmer cards with Details, unpriced bets as one list, 44 px targets, two cards a row on wide screens. **On 2026-10-15 the owner chose B, game first, and it is built:** the home page shows each game on now as a tile (score, its latest play, "Every play, and what it paid"), then the next and earlier games; a game's page (`/g/[game]`, from `/api/game/{id}`, which lists no prices) has its plays on a timeline by quarter, newest first, and tapping one opens what it paid in place (beside the timeline on a wide screen), plus Players and Game lines tabs. Result pages link back to their game |
 | The owners' lookups | **On 2026-10-17 the owner asked for their lookups to be saved, with a summary after each game to review before betting on the next.** Built: each owner signs in once per phone at `/me` with their own name and passcode; every bet page they open is saved (player, team, parlay, and a play opened on a game's page); `/me` lists their games, each with a recap of how those bets went (the price 45 minutes before kickoff, the result, what $10 came back as, totals); a player's or team's page shows how their earlier lookups of them went; the home page shows the recaps of games just finished. Nothing is frozen: a recap is worked out again from the archive when read. Only the owner signed in sees it (`docs/licensing.md`). `up.sh` asks for the owners' names and makes up their passcodes |
 | The tracker | The owner's own bet tracker, parlaytracker, is being folded into Juju as a private `/me` section ("Watch my parlays"), in six phases: [docs/plans/integrate-parlaytracker.md](docs/plans/integrate-parlaytracker.md). **Phases 1 (the backend core) and 2 (its worker jobs) are done**, and **Phase 3's sign-in** (2026-10-17): each owner's name and passcode (`TRACKER_USERS`), `/me` and the `/api/me` router. It serves the owners' saved lookups and game recaps (below) so far; no slip routes or pages yet. The worker runs the tracker's jobs, which do nothing until a slip is logged, apart from the canary (at startup and 09:00 ET: the latest NFL box score from each ESPN host, and nflverse) |
+
+## The look of 2026-11-11 (what to know before touching the site)
+
+- **Colours live in `web/lib/tokens.ts` and nowhere else.** `app/layout.tsx` writes them as CSS
+  variables; the share images, the shader, the Jujus and the passcode pages import them.
+  `lib/tokens.test.ts` fails if `globals.css` names a colour, and checks every pairing in
+  `pairings` against WCAG AA. Add a pairing there before using a new combination.
+- **Text over a world:** text with no panel under it must be `var(--text)`; muted, orange, gold
+  and grey text sits on a surface. `.page::after` is the scrim (`scrim.hero` 62% at the top of
+  result and parlay pages, `scrim.dense` 88% elsewhere and on the whole of home and game
+  pages, via `<WorldStage dense>`). `e2e/audit.spec.ts` checks the pages as drawn, and that
+  every tap target is 44 px.
+- **The payout headline** is `components/Payout.tsx`: "$10 would have returned $X" from the
+  API's `back`, or "$10 would return $X if it hits" from `returns`. Both are the API's own
+  strings: cards and parlays gained `back` for this (the number `headline` already printed).
+  Never work money out in a component.
+- **The slip** (`components/ParlaySlip.tsx`, was `ParlayTray`) is on game and result pages. Its
+  numbers come from `/api/parlay` for the legs in it (two or more), and the correlation note
+  is always beside them. The legs still live in the browser (`lib/parlayTray.ts`).
+- **Quick picks** (`lib/quickPicks.ts`) are built from `/api/game`'s players and plays only.
+  They list no price, their links are never prefetched (`prefetch={false}`: a prefetch would
+  ask the parlay endpoint for prices nobody opened), and a pick is left out when the plays
+  don't say who the starter is. No anytime-TD pick: see "Needs the owner" 9.
+- **The round robin** (`lib/roundRobin.ts`) is whole-number arithmetic on the parlay response,
+  rounded as `core/odds.py` `payout` does, with `core/parlay.py`'s outcome rules. It shows only
+  when one book priced every leg and its own total of all legs equals the API's `returns`.
+- **Worlds:** the game page never celebrates now (it is dense; the Jujus on a play's answer
+  do). The shader doesn't start on a software WebGL renderer (SwiftShader, llvmpipe), which is
+  what Lighthouse and CI have, so both see the still picture; a phone with a GPU gets the
+  shader when idle. The display font is `display: optional`, so it never re-wraps a heading.
+- **Lighthouse (2026-11-12, phone, local `next start`):** home, a result page and the parlay
+  page each scored performance 98, accessibility 100, CLS 0.000. It is not a CI job yet.
+- **Visual snapshots:** `web/scripts/visual.sh` (`--update` to retake them after a change that
+  is meant). It needs Docker, the API on :8000 and `DATABASE_URL`; it reseeds the game four
+  times and leaves it `live`. `seed stale` and `seed pregame` exist for it.
 
 ## First thing to do
 
@@ -137,7 +173,8 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   It also verifies Turnstile tokens (`lib/turnstile.ts`) and sets a signed one-hour cookie.
 - `.../image/route.tsx` under both result pages (M3): the share image, one card in its world
   with the Jujus (`lib/shareImage.tsx`, next/og). Pages emit Open Graph tags for it.
-- `components/`: `LiveNow` (the home page: "On now" tiles, then this week's next games by
+- `components/` (restyled 2026-11-11: `Payout`, `StatusChip`, `ParlaySlip`, `QuickPicks` and
+  `RoundRobin` are new; `ParlayTray` is gone): `LiveNow` (the home page: "On now" tiles, then this week's next games by
   Eastern day, then "Earlier this week"), `GamePage` (the timeline; a play's
   answer is the player's or team's own endpoint with `play_id`, its priced touched bets, two
   at most), `ResultCard` (Verified chip, deciding play, Share and Add to parlay),
@@ -204,6 +241,11 @@ verification job, alerts), `docs/GOALS-v1-brainstorm.md` (unchanged).
       credit use during games** (score polling every 4 minutes, not every minute); last
       weekend's missed games filled from the vendor's history once; **build it all now**. The
       key is never sent in chat.
+14. **The look is an orange-toned sportsbook** (2026-11-11, GOALS decision 13), in the visual
+    language of Hard Rock Bet: colour and layout only, never its logos, imagery, copy or
+    fonts. It replaces 8 above and nothing else: the worlds, the Jujus, the wordmark and every
+    compliance line stay. The owner also asked for quick picks and, as a stretch, a round
+    robin; and ruled out multi-game parlays, teasers and live betting for now.
 13. **The owners' lookups** (2026-10-17, GOALS decision 12): saved per owner, behind their own
     sign-in (not on the device, and not for the public); every bet page opened counts, not
     only typed searches; the summary is **each game's recap** and **the history on a player's
@@ -372,9 +414,7 @@ phase's checklist of what only parlaytracker's Streamlit pages held. Then Phases
 The owner may interleave M5 (below).
 
 **1. Follow-ups from M3 and M4** (small, each a commit):
-- **A share image for a parlay:** `/g/[game]/parlay/image?legs=`, reusing `lib/shareImage.tsx`
-  (the lights in the sky, the combined payout, the correlation note), and Open Graph tags on
-  the parlay page.
+- The parlay share image and its Open Graph tags are done (2026-11-11).
 - **The golden set:** add parlay lines (they resolve to `kind: "parlay"`; `tests/lookups.py`
   needs a verdict for them). Nicknames were done on 2026-10-15; "game total over" is the one
   miss left. Raise the floors in `tests/db/test_golden.py` when the numbers improve. A real
@@ -383,9 +423,9 @@ The owner may interleave M5 (below).
 **2. M5 engineering that can be done before deploy:**
 - **k6 load test** (`load/` or `web/load/`): the cached card endpoints behind the proxy, and
   lookups at the rate limits, against the local stack. Record the results in `docs/deploy.md`.
-- **Lighthouse CI** on `/`, a player page and a parlay page at phone width, as a CI job.
-- **Visual snapshots** per world and per share image (Playwright `toHaveScreenshot`, with
-  `NEXT_PUBLIC_WORLDS=off` so the CSS worlds are deterministic).
+- **Lighthouse CI** on `/`, a player page and a parlay page at phone width, as a CI job
+  (measured by hand on 2026-11-12: 98 / 100 / CLS 0 on each; see "The look" above).
+- Visual snapshots are done (2026-11-12): `web/scripts/visual.sh`.
 - **Alerting and a restore drill:** `docs/deploy.md` already lists what to alert on (`/health`,
   `ERROR juju.` logs); add Fly Postgres backups and how to restore one, and do it once.
 
@@ -408,6 +448,19 @@ pages and of state exposure; then a soft launch.
 6. **Before public launch:** the live-stats licence decision, and legal review.
 7. **FYI:** GitHub reports the parlaytracker repository as **public**, while the old goals doc
    said "still private". The owner was told on 2026-09-30.
+9. **From the look of 2026-11-11, the owner's to decide:**
+   - **Quick picks with touchdown scorers** ("everyone who scored"). Not built: the site can't
+     tell which markets a player has a price for without `/api/game` listing them, and a pick
+     whose legs have no price dead-ends (the recorded game has no TD markets at all). Listing
+     market names per player, with no prices, is arguably "a UI list with no prices in it",
+     but it is new vendor-derived data on a public response: a licensing call.
+   - **Multi-game parlays, teasers and live betting.** Not built. A multi-game parlay needs a
+     response listing prices across games, which `docs/licensing.md` forbids; a teaser needs
+     alternate-line prices at chosen points, which Juju would have to interpolate or which
+     aren't archived for most games; live betting needs prices after kickoff, and nothing is
+     captured after T-45.
+   - **Lighthouse as a CI job**, and whether the shader should also start on software
+     renderers (it doesn't: it cost 26 s of blocked main thread in Lighthouse).
 8. **For the tracker** (`docs/plans/integrate-parlaytracker.md` §13): the two users are **Chris
    and Ash** (the owner, 2026-10-08). Their passcodes are in `deploy/laptop/.env` as
    `TRACKER_USERS` since Phase 3's sign-in (`up.sh` asks for the names, defaulting to these,
@@ -419,6 +472,15 @@ pages and of state exposure; then a soft launch.
    Hard Rock slips are on the owner's side as a CSV: never in the repo.
 
 ## Gotchas
+
+- **`ubuntu-latest` moves.** Playwright's `install --with-deps` only knows the Ubuntu releases
+  its version lists; when the runner's is newer, e2e fails in seconds before any test. Raise
+  `@playwright/test` (and so `scripts/visual.sh`'s image tag, which follows it).
+- **Local servers outlive their parent.** `next start` serves from a child process
+  (`next-server`): killing `npx` or `node …/next start` leaves it holding the port, and you
+  test the old build. Stop it with `pkill -f "^next-server"`. A killed pgserver leaves
+  `backend/.pgdata/postmaster.pid`, and `dev_postgres.py` then fails: remove the file if no
+  Postgres is running. This container has no `ss`.
 
 - **`up.sh` runs under `pipefail`:** never end a pipe there with `grep -q`. It stops reading at
   the first match, the writer fails on the closed pipe (curl exits 23), and the check fails.

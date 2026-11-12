@@ -11,11 +11,15 @@ const SHOCK_MS = 1400;
  * when the browser is idle after first paint, so it never delays the price (docs/GOALS.md).
  * It steps down in resolution when frames are slow, falls back to CSS if that isn't
  * enough, pauses when the tab is hidden, and keeps to colour fades under reduced motion.
+ * The page lays a scrim over it (globals.css, `.page::after`): lighter at the top of a result
+ * page, where the Jujus stand, and heavy on a page of lists (`dense`), so the text over it
+ * always reads (lib/tokens.ts has the arithmetic).
  */
-export default function WorldStage({ world, shockAt, shockFrom }: {
+export default function WorldStage({ world, shockAt, shockFrom, dense = false }: {
   world: World;
   shockAt?: number | null;              // changes each time a shockwave should fire
   shockFrom?: () => DOMRect | null;     // where it starts: the card that cashed
+  dense?: boolean;                      // a page of lists: the world stays well behind it
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const target = useRef<World>(world);
@@ -93,7 +97,8 @@ export default function WorldStage({ world, shockAt, shockFrom }: {
   }, []);
 
   return (
-    <div className="world" aria-hidden="true" data-world={world} data-renderer={renderer}>
+    <div className="world" aria-hidden="true" data-world={world} data-renderer={renderer}
+         data-scrim={dense ? "dense" : "hero"}>
       <div className="world-css" style={{ background: FALLBACK[world] }} />
       <canvas ref={canvasRef} className="world-gl" style={{ opacity: renderer === "shader" ? 1 : 0 }} />
     </div>

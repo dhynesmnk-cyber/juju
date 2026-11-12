@@ -1,6 +1,15 @@
 // The world: one full-screen fragment shader, no library (option A, chosen 2026-09-30).
 // Weights for each world ease between 0 and 1, so every change is a smooth transformation.
+// Its skies and its confetti are lib/tokens.ts's colours (the look of 2026-11-11).
+import { color, juju, world as SKY } from "@/lib/tokens";
 import type { World } from "./worlds";
+
+function v3(hex: string): string {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return `vec3(${[n >> 16, (n >> 8) & 255, n & 255].map((c) => (c / 255).toFixed(3)).join(",")})`;
+}
+// A world's sky: its dark below, its glow gathering towards the top of the screen.
+const sky = (w: World) => `mix(${v3(SKY[w][1])},${v3(SKY[w][0])},g)`;
 
 const FRAG = `
 precision highp float;
@@ -31,7 +40,7 @@ vec3 confetti(vec2 uv, float t){
     vec2 q = m * (f - vec2(r - .5, fract(r * 7.) - .5) * .5);
     float piece = step(abs(q.x), .12) * step(abs(q.y), .05 + .04 * abs(sin(a)));
     float c = fract(r * 31.);
-    vec3 col = c < .3 ? vec3(1., .77, .24) : c < .5 ? vec3(1.) : c < .75 ? vec3(.44, .89, .71) : vec3(.72, .61, 1.);
+    vec3 col = c < .3 ? ${v3(color.gold)} : c < .5 ? vec3(1.) : c < .75 ? ${v3(color.orange)} : ${v3(juju.tuft.body)};
     acc += col * piece;
   }
   return acc;
@@ -39,30 +48,27 @@ vec3 confetti(vec2 uv, float t){
 void main(){
   vec2 uv = gl_FragCoord.xy / R; vec2 p = (gl_FragCoord.xy - .5 * R) / R.y;
   float t = T * M; float ar = R.x / R.y;
+  float g = smoothstep(.3, 1., uv.y);
   float lit = wLive + wWait * .4 + wCash * .8 + wWon * .3;
-  vec3 pre  = mix(vec3(.02,.03,.08), vec3(.05,.08,.21), uv.y);
-  vec3 live = mix(vec3(.02,.06,.06), vec3(.015,.03,.09), uv.y);
-  vec3 cash = mix(vec3(.45,.24,.04), vec3(.12,.05,.04), uv.y);
-  vec3 won  = mix(vec3(.72,.42,.18), vec3(.16,.13,.28), uv.y);
-  vec3 lost = mix(vec3(.11,.11,.12), vec3(.035,.035,.04), uv.y);
-  vec3 calm = mix(vec3(.07,.08,.11), vec3(.04,.045,.07), uv.y) + fbm(p * 2. + t * .03) * .04;
-  vec3 col = pre * wPre + live * (wLive + wWait) + cash * wCash + won * wWon + lost * wLost
-           + calm * wCalm + vec3(.13,.14,.16) * wStatic;
+  vec3 calm = ${sky("calm")} + fbm(p * 2. + t * .03) * .03;
+  vec3 col = ${sky("pre")} * wPre + ${sky("live")} * wLive + ${sky("wait")} * wWait
+           + ${sky("cash")} * wCash + ${sky("won")} * wWon + ${sky("lost")} * wLost
+           + calm * wCalm + ${sky("static")} * wStatic;
   float st = step(.9965, h(floor(gl_FragCoord.xy / 2.5)));
   col += st * (.55 + .45 * sin(t * 2. + h(floor(gl_FragCoord.xy)) * 40.)) * smoothstep(.5, 1., uv.y) * (wPre + .2 * wLive + .3 * wWon);
   vec2 mc = vec2(.76 * ar, .86); vec2 mp = vec2(uv.x * ar, uv.y);
   float md = length(mp - mc);
   float moon = smoothstep(.055, .05, md) * (1. - smoothstep(.055, .03, length(mp - mc - vec2(.02, .012))) * .85);
-  col += (vec3(1., .96, .85) * moon + vec3(.5, .6, 1.) * exp(-md * 14.) * .25) * wPre;
+  col += (vec3(1., .96, .85) * moon + vec3(1., .78, .5) * exp(-md * 14.) * .22) * wPre;
   float cl = fbm(vec2(uv.x * 3. + t * .03, uv.y * 6.)) * smoothstep(.6, .8, uv.y) * smoothstep(1., .82, uv.y);
-  col += vec3(.25, .3, .5) * cl * .35 * (wPre + wLost * .6 + wCalm * .5);
-  vec2 sp = vec2((uv.x - .5) * ar, uv.y - .5);
+  col += vec3(.3, .3, .32) * cl * .35 * (wPre + wLost * .6 + wCalm * .5);
+  vec2 sp = vec2((uv.x - .5) * ar, uv.y - .8);
   float sun = exp(-length(sp) * 5.);
   float rays = pow(max(0., sin(atan(sp.x, sp.y) * 14. + t * .2)), 8.) * exp(-length(sp) * 2.5);
   col += (vec3(1., .75, .35) * sun * .9 + vec3(1., .8, .5) * rays * .25) * wWon;
   float rim = .5 + .07 * pow(abs(uv.x - .5) * 2., 1.6);
   float stands = step(uv.y, rim);
-  vec3 standCol = mix(vec3(.02,.025,.04), vec3(.05,.06,.09), smoothstep(rim - .25, rim, uv.y));
+  vec3 standCol = mix(vec3(.022,.022,.025), vec3(.055,.056,.06), smoothstep(rim - .25, rim, uv.y));
   standCol = mix(standCol, standCol * .6 + vec3(.25,.16,.04) * .3, wCash + wWon * .5);
   col = mix(col, standCol, stands * .92);
   float band = smoothstep(rim - .16, rim - .12, uv.y) * step(uv.y, rim - .01);
@@ -72,19 +78,19 @@ void main(){
   for (int i = 0; i < 2; i++) {
     float x = i == 0 ? .1 : .9;
     float pole = step(abs(uv.x - x), .004) * step(uv.y, .76) * step(rim - .02, uv.y);
-    col = mix(col, vec3(.015,.02,.03), pole);
+    col = mix(col, vec3(.018,.018,.02), pole);
     vec2 lp = vec2((uv.x - x) * ar, uv.y - .775);
     float panel = step(abs(lp.x), .045) * step(abs(lp.y), .02);
     col = mix(col, vec3(.03), panel);
     float bulbs = dots(vec2(lp.x + .045, lp.y + .02), 44., 0., 0., 0., .3) * panel;
     col += vec3(1., .97, .85) * bulbs * (.15 + lit * 1.4);
-    col += vec3(.8, .9, 1.) * exp(-length(lp) * 18.) * lit * .5;
+    col += vec3(1., .9, .75) * exp(-length(lp) * 18.) * lit * .5;
   }
   vec2 bu = vec2(uv.x, 1. - uv.y);
   float beams = beam(bu, vec2(.1, .225), .55 + sin(t * .45) * .2, .1) + beam(bu, vec2(.9, .225), -.55 + sin(t * .4 + 2.) * .2, .1);
-  col += vec3(.75, .88, 1.) * beams * .2 * (wLive + wCash * .4);
+  col += vec3(1., .9, .72) * beams * .2 * (wLive + wCash * .4);
   float scan = beam(uv, vec2(.5, -.1), sin(t * 1.3) * .7, .06);
-  col += vec3(.55, .75, 1.) * scan * .5 * wWait;
+  col += vec3(1., .78, .4) * scan * .5 * wWait;
   float d = length(p - SC);
   float on = step(.001, S);
   float ring = exp(-pow((d - S * 1.5) * 16., 2.)) * (1. - S) * on;
@@ -93,11 +99,11 @@ void main(){
   col += vec3(1., .8, .4) * burst * .35 * wCash * M;
   col += confetti(uv, t) * (wCash * .9 + wWon * .2) * M;
   col += vec3(1., .82, .4) * dots(uv, 11., -1., t * .8, .6, .06) * (wCash * .6 + wWon * .3) * M;
-  float g = dot(col, vec3(.3, .59, .11));
-  col = mix(col, vec3(g), wLost * .85);
+  float gr = dot(col, vec3(.3, .59, .11));
+  col = mix(col, vec3(gr), wLost * .85);
   vec2 rg = uv * vec2(70., 5.); rg.y += t * 3.; rg.x += rg.y * .08;
   float rain = step(.93, h(floor(rg))) * smoothstep(.0, .4, fract(rg.y)) * smoothstep(1., .6, fract(rg.y));
-  col += vec3(.55, .6, .7) * rain * .12 * wLost * M;
+  col += vec3(.6, .62, .66) * rain * .12 * wLost * M;
   col += (h(uv * R + fract(t * 7.)) - .5) * .2 * wStatic;
   col *= 1. - .35 * length(uv - .5);
   col += (h(uv * R + t) - .5) * .012;
@@ -119,8 +125,19 @@ export interface WorldRenderer {
 }
 
 export function makeWorld(canvas: HTMLCanvasElement): WorldRenderer | null {
-  const gl = canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "low-power" });
+  // No context where WebGL would be drawn in software (no GPU, or a blocked driver): there
+  // every frame runs on the main thread, and the page keeps its still picture instead.
+  const gl = canvas.getContext("webgl", { antialias: false, alpha: false,
+                                          powerPreference: "low-power",
+                                          failIfMajorPerformanceCaveat: true });
   if (!gl) return null;
+  // Chrome doesn't count its own software renderer as a caveat, so ask by name.
+  const info = gl.getExtension("WEBGL_debug_renderer_info");
+  const renderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+  if (/swiftshader|llvmpipe|software/i.test(renderer)) {
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    return null;
+  }
   const compile = (type: number, src: string) => {
     const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); return s;
   };

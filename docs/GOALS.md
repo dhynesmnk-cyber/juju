@@ -35,10 +35,11 @@ records bets the two of them placed elsewhere, watches and settles them, and tak
 | 6 | Book of record (2026-09-30) | **Hard Rock Bet**, then DraftKings, then the others (`BOOKS` setting). |
 | 7 | Hosting (2026-09-30) | **Fly.io** (`iad`) for the site, API, worker and Postgres, with **Cloudflare** in front. |
 | 8 | Odds vendor | **The Odds API**. Its terms allow Juju's use (§3). |
-| 9 | The look (2026-09-30) | **Worlds that follow the bet's state**, drawn by one WebGL shader (option A, 7 KB gzipped). Three original characters, the **Jujus** (Pip, Bo and Tuft), sit on the first card and react. The price always renders first; see §7.9. |
+| 9 | The look (2026-09-30) | **Worlds that follow the bet's state**, drawn by one WebGL shader (option A, 7 KB gzipped). Three original characters, the **Jujus** (Pip, Bo and Tuft), sit on the first card and react. The price always renders first; see §7.9.  **Restyled on 2026-11-11: decision 13.** |
 | 10 | Parlay leg prices (2026-09-30) | **Shown.** A same-game parlay card lists each leg's price at the parlay's book, the one exception to "no prices across players" (§3). |
 | 11 | The owners' bet tracker (2026-10-08) | **Folded in.** parlaytracker becomes a passcode-gated `/me` section: its pages rebuilt in Next.js, its logic in the backend, per-user passcodes, fresh data. The plan and its six phases: [plans/integrate-parlaytracker.md](plans/integrate-parlaytracker.md). |
 | 12 | The owners' lookups (2026-10-17) | **Kept, per owner, for a recap after each game.** Each owner signs in with their own name and passcode (the tracker's Phase 3 sign-in, built first). Every bet page they open is saved; each game gets a recap of how those bets went, and a player's page shows how earlier lookups of them went. Worked out again from the archive whenever read, never frozen; the second exception to "no prices across players", for the owner only (§3). Facts, never picks. |
+| 13 | The look, again (2026-11-11) | **An orange-toned sportsbook**, in the visual language of Hard Rock Bet: colour and layout only, none of its logos, imagery, copy or fonts. It replaces decision 9's look and nothing else. Charcoal with layered greys, a vivid orange primary, gold for wins, desaturated grey for losses; result cards are tickets whose headline is the payout; the parlay tray is a slip fixed to the bottom of the screen. The worlds and the Jujus stay, recoloured, with every guardrail of §7.9; the Juju wordmark stays. One token file (`web/lib/tokens.ts`), every pairing checked against WCAG AA by a test. |
 
 ## 3. Licensing: a design rule, not a blocker
 
@@ -128,6 +129,9 @@ Rules:
   A player who appears nowhere has "no stat line yet".
 - **Same-game parlays** (M4) use standard parlay maths, and every one carries: *"Standard parlay
   maths. Books adjust same-game parlays for correlation, so a real ticket would have paid less."*
+  Since 2026-11-11 that includes the slip's bar, each **quick pick** once opened (a ready-made
+  parlay built in the browser from the game's players and plays, listed with no price), and
+  every combination of a **round robin** (worked out in the browser from the parlay on screen).
 
 ## 6. Live data (stability)
 
@@ -205,6 +209,16 @@ Rules:
      - The home page never celebrates.
      - The hypothetical line stays visible through every celebration.
      - The kill switch is `NEXT_PUBLIC_WORLDS=off`.
+   - Since 2026-11-11 (decision 13):
+     - The worlds are in the new palette (charcoal skies, orange and gold light), and the
+       Jujus are orange, gold and ash.
+     - A scrim lies between the world and the page, so text reads over anything a world
+       draws: lighter at the top of a result or parlay page, heavy on the home page and a
+       game's page, which are lists. Text with no panel under it is always the `text` colour.
+     - A game's page no longer turns gold when a tapped play has cashed (the confetti ran
+       through the timeline); the Jujus on that play's answer still celebrate.
+     - Where WebGL would be drawn in software (no GPU), the shader doesn't start: the page
+       keeps the still picture.
 
 ## 8. Still binding from parlaytracker
 

@@ -12,6 +12,7 @@ export default async function Home() {
   const owner = await currentOwner();
   return (
     <>
+      <h1 className="home-title">What would that play have paid?</h1>
       <p className="tagline">
         Tap a play or type one. See what a <strong>$10 bet placed 45 minutes before
         kickoff</strong> would have paid, at the real price.

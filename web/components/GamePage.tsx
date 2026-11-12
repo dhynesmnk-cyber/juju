@@ -4,10 +4,14 @@ import Link from "next/link";
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import LocalTime from "@/components/LocalTime";
 import MiniCard from "@/components/MiniCard";
+import ParlayButton from "@/components/ParlayButton";
+import ParlaySlip from "@/components/ParlaySlip";
+import QuickPicks from "@/components/QuickPicks";
 import Jujus from "@/components/world/Jujus";
 import WorldStage from "@/components/world/WorldStage";
-import { quarter, secondsAgo } from "@/lib/format";
+import { quarter, scoreline, secondsAgo } from "@/lib/format";
 import { resultHref } from "@/lib/links";
+import { legKey } from "@/lib/parlayTray";
 import { remember as rememberLookup } from "@/lib/remember";
 import type { GamePageView, GamePlay, PlayerView, TeamView } from "@/lib/types";
 
@@ -45,32 +49,45 @@ function quarterName(period: number | null): string {
   return period === 5 ? "Overtime" : `${period - 4}OT`;
 }
 
-/** What a play paid: the priced bets it touched (two at most), and the way to the rest. */
+/** What a play paid: the priced bets it touched (two at most), each one tap from the slip,
+ *  and the way to the rest. */
 function MiniAnswer({ gameId, play, answer }: { gameId: number; play: GamePlay; answer: Answer | null }) {
   const t = target(play);
   if (!t) return null;
   const href = resultHref(t.kind, gameId, t.id, undefined, play.id);
   if (!answer || answer.playId !== play.id) {
-    return <p className="muted" role="status">Getting what it paid…</p>;
+    return <p className="answer-note" role="status">Getting what it paid…</p>;
   }
   if (answer.failed || !answer.view) {
-    return <p className="muted">Couldn&apos;t load its bets just now. <Link href={href}>Open them</Link></p>;
+    return <p className="answer-note">Couldn&apos;t load its bets just now. <Link href={href}>Open them</Link></p>;
   }
   const v = answer.view;
   const priced = v.cards.filter((c) => c.price !== null);
   const touched = priced.filter((c) => c.touched);
   const show = (touched.length ? touched : priced).slice(0, 2);
   const who = "player" in v ? v.player.name : v.team.name;
+  const short = "player" in v ? v.player.name : v.team.abbr ?? v.team.name;
   const cashed = show[0] && (show[0].outcome === "locked" || show[0].outcome === "won");
   return (
     <div className={`mini${cashed ? " crewed" : ""}`}>
       {cashed && <Jujus mood="joy" />}
       {show.length === 0 && (
-        <p className="muted">
+        <p className="answer-note">
           {("no_price" in v && v.no_price) || "No price on file for the bets this play touched."}
         </p>
       )}
-      {show.map((c) => <MiniCard key={c.key} c={c} />)}
+      {show.map((c) => {
+        const key = c.outcome === "void" ? null : legKey(t.kind, t.id, c);
+        return (
+          <MiniCard key={c.key} c={c}>
+            {key && (
+              <div className="ticket-actions">
+                <ParlayButton game={gameId} leg={{ key, who: short, bet: c.bet }} />
+              </div>
+            )}
+          </MiniCard>
+        );
+      })}
       <Link className="mini-all" href={href}>All of {who}&apos;s bets <span aria-hidden="true">›</span></Link>
     </div>
   );
@@ -136,25 +153,27 @@ export default function GamePage({ initial, remember = false }: {
   };
 
   const openPlay = g.plays.find((p) => p.id === open) ?? null;
-  const top = openPlay && answer?.playId === openPlay.id
-    ? answer.view?.cards.find((c) => c.price !== null && c.touched) : undefined;
-  const world = top && (top.outcome === "locked" || top.outcome === "won") ? "cash"
-    : live ? "live" : g.status === "scheduled" ? "pre" : "calm";
+  // A page of lists: the world stays lit or calm behind a heavy scrim, and never celebrates
+  // over the timeline (the Jujus on the answer do).
+  const world = live ? "live" : g.status === "scheduled" ? "pre" : "calm";
   const sides = [g.away, g.home];
   const names = new Map(g.players.map((p) => [p.id, p.name]));
 
   return (
     <>
-      <WorldStage world={world} />
+      <WorldStage world={world} dense />
       <div className="game-head">
-        <Link className="back" href="/">‹ Games</Link>
-        <h1 className="scoreline">
-          {g.away.abbr ?? g.away.name} {g.away.score ?? ""} – {g.home.score ?? ""} {g.home.abbr ?? g.home.name}
-        </h1>
-        <p className="sub">
-          {g.status === "scheduled" ? <>Kickoff <LocalTime iso={g.commence_time} withDay /></> : g.status_text}
-          {live && <span className={`fresh ${g.freshness}`}> · live stats {secondsAgo(g.updated_seconds_ago)}</span>}
-        </p>
+        <Link className="pill" href="/"><span aria-hidden="true">‹</span> Games</Link>
+        <div className="scoreboard">
+          <p className="match-strip">
+            {live && <span className="live-tag"><span className="dot" aria-hidden="true" /> LIVE</span>}
+            <span className="match-clock">
+              {g.status === "scheduled" ? <>Kickoff <LocalTime iso={g.commence_time} withDay /></> : g.status_text}
+            </span>
+            {live && <span className={`fresh ${g.freshness}`}>live stats {secondsAgo(g.updated_seconds_ago)}</span>}
+          </p>
+          <h1 className="scoreline num">{scoreline(g)}</h1>
+        </div>
       </div>
 
       <div role="tablist" aria-label="This game" className="tabs">
@@ -165,65 +184,68 @@ export default function GamePage({ initial, remember = false }: {
         ))}
       </div>
 
-      <div role="tabpanel" id="panel-plays" aria-labelledby="tab-plays" hidden={tab !== "plays"}
-           className="game-layout">
-        <div className="timeline">
-          {g.plays.length === 0 && (
-            <p className="muted">
-              {g.status === "scheduled"
-                ? "No plays yet. Prices are saved 45 minutes before kickoff."
-                : "No notable plays yet: scores, 20+ yard gains and interceptions show up here."}
-            </p>
-          )}
-          {byQuarter(g.plays).map(([period, plays]) => (
-            <section key={String(period)} className="quarter" aria-label={quarterName(period)}>
-              <h2>{quarterName(period)}</h2>
-              <ul>
-                {plays.map((p) => (
-                  <li key={p.id}>
-                    <button type="button" className={`play-row${open === p.id ? " open" : ""}`}
-                            aria-expanded={open === p.id} onClick={() => toggle(p)}>
-                      <span className="what">
-                        <span>
-                          {BADGE[p.kind] && <span className={`badge ${BADGE[p.kind][1]}`}>{BADGE[p.kind][0]}</span>}
-                          {p.label}
-                        </span>
-                        {p.passer_id && names.has(p.passer_id) && (
-                          <span className="by">
-                            {p.kind === "def_interception" ? "thrown by " : "from "}
-                            {names.get(p.passer_id)}
+      <div role="tabpanel" id="panel-plays" aria-labelledby="tab-plays" hidden={tab !== "plays"}>
+        <QuickPicks game={g} />
+        <div className="game-layout">
+          <div className="timeline">
+            {g.plays.length === 0 && (
+              <p className="empty">
+                {g.status === "scheduled"
+                  ? "No plays yet. Prices are saved 45 minutes before kickoff."
+                  : "No notable plays yet: scores, 20+ yard gains and interceptions show up here."}
+              </p>
+            )}
+            {byQuarter(g.plays).map(([period, plays]) => (
+              <section key={String(period)} className="quarter" aria-label={quarterName(period)}>
+                <h2>{quarterName(period)}</h2>
+                <ul>
+                  {plays.map((p) => (
+                    <li key={p.id}>
+                      <button type="button" className={`play-row${open === p.id ? " open" : ""}`}
+                              aria-expanded={open === p.id} onClick={() => toggle(p)}>
+                        <span className="what">
+                          <span>
+                            {BADGE[p.kind] && <span className={`badge ${BADGE[p.kind][1]}`}>{BADGE[p.kind][0]}</span>}
+                            {p.label}
                           </span>
-                        )}
-                      </span>
-                      <span className="when">{p.clock}</span>
-                    </button>
-                    {open === p.id && (
-                      <div className="inline-answer">
-                        <MiniAnswer gameId={g.id} play={p} answer={answer} />
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+                          {p.passer_id && names.has(p.passer_id) && (
+                            <span className="by">
+                              {p.kind === "def_interception" ? "thrown by " : "from "}
+                              {names.get(p.passer_id)}
+                            </span>
+                          )}
+                        </span>
+                        <span className="when num">{p.clock}</span>
+                        <span className="chev" aria-hidden="true">›</span>
+                      </button>
+                      {open === p.id && (
+                        <div className="inline-answer">
+                          <MiniAnswer gameId={g.id} play={p} answer={answer} />
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+          <aside className="answer-panel" aria-label="What it paid">
+            {openPlay ? (
+              <>
+                <p className="eyebrow">The play</p>
+                <h2>{openPlay.label}</h2>
+                <p className="when">{quarter(openPlay.period)} {openPlay.clock}</p>
+                <MiniAnswer gameId={g.id} play={openPlay} answer={answer} />
+              </>
+            ) : (
+              <p className="answer-note">Tap a play to see what $10 at the price 45 minutes before kickoff paid.</p>
+            )}
+          </aside>
         </div>
-        <aside className="answer-panel" aria-label="What it paid">
-          {openPlay ? (
-            <>
-              <p className="eyebrow">The play</p>
-              <h2>{openPlay.label}</h2>
-              <p className="muted">{quarter(openPlay.period)} {openPlay.clock}</p>
-              <MiniAnswer gameId={g.id} play={openPlay} answer={answer} />
-            </>
-          ) : (
-            <p className="muted">Tap a play to see what $10 at the price 45 minutes before kickoff paid.</p>
-          )}
-        </aside>
       </div>
 
       <div role="tabpanel" id="panel-players" aria-labelledby="tab-players" hidden={tab !== "players"}>
-        {g.players.length === 0 && <p className="muted">No player has a price on file for this game.</p>}
+        {g.players.length === 0 && <p className="empty">No player has a price on file for this game.</p>}
         {sides.map((side) => {
           const players = g.players.filter((p) => p.team_espn_id === side.espn_id);
           if (!players.length) return null;
@@ -234,7 +256,7 @@ export default function GamePage({ initial, remember = false }: {
                 {players.map((p) => (
                   <li key={p.id}>
                     <Link href={resultHref("player", g.id, p.id)}>
-                      {p.name}{p.position ? <span className="muted small">{p.position}</span> : null}
+                      {p.name}{p.position ? <span className="pos">{p.position}</span> : null}
                     </Link>
                   </li>
                 ))}
@@ -245,15 +267,18 @@ export default function GamePage({ initial, remember = false }: {
       </div>
 
       <div role="tabpanel" id="panel-lines" aria-labelledby="tab-lines" hidden={tab !== "lines"}>
-        <p className="muted">Moneyline, spread and totals, at the price 45 minutes before kickoff.</p>
-        <div className="team-links">
-          {sides.map((s) => s.espn_id && (
-            <Link key={s.espn_id} className="chip" href={resultHref("team", g.id, s.espn_id)}>
-              {s.abbr ?? s.name} lines
-            </Link>
-          ))}
+        <div className="empty">
+          <p>Moneyline, spread and totals, at the price 45 minutes before kickoff.</p>
+          <div className="team-links">
+            {sides.map((s) => s.espn_id && (
+              <Link key={s.espn_id} className="pill" href={resultHref("team", g.id, s.espn_id)}>
+                {s.abbr ?? s.name} lines
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
+      <ParlaySlip game={g.id} />
     </>
   );
 }

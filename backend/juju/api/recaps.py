@@ -52,19 +52,22 @@ def _price(price: dict | None) -> dict | None:
             "timing": price["timing"]}
 
 
-def _back(c: CardView) -> Decimal | None:
-    """What $10 came back as, once the bet is settled; None while it isn't."""
+def _settled(c: CardView) -> Decimal | None:
+    """What $10 came back as, once the bet is settled; None while it isn't. The totals count
+    this, never a bet that is only cashed "if the play stands"."""
     if c.outcome not in SETTLED or c.price is None:
         return None
     return card.settled_returns(c.outcome, card.money(c.price["american"], None))
 
 
 def _bet(c: CardView) -> dict:
+    """A card as a recap shows it: `returns` and `back` are the card's own, as its page has
+    them (`back` is set as soon as it has cashed or gone, before it settles)."""
     return {"key": c.key, "label": c.label, "bet": c.bet, "line": c.line,
             "outcome": c.outcome, "outcome_text": c.outcome_text, "headline": c.headline,
             "current": c.current, "needed": c.needed, "price": _price(c.price),
             "no_price": c.no_price, "verified": c.verified, "decided_by": c.decided_by,
-            "notes": c.notes, "back": _back(c)}
+            "notes": c.notes, "returns": c.returns, "back": c.back}
 
 
 def _leg(leg: LegView) -> dict:
@@ -73,13 +76,17 @@ def _leg(leg: LegView) -> dict:
             "needed": leg.needed, "price": _price(leg.price), "no_price": leg.no_price}
 
 
+def _settled_parlay(v: ParlayView) -> Decimal | None:
+    if v.returns is None or v.outcome not in SETTLED:
+        return None
+    return parlay.settled_returns(
+        v.outcome, parlay.ParlayMoney(v.returns, v.fair_returns, v.legs_counted))
+
+
 def _parlay(v: ParlayView) -> dict:
-    back = None
-    if v.returns is not None and v.outcome in SETTLED:
-        back = parlay.settled_returns(
-            v.outcome, parlay.ParlayMoney(v.returns, v.fair_returns, v.legs_counted))
     return {"outcome": v.outcome, "outcome_text": v.outcome_text, "headline": v.headline,
-            "book_name": v.book_name, "priced": v.returns is not None, "back": back,
+            "book_name": v.book_name, "priced": v.returns is not None,
+            "returns": v.returns, "back": v.back, "notes": v.notes,
             "legs": [_leg(leg) for leg in v.legs]}
 
 
@@ -189,7 +196,7 @@ class Recaps:
             if view.returns is None:
                 totals.unpriced += 1
             else:
-                totals.add(key, view.outcome, out["parlay"]["back"])
+                totals.add(key, view.outcome, _settled_parlay(view))
             return out
         cards, unpriced = pick_cards(view.cards)
         if isinstance(view, PlayerView):
@@ -204,8 +211,8 @@ class Recaps:
         if not cards and out["no_price"] is None and view.cards:
             out["no_price"] = next((c.no_price for c in view.cards if c.no_price), None)
         totals.unpriced += unpriced
-        for c, bet in zip(cards, out["bets"], strict=True):
-            totals.add((s.kind, s.target, c.key, c.line), c.outcome, bet["back"])
+        for c in cards:
+            totals.add((s.kind, s.target, c.key, c.line), c.outcome, _settled(c))
         return out
 
     def recap(self, game: Game, lookups: Iterable[SavedLookup]) -> dict:

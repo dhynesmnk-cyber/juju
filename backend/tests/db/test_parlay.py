@@ -40,6 +40,7 @@ def test_a_parlay_that_won_pays_the_product_of_its_legs_at_one_book(client, db):
     expected = payout(D(10), parlay_decimal(s["price"]["american"] for s in singles))
     assert D(view["returns"]) == expected and view["headline"] == f"$10 → ${expected}"
     assert view["notes"][0] == SGP_NOTE and view["legs_counted"] == 3
+    assert view["back"] == view["returns"]  # won: what it paid is what came back
     assert view["disclaimer"].startswith("Hypothetical")
 
 
@@ -58,6 +59,7 @@ def test_one_lost_leg_loses_it(client, db):  # noqa: F811
     legs = f"p-{SMITH}-player_reception_yds,p-{BARKLEY}-player_rush_yds"  # 65 < 71.5
     view = client.get(f"/api/parlay/{game}", params={"legs": legs}).json()
     assert view["outcome"] == "lost" and view["headline"] == "$10 → $0.00"
+    assert view["back"] == "0.00" and view["returns"] != "0.00"
 
 
 def test_live_it_is_cashed_only_when_every_leg_is(client, db):  # noqa: F811
@@ -65,9 +67,11 @@ def test_live_it_is_cashed_only_when_every_leg_is(client, db):  # noqa: F811
     locked = f"p-{SMITH}-player_receptions,p-{BARKLEY}-player_rush_yds"
     view = client.get(f"/api/parlay/{game}", params={"legs": locked}).json()
     assert view["outcome"] == "locked" and "if it hits" not in view["headline"]
+    assert view["back"] == view["returns"]
     live = f"{locked},p-{SMITH}-player_reception_yds"  # 65 of 71.5 so far
     view = client.get(f"/api/parlay/{game}", params={"legs": live}).json()
     assert view["outcome"] == "live" and view["headline"].endswith("if it hits")
+    assert view["back"] is None
     assert [leg["outcome"] for leg in view["legs"]] == ["locked", "locked", "live"]
     assert view["legs"][2]["needed"] == "7"
 
@@ -84,6 +88,7 @@ def test_a_leg_without_a_price_leaves_the_parlay_unpriced(client, db):  # noqa: 
     legs = f"p-{SMITH}-player_receptions,p-{BARKLEY}-player_pass_yds"  # never priced
     view = client.get(f"/api/parlay/{game}", params={"legs": legs}).json()
     assert view["headline"] == "No price on file for every leg" and view["returns"] is None
+    assert view["back"] is None and view["notes"] == [SGP_NOTE]  # the caveat, even unpriced
     assert view["legs"][1]["no_price"].startswith("No price on file")
 
 

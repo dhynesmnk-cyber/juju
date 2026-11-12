@@ -18,5 +18,5 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     `/api/player/${game}/${player}${threshold ? `?threshold=${threshold}` : ""}`);
   if (!view) return new Response(null, { status: 404 });
   const chosen = pickCard(view.cards, card);
-  return shareImage(view.player.name, view.game, chosen, imageCache(view.game, chosen));
+  return shareImage(view.player.name, view.game, chosen, imageCache(view.game, chosen?.outcome));
 }

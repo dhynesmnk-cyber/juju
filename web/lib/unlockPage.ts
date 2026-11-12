@@ -4,6 +4,7 @@
 // the app's router to prefetch. No "@/" imports: `npm test` runs the lib tests with Node's own
 // test runner.
 import { CHECK_PATH } from "./passcode.ts";
+import { cssVariables } from "./tokens.ts";
 import { ME_CHECK_PATH } from "./trackerPass.ts";
 
 function escapeHtml(text: string): string {
@@ -20,28 +21,23 @@ function page(title: string, main: string): string {
 <meta name="robots" content="noindex, nofollow">
 <title>${title} | Juju</title>
 <style>
-  :root { color-scheme: light dark; --bg: #f6f7f9; --fg: #14171c; --muted: #555d6b;
-          --field: #ffffff; --line: #c9ced8; --accent: #2f5bd3; --accent-fg: #ffffff; --bad: #a8261b; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #0d1015; --fg: #eef1f6; --muted: #a3acbb; --field: #161b23; --line: #2b3342;
-            --accent: #8fb0ff; --accent-fg: #0d1015; --bad: #ff8f85; }
-  }
+  ${cssVariables()}
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg);
+  body { margin: 0; background: var(--bg); color: var(--text);
          font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 26rem; margin: 0 auto; padding: 48px 16px; }
-  .brand { font-weight: 900; font-size: 1.6rem; letter-spacing: -0.02em; }
-  .brand span { color: var(--accent); }
+  .brand { font-weight: 800; font-size: 1.6rem; letter-spacing: -0.01em; }
+  .brand span { color: var(--orange); }
   h1 { font-size: 1.5rem; margin: 28px 0 8px; }
   p { margin: 0 0 16px; color: var(--muted); }
   label { display: block; font-weight: 700; margin-bottom: 6px; }
   .row { display: flex; gap: 8px; }
-  input { flex: 1; min-width: 0; min-height: 48px; padding: 0 12px; font: inherit; color: var(--fg);
-          background: var(--field); border: 1px solid var(--line); border-radius: 10px; }
-  button { min-height: 48px; padding: 0 20px; font: inherit; font-weight: 700; color: var(--accent-fg);
-           background: var(--accent); border: 0; border-radius: 10px; cursor: pointer; }
-  input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-  .wrong { color: var(--bad); font-weight: 600; margin-top: 12px; }
+  input { flex: 1; min-width: 0; min-height: 48px; padding: 0 12px; font: inherit; color: var(--text);
+          background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 12px; }
+  button { min-height: 48px; padding: 0 20px; font: inherit; font-weight: 800; color: var(--ink);
+           background: var(--orange); border: 0; border-radius: 12px; cursor: pointer; }
+  input:focus-visible, button:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
+  .wrong { color: var(--danger); font-weight: 600; margin-top: 12px; }
   .name { margin-bottom: 14px; }
   .name input { width: 100%; }
   footer { margin-top: 48px; font-size: 0.85rem; }

@@ -32,7 +32,10 @@ export interface Card {
   headline: string;
   price: Price | null;
   no_price: string | null;
-  returns: string | null;
+  returns: string | null;  // what $10 returns if it wins, stake included
+  // What $10 comes back as on this outcome, the number the headline prints: the payout once
+  // won or cashed, "0.00" once lost, the stake on a push. Null while it can go either way.
+  back: string | null;
   profit: string | null;
   fair_returns: string | null;
   fair_note: string | null;
@@ -190,6 +193,7 @@ export interface ParlayView {
   outcome_text: string;
   headline: string;
   returns: string | null;
+  back: string | null;  // as on a card
   fair_returns: string | null;
   book_name: string | null;
   legs_counted: number;
@@ -221,7 +225,8 @@ export interface RecapBet {
   verified: boolean;
   decided_by: Card["decided_by"];
   notes: string[];
-  back: string | null;  // what $10 came back as, once settled
+  returns: string | null;  // the card's own, as its page has them
+  back: string | null;
 }
 
 export interface RecapParlay {
@@ -230,7 +235,9 @@ export interface RecapParlay {
   headline: string;
   book_name: string | null;
   priced: boolean;
+  returns: string | null;
   back: string | null;
+  notes: string[];  // the correlation note first: every parlay carries it
   legs: { key: string; kind: "player" | "team"; id: string; who: string; bet: string;
           outcome: Outcome; outcome_text: string; price: RecapPrice | null;
           no_price: string | null }[];

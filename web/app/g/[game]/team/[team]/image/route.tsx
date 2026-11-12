@@ -15,5 +15,5 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   const view = await backendGet<TeamView>(`/api/team/${game}/${team}`);
   if (!view) return new Response(null, { status: 404 });
   const chosen = pickCard(view.cards, card);
-  return shareImage(view.team.name, view.game, chosen, imageCache(view.game, chosen));
+  return shareImage(view.team.name, view.game, chosen, imageCache(view.game, chosen?.outcome));
 }

@@ -23,7 +23,7 @@ test("share a card: its own link, first on the page, with its own preview", asyn
   await receptions.getByRole("button", { name: "Share" }).click();
   const shared = await page.evaluate(() => (window as unknown as Shared).__shared);
   expect(shared?.url).toMatch(/\/g\/\d+\/3929630\?card=player_receptions$/);
-  expect(shared?.text).toMatch(/^Over 2\.5 receptions: \$10 → \$/);
+  expect(shared?.text).toMatch(/^Over 2\.5 receptions: \$10 would return \$\d+\.\d\d if it hits/);
 
   // The link opens with that card first, and its preview is that card.
   await page.goto(shared!.url!);

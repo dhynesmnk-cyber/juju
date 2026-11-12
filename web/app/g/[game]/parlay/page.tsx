@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ParlayView from "@/components/ParlayView";
+import { payoutText } from "@/components/Payout";
 import RememberLookup from "@/components/RememberLookup";
 import { backendPage } from "@/lib/backend";
 import { currentOwner } from "@/lib/me";
+import { LEGS, SIZE } from "@/lib/shareImage";
 import type { ParlayView as View } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +15,7 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const LEGS = /^[a-z0-9_.,-]{1,600}$/;
+
 
 async function load(props: Props) {
   const { game } = await props.params;
@@ -24,14 +26,21 @@ async function load(props: Props) {
   return view ? { view, apiPath, legs } : null;
 }
 
+function pagePath(game: number, legs: string): string {
+  return `/g/${game}/parlay?legs=${encodeURIComponent(legs)}`;
+}
+
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const data = await load(props);
   if (!data) return { title: "Juju" };
-  return {
-    title: `Same-game parlay, ${data.view.game.label} | Juju`,
-    description: `${data.view.legs.length} legs: ${data.view.headline}. Standard parlay maths `
-      + "at prices archived 45 minutes before kickoff.",
-  };
+  const { view, legs } = data;
+  const title = `Same-game parlay, ${view.game.label} | Juju`;
+  const description = `${view.legs.length} legs: ${payoutText(view)}. Standard parlay maths `
+    + "at prices archived 45 minutes before kickoff; a real ticket would have paid less.";
+  const image = { url: `/g/${view.game.id}/parlay/image?legs=${encodeURIComponent(legs)}`,
+                  ...SIZE, alt: `${title}: ${payoutText(view)}` };
+  return { title, description, openGraph: { title, description, images: [image] },
+           twitter: { card: "summary_large_image", title, description, images: [image] } };
 }
 
 export default async function ParlayPage(props: Props) {
@@ -40,7 +49,8 @@ export default async function ParlayPage(props: Props) {
   const owner = await currentOwner();
   return (
     <>
-      <ParlayView initial={data.view} apiPath={data.apiPath} />
+      <ParlayView initial={data.view} apiPath={data.apiPath}
+                  sharePath={pagePath(data.view.game.id, data.legs)} />
       {owner && <RememberLookup body={{ kind: "parlay", game_id: data.view.game.id,
                                         target: data.legs }} />}
     </>

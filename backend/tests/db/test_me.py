@@ -151,6 +151,27 @@ def test_a_recap_works_every_bet_out_as_its_page_does(me, db):
     assert not keys_in(body) & {"others", "provenance", "observed_at", "fair_returns"}
 
 
+def test_while_the_game_is_on_a_recap_shows_a_bet_as_its_page_does_and_counts_nothing(me, db):
+    game = seed(db, "live")
+    save(me, game, kind="player", target=BARKLEY, market="player_rush_yds")  # 82 > 73.5: cashed
+    save(me, game, kind="player", target=SMITH, market="player_reception_yds")  # 65 of 71.5
+    save(me, game, kind="parlay", target=f"p-{SMITH}-player_receptions,p-{BARKLEY}-player_rush_yds")
+    body = me.get(f"/api/me/recaps/{game}", headers=CHRIS).json()
+    cashed, live, sgp = (entry for entry in body["lookups"])
+    # The card's own numbers, so the recap prints what the page prints.
+    assert cashed["bets"][0]["outcome"] == "locked"
+    assert cashed["bets"][0]["back"] == cashed["bets"][0]["returns"] == "18.93"
+    assert live["bets"][0]["outcome"] == "live" and live["bets"][0]["back"] is None
+    assert live["bets"][0]["returns"] == "18.85"
+    assert sgp["parlay"]["outcome"] == "locked"
+    assert sgp["parlay"]["back"] == sgp["parlay"]["returns"] is not None
+    assert sgp["parlay"]["notes"][0].startswith("Standard parlay maths")
+    # "If the play stands" is not settled: the money counts nothing yet.
+    totals = body["totals"]
+    assert (totals["bets"], totals["open"], totals["won"]) == (3, 3, 0)
+    assert totals["staked"] == totals["back"] == "0.00"
+
+
 def test_a_plain_look_shows_the_page_s_first_bets(me, db):
     game = seed(db, "final")
     save(me, game, kind="player", target=SMITH)

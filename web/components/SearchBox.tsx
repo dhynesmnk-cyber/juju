@@ -148,8 +148,8 @@ export default function SearchBox() {
           aria-autocomplete="list"
           aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
         />
-        <button type="submit" disabled={busy} aria-label="Look it up">
-          {busy ? "…" : "Go"}
+        <button type="submit" disabled={busy}>
+          {busy ? "…" : "Go"}<span className="sr-only">: look it up</span>
         </button>
       </div>
       {suggestions.length > 0 && (

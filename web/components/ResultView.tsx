@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ParlayTray from "@/components/ParlayTray";
+import ParlaySlip from "@/components/ParlaySlip";
+import { payoutText } from "@/components/Payout";
 import ResultCard from "@/components/ResultCard";
 import WorldStage from "@/components/world/WorldStage";
 import { MOOD, worldFor } from "@/components/world/worlds";
@@ -46,7 +47,7 @@ export function sharePath(pagePath: string, card: Card): string {
   return `${pagePath}?${q}`;
 }
 
-/** The card as a parlay leg, for the tray; undefined for a card that can't be one. */
+/** The card as a parlay leg, for the slip; undefined for a card that can't be one. */
 function parlayLeg(v: View, c: Card) {
   const key = "player" in v ? legKey("player", v.player.id, c)
     : legKey("team", v.team.espn_id, c);
@@ -94,7 +95,7 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
           (c) => previous.current.get(c.key) !== c.outcome).map((c) => c.key));
         const top = next.cards[0];
         if (top && moved.has(top.key)) {
-          setAnnounce(`${top.label}: ${top.outcome_text}. ${top.headline}`);
+          setAnnounce(`${top.label}: ${top.outcome_text}. ${payoutText(top)}`);
           if (top.outcome === "locked" || top.outcome === "won") setCountFirst(true);
           if (top.outcome === "locked") setShockAt(Date.now());
         }
@@ -124,23 +125,27 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
       <WorldStage world={world} shockAt={shockAt} shockFrom={shockFrom} />
       <div className="sr-only" aria-live="polite">{announce}</div>
       <div className="result-head">
-        <Link className="back" href={gameHref(g.id)}>‹ {g.away.abbr ?? g.away.name} @ {g.home.abbr ?? g.home.name}, every play</Link>
+        <Link className="pill" href={gameHref(g.id)}>
+          <span aria-hidden="true">‹</span> {g.away.abbr ?? g.away.name} @ {g.home.abbr ?? g.home.name}, every play
+        </Link>
         <h1>{name}</h1>
-        <div className="sub">{[sub, score, g.status_text].filter(Boolean).join(" · ")}</div>
-        {g.status !== "scheduled" && g.status !== "final" && (
-          <div className={`fresh ${g.freshness}`}>
-            Live stats {secondsAgo(g.updated_seconds_ago)}
-            {g.freshness === "red" ? ". The live feed looks stuck." : ""}
-          </div>
-        )}
-        {offline && <div className="fresh red" role="alert">Can&apos;t refresh right now. Retrying.</div>}
+        <div className="scorebug">
+          <span>{[sub, score, g.status_text].filter(Boolean).join(" · ")}</span>
+          {g.status !== "scheduled" && g.status !== "final" && (
+            <span className={`fresh ${g.freshness}`}>
+              Live stats {secondsAgo(g.updated_seconds_ago)}
+              {g.freshness === "red" ? ". The live feed looks stuck." : ""}
+            </span>
+          )}
+          {offline && <span className="fresh red" role="alert">Can&apos;t refresh right now. Retrying.</span>}
+        </div>
       </div>
       {view.the_play && (
         <p className="the-play" role="note">
-          <span className="muted small">The play </span>
-          {view.the_play.label}
+          <span className="eyebrow">The play</span>{" "}
+          <strong>{view.the_play.label}</strong>
           {view.the_play.period
-            ? <span className="muted small"> · {quarter(view.the_play.period)} {view.the_play.clock ?? ""}</span>
+            ? <span className="when"> · {quarter(view.the_play.period)} {view.the_play.clock ?? ""}</span>
             : null}
         </p>
       )}
@@ -152,7 +157,7 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
       )}
       <div className="cards">
         {view.cards.length === 0 && (
-          <p className="muted">
+          <p className="empty">
             {("no_price" in view && view.no_price)
               || `No archived prices for ${name} in this game. Juju only has prices captured before kickoff.`}
           </p>
@@ -176,8 +181,8 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
         )}
       </div>
       {aside}
-      <ParlayTray game={view.game.id} />
-      <p><Link className="back" href="/">← Look up another play</Link></p>
+      <ParlaySlip game={view.game.id} />
+      <p><Link className="pill" href="/"><span aria-hidden="true">←</span> Look up another play</Link></p>
     </>
   );
 }
