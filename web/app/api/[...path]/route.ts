@@ -3,7 +3,7 @@
 // for a few seconds. The backend itself has no public address (docs/licensing.md).
 import { type NextRequest, NextResponse } from "next/server";
 import { BACKEND_URL } from "@/lib/backend";
-import { isPublicApi } from "@/lib/publicApi";
+import { isLiveChat, isPublicApi, liveChatOpen } from "@/lib/publicApi";
 import { CLEARED_SECONDS, COOKIE, passIsValid, signPass, verifyToken } from "@/lib/turnstile";
 
 function clientId(req: NextRequest): string {
@@ -37,17 +37,29 @@ async function forward(req: NextRequest, path: string, init: RequestInit,
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
+// The live chat spends the owner's Odds API credits on every new question, so it answers only
+// behind the site's passcode gate (proxy.ts has already checked the cookie by here).
+function liveChatOff(path: string): boolean {
+  return isLiveChat(path) && !liveChatOpen(process.env.SITE_PASSCODE);
+}
+
 export async function GET(req: NextRequest, ctx: Ctx) {
   const path = (await ctx.params).path.join("/");
-  if (!isPublicApi("GET", path)) return NextResponse.json({}, { status: 404 });
+  if (!isPublicApi("GET", path) || liveChatOff(path)) {
+    return NextResponse.json({}, { status: 404 });
+  }
   return forward(req, path, { method: "GET" });
 }
 
 export async function POST(req: NextRequest, ctx: Ctx) {
   const path = (await ctx.params).path.join("/");
-  if (!isPublicApi("POST", path)) return NextResponse.json({}, { status: 404 });
+  if (!isPublicApi("POST", path) || liveChatOff(path)) {
+    return NextResponse.json({}, { status: 404 });
+  }
   const text = await req.text();
   if (text.length > 1000) return NextResponse.json({}, { status: 413 });
+  // A live question is a few hundred characters at most; no Turnstile: the passcode is its door.
+  if (isLiveChat(path)) return forward(req, path, { method: "POST", body: text });
   // Lookups past the backend's threshold need a Turnstile check, when the site has a key.
   const secret = process.env.TURNSTILE_SECRET_KEY;
   if (!secret) return forward(req, path, { method: "POST", body: text });

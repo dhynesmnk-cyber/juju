@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_model: str | None = None
     llm_daily_budget: int = 2000  # calls per UTC day, across the API process
+    # The live chat's odds on demand (docs/plans/live-chat.md). Odds are cached for at most 60
+    # seconds, the owner's rule: a shorter time is allowed, a longer one is refused. The market
+    # list a game offers is cached longer (it rarely changes). A warning shows at or under
+    # `live_low_credits`; the chat is never stopped by it.
+    live_cache_seconds: int = 60
+    live_markets_cache_seconds: int = 300
+    live_low_credits: int = 2000
     # How far back repair_gaps looks for games with no on-time price.
     repair_days: int = 14
     # ESPN event ids whose every response is kept in raw_samples, to replay a game in tests
@@ -89,6 +96,21 @@ class Settings(BaseSettings):
     def _a_day_every_month_has(cls, v: int) -> int:
         if not 1 <= v <= 28:
             raise ValueError("ODDS_API_RESET_DAY must be 1 to 28")
+        return v
+
+    @field_validator("live_cache_seconds")
+    @classmethod
+    def _never_stale(cls, v: int) -> int:
+        if not 1 <= v <= 60:
+            raise ValueError("LIVE_CACHE_SECONDS must be 1 to 60: live odds are never cached "
+                             "for longer than a minute")
+        return v
+
+    @field_validator("live_markets_cache_seconds", "live_low_credits")
+    @classmethod
+    def _not_negative(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("LIVE_MARKETS_CACHE_SECONDS and LIVE_LOW_CREDITS must be at least 1")
         return v
 
     @field_validator("games_per_week")

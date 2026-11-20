@@ -5,7 +5,7 @@ named in words. Which player the text means is decided by `juju/api/lookup.py` a
 rosters of the games in play. Nothing here calls a model.
 """
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from juju.core.enums import PlayKind
@@ -129,3 +129,76 @@ def parse_text(text: str) -> Parsed:
     name_text = re.sub(r"\b(plus|\d+(\.\d+)?)\b", " ", name_text)
     name_text = re.sub(r"\s+", " ", name_text).strip()
     return Parsed(norm, play, yards, threshold, market_key, name_text)
+
+
+# --- The live chat's reading (docs/plans/live-chat.md) ---------------------------------------
+#
+# `parse_text` stays as it is: the archive's lookups depend on it. The live chat needs more of
+# the line: which side (over or under), the number the words ask for ("4 catches" is Over 3.5,
+# "over 45.5" is Over 45.5) and a team's handicap ("Browns -3.5"). It builds on `parse_text`
+# for the market words and the name, and does not call a model.
+
+_EXPLICIT = re.compile(r"\b(over|under|o|u)\s*(\d{1,3}(?:\.\d)?)(?![\w.])")
+_PLUS_COUNT = re.compile(r"\b(\d{1,3})\s*\+(?!\s*\d)")
+_AT_LEAST = re.compile(r"\b(?:at least|minimum|min)\s+(\d{1,3})\b|\b(\d{1,3})\s+or more\b")
+_HANDICAP = re.compile(r"(?<![\w.])([+-])\s?(\d{1,2}(?:\.5)?)(?![\w.])")
+_NUMBER = re.compile(r"(?<![\w.])(\d{1,3})(\.5)?(?![\w.])")
+_UNDER_WORD = re.compile(r"\bunder\b")
+_YARDS_WORD = re.compile(r"\b(yd|yds|yard|yards)\b")
+_LIVE_FILLER = re.compile(r"\b(got|gets|get|has|have|had|hit|hits|each|under|least|more|or|"
+                          r"him|odds|price|prices|now|live|right|currently|cover|min|minimum)\b")
+HALF = Decimal("0.5")
+
+
+@dataclass(frozen=True)
+class LiveRead:
+    parsed: Parsed
+    who: str                    # who the text names, as typed: a surname, a full name or a team
+    side: str                   # "Over" or "Under"
+    line: Decimal | None        # the line the words ask for; None when they name none
+    handicap: Decimal | None    # a team's spread: "Browns -3.5" is -3.5
+    yards_of_any_kind: bool     # "yards" and nothing says receiving, rushing or passing
+
+
+def read_live(text: str) -> LiveRead:
+    raw = (text or "")[:MAX_TEXT].lower()
+    parsed = parse_text(text)
+    side = "Under" if _UNDER_WORD.search(raw) or re.search(r"\bu\s*\d", raw) else "Over"
+    work = raw
+    line: Decimal | None = None
+    handicap: Decimal | None = None
+
+    def take(match: re.Match[str]) -> None:
+        nonlocal work
+        work = work[:match.start()] + " " * (match.end() - match.start()) + work[match.end():]
+
+    if m := _EXPLICIT.search(work):
+        line = Decimal(m.group(2))
+        side = "Under" if m.group(1).startswith("u") else "Over"
+        take(m)
+    elif m := _PLUS_COUNT.search(work):
+        line = Decimal(m.group(1)) - HALF  # "5+" is 5 or more: Over 4.5
+        take(m)
+    elif m := _AT_LEAST.search(work):
+        line = Decimal(m.group(1) or m.group(2)) - HALF
+        take(m)
+    if line is None and (m := _HANDICAP.search(work)):
+        handicap = Decimal(m.group(2)) * (-1 if m.group(1) == "-" else 1)
+        take(m)
+    if line is None and handicap is None and (m := _NUMBER.search(work)):
+        # "4 catches" is four or more (Over 3.5); a bare ".5" is the line as written.
+        line = Decimal(m.group(1)) + HALF if m.group(2) else Decimal(m.group(1)) - HALF
+        take(m)
+
+    market_key = parsed.market_key
+    if handicap is not None and market_key is None:
+        market_key = "spreads"
+    # The name is read from the text with the numbers taken out ("u3.5" would otherwise stay
+    # in it); the market and the play come from the whole line.
+    who = _LIVE_FILLER.sub(" ", parse_text(work).name_text)
+    who = re.sub(r"\s+", " ", who).strip()
+    kind_known = market_key is not None or parsed.play is not None
+    return LiveRead(
+        parsed=replace(parsed, market_key=market_key), who=who, side=side, line=line,
+        handicap=handicap,
+        yards_of_any_kind=bool(_YARDS_WORD.search(parsed.text)) and not kind_known)

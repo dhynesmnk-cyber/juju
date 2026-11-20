@@ -1,8 +1,9 @@
 """The internal HTTP API. It is reached only through the Next.js site over Fly's private network
 and has no public address (docs/licensing.md).
 
-Every endpoint reads Postgres; none calls a data provider. The optional LLM fallback in
-`/api/lookup` is the one outbound call.
+Every endpoint reads Postgres; none calls a data provider, with two exceptions: the optional LLM
+fallback in `/api/lookup`, and the live chat (`api/live_chat.py`, 2026-11-20), whose questions
+reach The Odds API through a 60-second cache and nothing else does.
 """
 import logging
 import threading
@@ -20,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from juju.api import lookup, me
+from juju.api import live_chat, lookup, me
 from juju.api.common import SessionDep, get_session, respond  # noqa: F401 (tests override it)
 from juju.api.views import game_view, parlay_view, parse_focus, player_view, team_view
 from juju.config import Settings, get_settings
@@ -37,6 +38,7 @@ log = logging.getLogger("juju.api")
 
 app = FastAPI(title="Juju internal API", docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(me.router)  # the owners' own section, behind their sign-in (api/me.py)
+app.include_router(live_chat.router)  # live odds on demand (api/live_chat.py)
 
 LOOKUPS_PER_MINUTE = 30
 # Past this many lookups in the window, a client is asked to pass Cloudflare Turnstile, when

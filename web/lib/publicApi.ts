@@ -5,6 +5,24 @@ const GET_PATHS = [/^live$/, /^status$/, /^suggest$/, /^game\/\d+$/, /^player\/\
                    /^team\/\d+\/\d+$/, /^parlay\/\d+$/];
 const POST_PATHS = [/^lookup$/];
 
+// The live chat (docs/plans/live-chat.md): live odds on demand, the one door where a person's
+// question reaches The Odds API. It spends credits, with no per-visitor cap, so it exists only
+// where a passcode stands in front of the site (`liveChatOpen`).
+const LIVE_GET_PATHS = [/^live\/games$/, /^live\/markets$/, /^live\/plan$/, /^live-markets$/];
+const LIVE_POST_PATHS = [/^live\/ask$/];
+
+/** Is this path the live chat's? (`live` alone is the archive's home-page list.) */
+export function isLiveChat(path: string): boolean {
+  return /^live[/-]/.test(path);
+}
+
+/** The live chat is on only when the site has a passcode (SITE_PASSCODE): without one, anyone
+ *  on the internet could spend the owner's credits. */
+export function liveChatOpen(passcode: string | undefined): boolean {
+  return Boolean(passcode);
+}
+
 export function isPublicApi(method: "GET" | "POST", path: string): boolean {
-  return (method === "GET" ? GET_PATHS : POST_PATHS).some((p) => p.test(path));
+  const live = method === "GET" ? LIVE_GET_PATHS : LIVE_POST_PATHS;
+  return (method === "GET" ? GET_PATHS : POST_PATHS).concat(live).some((p) => p.test(path));
 }

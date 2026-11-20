@@ -76,3 +76,14 @@ def test_owner_passcodes_never_appear_in_errors(env, value):
     with pytest.raises(ValidationError) as info:
         Settings(_env_file=None)
     assert "zq7" not in str(info.value)
+
+
+def test_live_odds_are_never_cached_longer_than_a_minute():
+    base = {"database_url": "postgresql://u:p@h/db"}
+    assert Settings(**base).live_cache_seconds == 60
+    assert Settings(**base, live_cache_seconds=15).live_cache_seconds == 15
+    for bad in (0, 61, 3600):
+        with pytest.raises(ValueError, match="never cached for longer than a minute"):
+            Settings(**base, live_cache_seconds=bad)
+    with pytest.raises(ValueError):
+        Settings(**base, live_low_credits=0)

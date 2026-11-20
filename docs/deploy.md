@@ -33,7 +33,10 @@ fly apps create juju-backend && fly apps create juju-web
 # Postgres: create a Managed Postgres cluster in iad in the Fly dashboard, then:
 fly secrets set -a juju-backend DATABASE_URL='postgres://...'
 
-# An Odds API key used only by Juju, on the 100K plan. Never paste it into a chat.
+# An Odds API key used only by Juju, on the 100K plan. Never paste it into a chat. The worker
+# archives with it, and the API uses it for the live chat's questions (docs/plans/live-chat.md).
+# The live chat spends credits on every new question with no per-visitor cap, so the site shows
+# it only when `SITE_PASSCODE` is set on juju-web: a public launch without one has no live chat.
 fly secrets set -a juju-backend ODDS_API_KEY=...
 # Optional: the LLM fallback for free text (OpenRouter's OpenAI-compatible API).
 fly secrets set -a juju-backend LLM_API_KEY=... LLM_MODEL=<an OpenRouter model id>

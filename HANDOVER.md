@@ -10,9 +10,10 @@ where the build stands and what to do next. Update it before you finish a sessio
 | | |
 |---|---|
 | Branch | Everything up to PR #15 is in `main` (PR #14 the owners' lookups, PR #15 the new look and the CI fix). Before that: everything up to PR #13 was in `main`. PR #1 merged M0–M2, PR #2 M3 and M4, PR #3 the parlay leg prices, PR #4 fixes to this file, PR #5 the first-TD scorer check, PR #6 the laptop preview and its passcode gate, PR #7 the late play-by-play retry, PR #8 the CI time limits, PR #9 Phase 1 of the tracker (below), PR #10 its Phase 2, PR #11 the game-first redesign, PR #12 the `up.sh` page check, and PR #13 the credits that follow the key and the week's games on the home page. The owners' lookups and recaps (2026-10-17, below) are on `claude/dazzling-newton-n3hzs2`, in a PR of their own. PR #3 recovered two commits that were pushed to `claude/happy-galileo-p7ify3` after PR #2 merged (`00befec`, cherry-picked, and what was right in `a133cd3`) |
+| The live chat | **2026-11-20: the owner changed the product to live odds on demand** ([GOALS decision 14](docs/GOALS.md), [docs/plans/live-chat.md](docs/plans/live-chat.md)): pick a game from the live schedule, ask about one player or team in it (or a 2 to 6 leg parlay) and get the price a book posts *now*, in plain language, with where the player stands. It is the third licensing exception (`docs/licensing.md`) and the first place a person's question reaches The Odds API. **Step 1, the backend, is built** on `claude/cool-bardeen-qf58j9` (no PR yet): `read_live` in `ingest/parse.py`, `core/livechat.py`, `ingest/live_odds.py`, `api/live_chat.py` (`/api/live/games`, `/markets`, `/plan`, `/ask`, and `/api/live-markets`), the site's allow-list and passcode gate, and tests on the recorded PIT @ CLE reply. **Not built yet:** step 2 (the site: game picker, chat, markets panel, credit meter, the home page swap, the archive moving to `/archive`), step 3 (the assistant, DeepSeek Flash) and step 4 (hardening). The rules to keep are in `CLAUDE.md` ("The live chat") |
 | The new look | **On 2026-11-11 the owner chose an orange-toned sportsbook look** (GOALS decision 13: it replaces decision 9's look and nothing else), and asked for the parlay flow to be finished around it. Built and merged as **PR #15** (2026-11-12): one token file (`web/lib/tokens.ts`) with a contrast test; ticket-style result cards whose headline is the payout; match cards on the home page; a parlay **slip** fixed to the bottom (leg count, combined payout, a sheet with each leg at the parlay's book); **quick picks** (ready-made parlays built in the browser, no prices until opened); a **round robin** on 3- or 4-leg parlays; a parlay share image with Open Graph tags; the worlds and Jujus recoloured behind a scrim. Details under "The look of 2026-11-11" below |
 | CI | **main was red from PR #14's merge (2026-10-21) until this branch:** `ubuntu-latest` became Ubuntu 26.04, and Playwright 1.56.1's `install --with-deps` stops there ("does not support chromium on ubuntu26.04-x64") before any test runs. One re-run on 2026-11-11 failed the same way. Fixed by raising `@playwright/test` to 1.63.0, which knows 26.04 (and is the version this cloud environment ships). Green on every merged PR head before that. Three jobs: `backend` (ruff + pytest on Postgres 16), `web` (lint, typecheck, `npm test`, world-size check, build) and `e2e` (seeds the recorded game, 46 Playwright tests at phone width, with Cloudflare's public Turnstile test keys, then `web/scripts/visual.sh`: 21 visual snapshots inside Playwright's container image). Each has a time limit of about five times its slowest green run (15, 10 and 20 minutes), so a hung runner fails in minutes, not after GitHub's six hours: on 2026-10-08 an e2e job hung for 18 minutes in `apt-get` (`playwright install --with-deps`), and one re-run passed |
-| Tests | 2,045 backend tests (1,164 before the tracker), 44 web unit tests (`node --test`: the token contrast audit, quick picks and the round robin's maths among them), 46 Playwright tests (5 of them the owners' section, which run only with `TRACKER_USERS`: CI sets test-only ones) and 21 visual snapshots |
+| Tests | 2,146 backend tests (1,164 before the tracker; 101 are the live chat's), 47 web unit tests (`node --test`: the token contrast audit, quick picks and the round robin's maths among them), 46 Playwright tests (5 of them the owners' section, which run only with `TRACKER_USERS`: CI sets test-only ones) and 21 visual snapshots |
 | Deployed | **A private preview, run by the owner** on their own Ubuntu laptop (`deploy/laptop/`, the `deploy-laptop` skill): Docker Compose, Tailscale Funnel, one shared passcode, the recorded demo game. It was deployed end to end in a cloud container on 2026-10-07. It runs: the owner used it through real games on 2026-10-11, with a free Odds API key in `deploy/laptop/.env`. Fly.io (`docs/deploy.md`) is still the launch plan; no Fly apps exist |
 | Real data | The laptop captured real prices on the free key from about 2026-10-10, until its 500 credits ran out. **On 2026-10-16 its `odds-status` said 0 credits while the owner's 20K-credit key showed all 20,000 unused**: either `.env` still had the free key, or the laptop kept the free key's count (no longer possible: migration 0009, below). It was the first: `.env` still held the free key. **On 2026-10-17 the owner put the 20K key in**, and `odds-status` read "20,000 (The Odds API, just now)", two captures a game. So Thursday 10-15's game was never captured on time; the worker's repair then filled last weekend's and Thursday's games from the vendor's history (about 340 credits each). `python -m juju.cli report --since DATE` on the laptop shows what it saved. The tests still use only the recorded fixtures. nflverse (free) was read for real, to record its fixtures |
 | Milestones | M0–M4 are done. M5 (launch hardening) is next: part of it is engineering you can do now, part needs the owner |
@@ -102,6 +103,10 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   - `odds.py`, `settlement.py` and `live.py`, ported from parlaytracker;
   - `parlay.py` (M4): legs in a URL, one book for every leg when one priced them all, the
     parlay outcome (a lost leg loses it, pushes drop out, no stat line leaves it undecided);
+  - `livechat.py` (the live chat; `live.py` is the live scores, a different thing): which
+    posted line answers a question (the exact one, else the nearest each side, never a made-up
+    one), the book chain, $10 payouts, live parlays, the credit cost shown beforehand, the
+    wording;
   - `models.py`, including `StatCorrection` and `DecidingPlay` (migrations 0002, 0003), and
     `Game.first_td_official` (0004) and `plays_checked_at` (0004, renamed in 0005).
 - `ingest/`:
@@ -113,7 +118,14 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
     recorded game; `play_value` gives each play's share of a stat;
   - `router.py`, `guards.py`: circuit breakers, failover and integrity checks, ported;
   - `resolve.py`: name matching; `parse.py`: the deterministic free-text reader;
-  - `llm.py`: the fallback, off until `LLM_API_KEY` and `LLM_MODEL` are set.
+  - `llm.py`: the fallback, off until `LLM_API_KEY` and `LLM_MODEL` are set;
+  - `live_odds.py` (the live chat): the one place a person's question reaches The Odds API.
+    `LiveOdds` caches a market's reply for at most 60 seconds (`LIVE_CACHE_SECONDS` can only
+    shorten it) keyed by game and market, the market list for 5 minutes, takes a lock per key
+    so two askers make one call, and reads the credits left from The Odds API's own headers
+    (it writes only that count to `source_health`; its breaker is in memory, the worker's is
+    untouched). `postings_for` is the only way prices leave a reply, one subject's at a time.
+    `parse.read_live` reads "4 catches" as Over 3.5, "5+" as Over 4.5, "under 3.5", "Browns -3.5".
 - `worker/`: the only process that calls providers:
   - `capture.py`, `schedule.py`, `archive.py`, `jobs.py`: the archive (M1);
   - `live.py`: the live loop. `write_box` records corrections after settling and never
@@ -138,7 +150,12 @@ Then run the stack and e2e as in "Gotchas" below, and `web/README.md`.
   - `views.py`: cards with `verified`, `decided_by` and specific correction notes; and
     `parlay_view` (M4), which prices legs exactly like single cards and shows each leg's price;
   - `lookup.py`: which player or team a lookup means; reads the play from the named player's
-    side (a defender's interception is his); several certain bets in one line are a parlay.
+    side (a defender's interception is his); several certain bets in one line are a parlay;
+  - `live_chat.py` (the live chat, 2026-11-20): `GET /api/live/games` (the free schedule),
+    `/api/live/markets` (names, 1 credit, 5 minutes), `/api/live-markets?game_id&market&player`
+    (one player's lines; `player` is required), `/api/live/plan` (the cost before a question,
+    never calls out) and `POST /api/live/ask`. 503 without an Odds API key. The database is
+    used only for a player's position and `LiveStat` ("he has 3 so far"), never for a price.
 - `tracker/` (Phases 1 and 2 of the plan above): parlaytracker@c3bd43c's core and worker
   jobs, ported with `Ported from` headers. No route calls it yet:
   - `models.py`: slips, legs, events (any of four sports), tags, sportsbooks, raw samples, on
@@ -398,6 +415,15 @@ worker with it, and the worker made one free events call before it was stopped. 
 
 In order. None of these needs the owner, except where it says so.
 
+**0b. The live chat** ([docs/plans/live-chat.md](docs/plans/live-chat.md)): step 1 (the
+backend) is done. Next is **step 2, the site**: allow-list entries are in (`web/lib/publicApi.ts`,
+and `route.ts` answers 404 for the live paths unless `SITE_PASSCODE` is set), so what is left is
+the pages and components in the plan, the home page swap, `/archive`, and re-pointing the e2e
+tests and the visual snapshots that load `/`. Then step 3 (the DeepSeek assistant; the plan says
+what to verify in DeepSeek's docs first) and step 4. The laptop preview's `api` container now
+gets `JUJU_ODDS_API_KEY` as `ODDS_API_KEY` (`deploy/laptop/docker-compose.yml`): `up.sh` needs no
+change, but the owner must `docker compose up -d --build` to pick it up.
+
 **0. The live-test fixes** ([docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md)):
 All three stages are done: prices, lookups and live plays, and the UI (direction B, game
 first). Next: the owner pulls the branch on the laptop before Sunday 2026-10-18 and tries the
@@ -448,6 +474,11 @@ pages and of state exposure; then a soft launch.
 3. **A domain on Cloudflare**, then `SITE_URL` in `web/fly.toml` (share previews).
 4. **Turnstile:** a widget for the domain (site key and secret, `docs/deploy.md` step 5).
 5. **Optional:** an OpenRouter key and model for the LLM fallback.
+5a. **For the live chat's assistant (step 3):** a DeepSeek API key as `LLM_API_KEY`, with
+   `LLM_BASE_URL=https://api.deepseek.com` and `LLM_MODEL` (DeepSeek's docs list
+   `deepseek-flash`); the privacy page must then say typed messages go to DeepSeek. **After the
+   first real live question,** check `x-requests-last` for the market-list call: the code
+   assumes 1 credit when the header is absent, and nothing else depends on it.
 6. **Before public launch:** the live-stats licence decision, and legal review.
 7. **FYI:** GitHub reports the parlaytracker repository as **public**, while the old goals doc
    said "still private". The owner was told on 2026-09-30.

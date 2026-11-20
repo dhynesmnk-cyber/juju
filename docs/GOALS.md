@@ -40,6 +40,7 @@ records bets the two of them placed elsewhere, watches and settles them, and tak
 | 11 | The owners' bet tracker (2026-10-08) | **Folded in.** parlaytracker becomes a passcode-gated `/me` section: its pages rebuilt in Next.js, its logic in the backend, per-user passcodes, fresh data. The plan and its six phases: [plans/integrate-parlaytracker.md](plans/integrate-parlaytracker.md). |
 | 12 | The owners' lookups (2026-10-17) | **Kept, per owner, for a recap after each game.** Each owner signs in with their own name and passcode (the tracker's Phase 3 sign-in, built first). Every bet page they open is saved; each game gets a recap of how those bets went, and a player's page shows how earlier lookups of them went. Worked out again from the archive whenever read, never frozen; the second exception to "no prices across players", for the owner only (§3). Facts, never picks. |
 | 13 | The look, again (2026-11-11) | **An orange-toned sportsbook**, in the visual language of Hard Rock Bet: colour and layout only, none of its logos, imagery, copy or fonts. It replaces decision 9's look and nothing else. Charcoal with layered greys, a vivid orange primary, gold for wins, desaturated grey for losses; result cards are tickets whose headline is the payout; the parlay tray is a slip fixed to the bottom of the screen. The worlds and the Jujus stay, recoloured, with every guardrail of §7.9; the Juju wordmark stays. One token file (`web/lib/tokens.ts`), every pairing checked against WCAG AA by a test. |
+| 14 | Live odds on demand (2026-11-20) | **A chat for live prices, and the home page.** Pick a game from the live schedule, then ask about one player or team in it ("Klein got 4 catches", "Downs over 45.5 yards", "Browns -3.5") or a 2 to 6 leg parlay. The answer is the price a book posts *now*, in the present tense, with where the player stands in the game; never an archived price. Odds are cached for at most 60 seconds, so a repeat burns no credit; the cost is shown before a question, and the credits left are The Odds API's own count. The owner accepted that live questions come before the archive's captures, and set no per-visitor cap. The books follow decision 6 (the book of record leads; the best price is never the headline). The T-45 archive is unchanged and moves to `/archive`. Replies are templates; an assistant that follows up with DeepSeek Flash, its numbers all from the server, is the plan's third step. The third licensing exception (§3). Plan and status: [plans/live-chat.md](plans/live-chat.md). |
 
 ## 3. Licensing: a design rule, not a blocker
 
@@ -58,7 +59,9 @@ Juju sells the software layer, never the feed. These rules are built into the ar
 2. There are no list, bulk or export endpoints and no odds boards. A response is the computed cards
    for **one** player or team, or a UI list with no prices in it. The one exception (decision 10)
    is a same-game parlay: the 2 to 6 legs someone picked, each at the parlay's book.
-   The other (decision 12) is an owner's own recap, behind their own sign-in.
+   The other (decision 12) is an owner's own recap, behind their own sign-in. The third
+   (decision 14) is the live chat: one player's or team's live lines, or a parlay's legs,
+   never a whole market.
 3. Rate limits and Turnstile run at Cloudflare, and Juju's own terms forbid scraping.
 4. The historical endpoints fall under the same terms, so they are used for gap repair and backfill.
 
@@ -136,8 +139,10 @@ Rules:
 ## 6. Live data (stability)
 
 1. **Requests from users never reach a data provider.** The API reads Postgres and in-process
-   caches, and only the worker talks to ESPN or The Odds API. The optional LLM fallback is the
-   one exception.
+   caches, and only the worker talks to ESPN or The Odds API. There are two exceptions: the
+   optional LLM fallback, and, since 2026-11-20 (decision 14), the live chat, whose questions
+   reach The Odds API through a cache of at most 60 seconds (`api/live_chat.py`). ESPN and
+   nflverse are still the worker's alone.
 2. **Show the price first and let the status catch up.** ESPN runs 10–30 s behind TV, so a lookup
    30 s after a play usually arrives before the play is in the feed. The price shows immediately,
    and the status updates every 10 s.
