@@ -61,7 +61,7 @@ services:
       # The live chat's assistant (docs/plans/live-chat.md, step 3): off unless .env sets
       # LIVE_ASSISTANT=1 and a key and model. An empty value counts as unset. For DeepSeek:
       # LLM_BASE_URL=https://api.deepseek.com, LLM_MODEL=deepseek-flash,
-      # LLM_RESPONSE_FORMAT=json_object, LLM_EXTRA_BODY={"thinking":{"type":"disabled"}}.
+      # LLM_RESPONSE_FORMAT=json_object, LLM_EXTRA_BODY='{"thinking":{"type":"disabled"}}'.
       LIVE_ASSISTANT: ${LIVE_ASSISTANT:-}
       LIVE_ASSISTANT_DAILY: ${LIVE_ASSISTANT_DAILY:-}
       LLM_API_KEY: ${JUJU_LLM_API_KEY:-}

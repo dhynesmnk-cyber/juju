@@ -116,7 +116,7 @@ own questions; it spends credits when someone asks, with a 60-second cache.
 
 Without it, a message the chat can't read as a bet ("and the under?") is asked about again. With
 it, an AI model (DeepSeek Flash) answers follow-ups, using the same live prices; its numbers are
-checked against the books' and it never gives picks. Add to `.env`, then `docker compose up -d`:
+checked against the books' and it never gives picks. Add to `.env`, then run `deploy/laptop/up.sh`:
 
 ```
 LIVE_ASSISTANT=1
@@ -124,8 +124,10 @@ JUJU_LLM_API_KEY=<a DeepSeek API key>
 LLM_BASE_URL=https://api.deepseek.com
 LLM_MODEL=deepseek-flash
 LLM_RESPONSE_FORMAT=json_object
-LLM_EXTRA_BODY={"thinking":{"type":"disabled"}}
+LLM_EXTRA_BODY='{"thinking":{"type":"disabled"}}'
 ```
+
+(The single quotes keep the braces and double quotes exactly as written.)
 
 At most 300 assistant messages a day (`LIVE_ASSISTANT_DAILY` changes it), then the chat goes on
 without it. The messages go to DeepSeek; the site's privacy page says so.

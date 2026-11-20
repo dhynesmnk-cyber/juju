@@ -431,7 +431,7 @@ In order. None of these needs the owner, except where it says so.
 
 **0b. The live chat** ([docs/plans/live-chat.md](docs/plans/live-chat.md)): steps 1 (the
 backend), 2 (the site) and 3 (the assistant) are done. Next: have the owner try it on the laptop (`git pull`, then
-`docker compose up -d --build` in `deploy/laptop/`: the preview has a passcode and, with
+`deploy/laptop/up.sh`: the preview has a passcode and, with
 `JUJU_ODDS_API_KEY`, the live chat is on at `/`), and **take the live pages' visual snapshots**
 where Docker runs (`web/scripts/visual.sh --update`, plus a `live` entry for the passcode site).
 Then **try the assistant for real**: with the owner's DeepSeek key in the laptop `.env` (the
@@ -440,7 +440,8 @@ the API log: `assistant: ok` or the reason a reply was dropped (`advice`, `numbe
 `timeout`, `budget`, `balance`...). If many are dropped, the prompt in `core/assistant.py` is
 where to tune; the guards are doing their job. Nothing in step 3 has touched DeepSeek's real API. The laptop preview's `api` container now
 gets `JUJU_ODDS_API_KEY` as `ODDS_API_KEY` (`deploy/laptop/docker-compose.yml`): `up.sh` needs no
-change, but the owner must `docker compose up -d --build` to pick it up.
+change, but the owner must re-run it to pick that up (always `up.sh`, never `docker compose`
+by hand: the README says why).
 
 **0. The live-test fixes** ([docs/plans/live-test-fixes.md](docs/plans/live-test-fixes.md)):
 All three stages are done: prices, lookups and live plays, and the UI (direction B, game
