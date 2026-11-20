@@ -567,3 +567,86 @@ footer.foot a { color: var(--muted); padding: 14px 0; white-space: nowrap; }
   .answer-panel .answer-note { border: 0; padding: 0; }
   .answer-panel .mini.crewed { margin-top: 76px; }
 }
+
+/* ---------- The live chat (docs/plans/live-chat.md) ---------- */
+.live-head { margin: 0 0 12px; }
+.live-head .eyebrow { color: var(--text); }  /* straight on the page: --text, always */
+.live-head h1 { margin: 2px 0 4px; font-size: 1.9rem; }
+.live-head .sub { margin: 0; color: var(--text); font-size: 0.92rem; }
+
+.credits {
+  margin: 0 0 12px; padding: 8px 12px; border-radius: var(--radius-md);
+  background: var(--surface-1); border: 1px solid var(--line); color: var(--muted); font-size: 0.9rem;
+}
+.credits p { margin: 0; }
+.credits-line { display: flex; align-items: center; gap: 8px; }
+.credits-icon { flex: none; width: 1.2em; text-align: center; }
+.credits-ok .credits-icon { color: var(--orange-bright); }
+.credits-note { margin-top: 4px !important; color: var(--text); }
+.credits-low { background: var(--warn-tint); border-color: var(--warn); color: var(--text); }
+.credits-low .credits-icon { color: var(--warn); }
+.credits-out { background: var(--danger-tint); border-color: var(--danger); color: var(--text); }
+.credits-out .credits-icon { color: var(--danger); }
+
+.markets {
+  margin: 0 0 14px; padding: 4px 14px 10px; border-radius: var(--radius-md);
+  background: var(--surface-1); border: 1px solid var(--line); color: var(--text);
+}
+.markets > summary {
+  display: flex; align-items: center; gap: 6px; min-height: 44px; cursor: pointer; font-weight: 700;
+}
+.markets .eyebrow { margin: 10px 0 6px; }
+.market-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 4px; padding: 0; }
+.market-chips li {
+  padding: 4px 10px; border-radius: 999px; background: var(--surface-3); color: var(--text);
+  font-size: 0.85rem; font-weight: 600;
+}
+
+.thread { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.turn { display: flex; flex-direction: column; gap: 8px; }
+.you {
+  align-self: flex-end; max-width: 88%; margin: 0; padding: 8px 12px; border-radius: var(--radius-md) var(--radius-md) 4px var(--radius-md);
+  background: var(--orange-tint); color: var(--text); font-weight: 600; overflow-wrap: anywhere;
+}
+.reply {
+  align-self: stretch; padding: 12px 14px; border-radius: var(--radius-md) var(--radius-md) var(--radius-md) 4px;
+  background: var(--surface-1); border: 1px solid var(--line); color: var(--text);
+}
+.reply p { margin: 0 0 8px; }
+.reply > :last-child { margin-bottom: 0; }
+.reply.problem { border-left: 3px solid var(--warn); background: var(--warn-tint); }
+.reply.stale { border-style: dashed; border-color: var(--line-strong); }
+.stale-note { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--warn-tint); border-left: 3px solid var(--warn); }
+.as-of { color: var(--muted); }
+.reply.problem .as-of { color: var(--text); }
+
+.live-card {
+  margin: 8px 0; padding: 12px 14px; border-radius: var(--radius-md);
+  background: var(--surface-2); border: 1px solid var(--line); border-top: 3px solid var(--orange);
+}
+.live-card p { margin: 0 0 4px; }
+.live-bet { font-weight: 700; }
+.live-price { display: flex; align-items: baseline; gap: 8px; }
+.live-odds {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif; font-weight: 900;
+  font-size: 2.1rem; line-height: 1.1; color: var(--text);
+}
+.live-returns { color: var(--gold); font-weight: 800; }
+.book-list { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); }
+.book-list li { display: flex; justify-content: space-between; gap: 12px; min-height: 28px; font-size: 0.92rem; }
+
+.live-form {
+  position: relative; margin: 0 0 10px; padding: 12px 14px; border-radius: var(--radius-md);
+  background: var(--surface-1); border: 1px solid var(--line);
+}
+.live-form label { display: block; font-weight: 700; margin-bottom: 6px; }
+.live-form .row { display: flex; gap: 8px; }
+.live-form input {
+  flex: 1; min-width: 0; min-height: 48px; padding: 12px 14px; font-size: 1.05rem;
+  border-radius: var(--radius-md); border: 1px solid var(--line-strong);
+  background: var(--surface-2); color: var(--text);
+}
+.live-form input::placeholder { color: var(--muted); opacity: 1; }
+.cost { margin: 8px 0 0; color: var(--muted); font-size: 0.88rem; }
+.ai-tag { color: var(--muted); }
+.reply.problem .ai-tag { color: var(--text); }

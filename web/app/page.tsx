@@ -1,25 +1,12 @@
-import LiveNow from "@/components/LiveNow";
-import MyRecaps from "@/components/MyRecaps";
-import SearchBox from "@/components/SearchBox";
-import { backendGet } from "@/lib/backend";
-import { currentOwner } from "@/lib/me";
-import type { LiveResponse } from "@/lib/types";
+import ArchiveHome from "@/components/ArchiveHome";
+import LiveHome from "@/components/LiveHome";
+import { liveChatOpen } from "@/lib/publicApi";
 
 export const dynamic = "force-dynamic";
 
+// With a passcode on the site, the front page is the live chat (docs/plans/live-chat.md) and the
+// T-45 archive is at /archive. Without one the live chat is off (it spends credits on every
+// question, with no per-visitor cap), and this is the archive's front page as it always was.
 export default async function Home() {
-  const live = await backendGet<LiveResponse>("/api/live");
-  const owner = await currentOwner();
-  return (
-    <>
-      <h1 className="home-title">What would that play have paid?</h1>
-      <p className="tagline">
-        Tap a play or type one. See what a <strong>$10 bet placed 45 minutes before
-        kickoff</strong> would have paid, at the real price.
-      </p>
-      <SearchBox />
-      {owner && <MyRecaps />}
-      <LiveNow initial={live} />
-    </>
-  );
+  return liveChatOpen(process.env.SITE_PASSCODE) ? <LiveHome /> : <ArchiveHome />;
 }

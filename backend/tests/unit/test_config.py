@@ -76,3 +76,37 @@ def test_owner_passcodes_never_appear_in_errors(env, value):
     with pytest.raises(ValidationError) as info:
         Settings(_env_file=None)
     assert "zq7" not in str(info.value)
+
+
+def test_live_odds_are_never_cached_longer_than_a_minute():
+    base = {"database_url": "postgresql://u:p@h/db"}
+    assert Settings(**base).live_cache_seconds == 60
+    assert Settings(**base, live_cache_seconds=15).live_cache_seconds == 15
+    for bad in (0, 61, 3600):
+        with pytest.raises(ValueError, match="never cached for longer than a minute"):
+            Settings(**base, live_cache_seconds=bad)
+    with pytest.raises(ValueError):
+        Settings(**base, live_low_credits=0)
+
+
+def test_the_assistant_needs_asking_for_a_key_and_a_model(env):
+    base = {"database_url": "postgresql://u:p@h/db"}
+    assert Settings(**base).assistant_enabled is False
+    keyed = {"llm_api_key": "k", "llm_model": "deepseek-flash"}
+    assert Settings(**base, **keyed).assistant_enabled is False       # the parse fallback alone
+    assert Settings(**base, live_assistant=True).assistant_enabled is False  # no key
+    assert Settings(**base, **keyed, live_assistant=True).assistant_enabled is True
+    with pytest.raises(ValueError):
+        Settings(**base, live_assistant_daily=0)
+
+
+def test_deepseek_is_set_up_with_environment_variables_alone(env):
+    env.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    env.setenv("LLM_RESPONSE_FORMAT", "json_object")
+    env.setenv("LLM_EXTRA_BODY", '{"thinking": {"type": "disabled"}}')
+    s = Settings()
+    assert s.llm_response_format == "json_object"
+    assert s.llm_extra_body == {"thinking": {"type": "disabled"}}
+    env.setenv("LLM_RESPONSE_FORMAT", "yaml")
+    with pytest.raises(ValidationError):
+        Settings()

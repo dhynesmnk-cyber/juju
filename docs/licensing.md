@@ -39,6 +39,28 @@ its "last updated" date changes.
     tag or `/api/status`, and nothing can be downloaded or exported. The backend's `/api/me`
     has its own door in the site (`web/app/api/me/`), never on the public allowlist;
     `tests/db/test_me.py` and `web/lib/publicApi.test.ts` hold it to that.
+  - **The live chat (2026-11-20)** is the third exception, and the only place a person's
+    question reaches The Odds API (`backend/juju/api/live_chat.py`; the first two read what the
+    worker stored). It shows live prices, on demand, for the one thing someone asked about:
+    one player's or one team's lines in one game (over and under, each line, each book in
+    `BOOKS`), or the 2 to 6 legs of a parlay they named. It is display in a UI, as a card is.
+    What keeps it from being a feed:
+    - A question must name a player or a team. `GET /api/live-markets` without one is refused
+      (400), and the chat asks "Which player?" and lists names, never prices. Nothing returns a
+      whole market, a whole game's props or an export.
+    - The reply from The Odds API (every player in the market) lives in memory for at most 60
+      seconds (`LIVE_CACHE_SECONDS` can shorten it, never lengthen it) and is never returned,
+      logged or stored. Only the asked-for player's outcomes are read out of it
+      (`postings_for` in `ingest/live_odds.py`).
+    - The schedule and the list of markets a game offers carry no prices.
+    - Offshore books are never shown, and the best price is never the headline.
+    - It reads no archived price, so the live and archived products never mix.
+    - The assistant (step 3) gets its numbers from five tools that each name one player or team,
+      or a parlay's legs; none lists a market or a board, and a name that matches nobody is an
+      error. Its words are checked against what the tools returned for that question.
+    - It is behind the same passcode gate as the rest of the site, and is off (404) at the site
+      unless `SITE_PASSCODE` is set.
+    `tests/db/test_live_chat.py` holds it to these.
   - Rate limits and Turnstile run at Cloudflare, and Juju's terms forbid scraping.
   - The footer credits The Odds API, which is appreciated but not required.
 

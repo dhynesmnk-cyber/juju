@@ -109,6 +109,29 @@ and run `deploy/laptop/up.sh`. It checks the key with one free call and prints t
 then saves prices twice before each kickoff, at 3 hours and at 45 minutes (about 50 credits a
 game). Never use parlaytracker's key here, and never paste a key into a chat.
 
+The live chat (the front page, because the preview has a passcode) uses the same key for its
+own questions; it spends credits when someone asks, with a 60-second cache.
+
+### The live chat's assistant (optional)
+
+Without it, a message the chat can't read as a bet ("and the under?") is asked about again. With
+it, an AI model (DeepSeek Flash) answers follow-ups, using the same live prices; its numbers are
+checked against the books' and it never gives picks. Add to `.env`, then run `deploy/laptop/up.sh`:
+
+```
+LIVE_ASSISTANT=1
+JUJU_LLM_API_KEY=<a DeepSeek API key>
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-flash
+LLM_RESPONSE_FORMAT=json_object
+LLM_EXTRA_BODY='{"thinking":{"type":"disabled"}}'
+```
+
+(The single quotes keep the braces and double quotes exactly as written.)
+
+At most 300 assistant messages a day (`LIVE_ASSISTANT_DAILY` changes it), then the chat goes on
+without it. The messages go to DeepSeek; the site's privacy page says so.
+
 A new key's credits are unknown until its first capture: Juju never carries an old key's count
 over, and forgets last month's count when the credits reset. If `up.sh` prints "Captures: none",
 it adds a note: the key in `.env` has no credits left until they reset.

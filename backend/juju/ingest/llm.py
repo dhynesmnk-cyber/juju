@@ -106,12 +106,27 @@ class Budget:
 
 class LlmReader:
     def __init__(self, api_key: str, base_url: str, model: str, budget: Budget,
-                 client: httpx.Client | None = None):
+                 client: httpx.Client | None = None, *, response_format: str = "json_schema",
+                 extra_body: dict[str, Any] | None = None):
+        """`response_format`: "json_schema" (strict, as OpenRouter's models take it) or
+        "json_object" (DeepSeek's: its docs list only `json_object`, so the schema goes in the
+        prompt instead). `extra_body`: fields merged into every request, for example DeepSeek's
+        `{"thinking": {"type": "disabled"}}`, which keeps a 3-second read from thinking."""
         self._key = api_key
         self._url = base_url.rstrip("/") + "/chat/completions"
         self._model = model
         self._budget = budget
         self._client = client or httpx.Client(timeout=TIMEOUT_SECONDS)
+        self._json_object = response_format == "json_object"
+        self._extra = dict(extra_body or {})
+
+    def _prompt(self, text: str) -> str:
+        if not self._json_object:
+            return PROMPT + text
+        # No schema is enforced in this mode, so say what the JSON looks like.
+        shape = json.dumps({k: v["type"] for k, v in SCHEMA["properties"].items()})
+        return (f"{PROMPT.rstrip()} The JSON has exactly these keys, with these types "
+                f"(null for anything the text doesn't say): {shape}\n\nText: {text}")
 
     def read(self, text: str) -> Reading | None:
         """One call; None on any failure (the caller falls back to candidates)."""
@@ -119,11 +134,12 @@ class LlmReader:
             log.warning("LLM budget used up for today")
             return None
         body = {
+            **self._extra,
             "model": self._model, "temperature": 0,
-            "messages": [{"role": "user", "content": PROMPT + text}],
-            "response_format": {"type": "json_schema",
-                                "json_schema": {"name": "PlayReading", "strict": True,
-                                                "schema": SCHEMA}},
+            "messages": [{"role": "user", "content": self._prompt(text)}],
+            "response_format": {"type": "json_object"} if self._json_object else
+            {"type": "json_schema",
+             "json_schema": {"name": "PlayReading", "strict": True, "schema": SCHEMA}},
         }
         try:
             r = self._client.post(self._url, json=body, timeout=TIMEOUT_SECONDS,

@@ -1,7 +1,7 @@
 // `npm test`: Node's own test runner, no network.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isPublicApi } from "./publicApi.ts";
+import { LIVE_BODY_LIMIT, isLiveChat, isPublicApi, liveChatOpen } from "./publicApi.ts";
 
 test("the public door forwards the UI endpoints", () => {
   for (const path of ["live", "status", "suggest", "game/1", "player/1/3929630", "team/1/3",
@@ -18,4 +18,37 @@ test("the owners' API is never on it (docs/licensing.md)", () => {
     assert.equal(isPublicApi("GET", path), false, path);
     assert.equal(isPublicApi("POST", path), false, path);
   }
+});
+
+test("the live chat's endpoints are on the public door, and nothing near them", () => {
+  for (const path of ["live/games", "live/markets", "live/plan", "live-markets"]) {
+    assert.equal(isPublicApi("GET", path), true, path);
+    assert.equal(isPublicApi("POST", path), false, path);
+    assert.equal(isLiveChat(path), true, path);
+  }
+  assert.equal(isPublicApi("POST", "live/ask"), true);
+  assert.equal(isPublicApi("GET", "live/ask"), false);
+  for (const path of ["live/", "live/other", "live/games/1", "live-markets/x", "live/ask/x",
+                      "live-markets-all"]) {
+    assert.equal(isPublicApi("GET", path), false, path);
+    assert.equal(isPublicApi("POST", path), false, path);
+  }
+  // the archive's own `live` list is not the live chat
+  assert.equal(isLiveChat("live"), false);
+  assert.equal(isPublicApi("GET", "live"), true);
+});
+
+test("the live chat is off unless the site has a passcode", () => {
+  assert.equal(liveChatOpen(undefined), false);
+  assert.equal(liveChatOpen(""), false);
+  assert.equal(liveChatOpen("a-real-passcode"), true);
+});
+
+test("a live question may carry the last few turns: 200 characters and six of 500", () => {
+  const worst = JSON.stringify({
+    game_id: "d55cb69fed50a09170560b5b75d8de86", text: "x".repeat(200),
+    history: Array.from({ length: 6 }, () => ({ role: "assistant", text: "y".repeat(500) })),
+  });
+  assert.ok(worst.length < LIVE_BODY_LIMIT, String(worst.length));
+  assert.ok(LIVE_BODY_LIMIT <= 10_000);                  // still bounded
 });

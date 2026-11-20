@@ -6,6 +6,7 @@ import AgeGate from "@/components/AgeGate";
 import StatusBanner from "@/components/StatusBanner";
 import { backendGet } from "@/lib/backend";
 import { currentOwner, trackerOn } from "@/lib/me";
+import { liveChatOpen } from "@/lib/publicApi";
 import { type StatusBody, statusMessage } from "@/lib/status";
 import { color, cssVariables } from "@/lib/tokens";
 import "./globals.css";
@@ -36,6 +37,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const confirmed = (await cookies()).get("juju21")?.value === "yes";
   const status = statusMessage(await backendGet<StatusBody>("/api/status", 1500));
   const owner = await currentOwner();
+  const live = liveChatOpen(process.env.SITE_PASSCODE);  // the live chat is the front page
   return (
     <html lang="en" className={display.variable}>
       <head>
@@ -48,6 +50,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <div className="wrap bar">
               <Link href="/" className="brand">ju<span>ju</span></Link>
               <nav aria-label="Site">
+                {live && <Link href="/archive">Archive</Link>}
                 {owner && <Link href="/me" prefetch={false}>Your lookups</Link>}
                 <Link href="/about">How it works</Link>
               </nav>
@@ -57,11 +60,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <StatusBanner initial={status} />
             <main>{children}</main>
             <footer className="foot">
-              <p>
-                Juju is not a sportsbook. It takes no bets and every payout shown is
-                hypothetical: what $10 would have returned at a real price archived before
-                kickoff.
-              </p>
+              {live ? (
+                <p>
+                  Juju is not a sportsbook and takes no bets. Live prices are what a book posts
+                  right now. Archive payouts are hypothetical: what $10 would have returned at a
+                  real price archived before kickoff.
+                </p>
+              ) : (
+                <p>
+                  Juju is not a sportsbook. It takes no bets and every payout shown is
+                  hypothetical: what $10 would have returned at a real price archived before
+                  kickoff.
+                </p>
+              )}
               <p>
                 21+ only. Gambling problem? Call <a href="tel:18004262537">1-800-GAMBLER</a>.{" "}
                 <Link href="/responsible-gambling">Responsible gambling</Link>

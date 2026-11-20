@@ -1,7 +1,7 @@
 """Settings: the only place environment variables are read. Keys are SecretStr, never logged."""
 import re
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Any, Literal
 
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -63,6 +63,29 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_model: str | None = None
     llm_daily_budget: int = 2000  # calls per UTC day, across the API process
+    # For a provider other than OpenRouter (docs/plans/live-chat.md, step 3). DeepSeek:
+    # LLM_BASE_URL=https://api.deepseek.com, LLM_MODEL=deepseek-flash,
+    # LLM_RESPONSE_FORMAT=json_object (its docs list no json_schema), and
+    # LLM_EXTRA_BODY={"thinking":{"type":"disabled"}} (thinking is on by default, and with tools
+    # it must be passed back). The extra body is merged into every request.
+    llm_response_format: Literal["json_schema", "json_object"] = "json_schema"
+    llm_extra_body: dict[str, Any] | None = None
+    # The live chat's assistant (follow-up questions, `api/live_chat.py`): off unless this is
+    # set, as well as the key and the model above, so configuring the parse fallback never turns
+    # it on by itself. It counts messages, not model calls: after this many in a UTC day it falls
+    # back to the template answers until midnight.
+    live_assistant: bool = False
+    live_assistant_daily: int = 300
+    # The live chat's odds on demand (docs/plans/live-chat.md). Odds are cached for at most 60
+    # seconds, the owner's rule: a shorter time is allowed, a longer one is refused. The market
+    # list a game offers is cached longer (it rarely changes). A warning shows at or under
+    # `live_low_credits`; the chat is never stopped by it.
+    live_cache_seconds: int = 60
+    live_markets_cache_seconds: int = 300
+    live_low_credits: int = 2000
+    # Development and end-to-end tests only (`dev_live.py`): answer the live chat from the
+    # recordings, with no Odds API key and no credits. Never set in production.
+    live_odds_fixture: bool = False
     # How far back repair_gaps looks for games with no on-time price.
     repair_days: int = 14
     # ESPN event ids whose every response is kept in raw_samples, to replay a game in tests
@@ -91,6 +114,28 @@ class Settings(BaseSettings):
             raise ValueError("ODDS_API_RESET_DAY must be 1 to 28")
         return v
 
+    @field_validator("live_cache_seconds")
+    @classmethod
+    def _never_stale(cls, v: int) -> int:
+        if not 1 <= v <= 60:
+            raise ValueError("LIVE_CACHE_SECONDS must be 1 to 60: live odds are never cached "
+                             "for longer than a minute")
+        return v
+
+    @field_validator("live_assistant_daily")
+    @classmethod
+    def _a_cap(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("LIVE_ASSISTANT_DAILY must be at least 1")
+        return v
+
+    @field_validator("live_markets_cache_seconds", "live_low_credits")
+    @classmethod
+    def _not_negative(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("LIVE_MARKETS_CACHE_SECONDS and LIVE_LOW_CREDITS must be at least 1")
+        return v
+
     @field_validator("games_per_week")
     @classmethod
     def _positive(cls, v: int) -> int:
@@ -115,6 +160,11 @@ class Settings(BaseSettings):
     @property
     def llm_enabled(self) -> bool:
         return self.llm_api_key is not None and bool(self.llm_model)
+
+    @property
+    def assistant_enabled(self) -> bool:
+        """The live chat's assistant: asked for, and a key and a model to run it."""
+        return self.live_assistant and self.llm_enabled
 
     @property
     def tracker_names(self) -> frozenset[str]:

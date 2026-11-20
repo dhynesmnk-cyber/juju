@@ -60,3 +60,11 @@ test("the passcode form posts the page asked for, escaped, and says when it was 
   assert.match(unlockHtml("/", true), /role="alert">That passcode didn't work/);
   assert.match(html, /1-800-GAMBLER/);
 });
+
+test("the live chat's API is locked behind the passcode like every other API call", () => {
+  for (const path of ["/api/live/games", "/api/live/markets", "/api/live/plan",
+                      "/api/live-markets", "/api/live/ask"]) {
+    assert.equal(gate(path, undefined, CODE, NOW), "locked", path);
+    assert.equal(gate(path, unlockPass(CODE, NOW), CODE, NOW), "open", path);
+  }
+});

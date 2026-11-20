@@ -87,6 +87,8 @@ jobs:
       TURNSTILE_E2E: "1"
       # Test-only owners, so e2e/me.spec.ts runs: the API, the site and Playwright all read it.
       TRACKER_USERS: chris:ci-chris-passcode,ash:ci-ash-passcode
+      # The live chat answers from the recordings (backend/juju/dev_live.py): no key, no credits.
+      LIVE_ODDS_FIXTURE: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -112,6 +114,17 @@ jobs:
           BACKEND_URL=http://127.0.0.1:8000 npx next start -p 3000 &
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3000/about >/dev/null && break; sleep 1; done
           npx playwright test
+        working-directory: web
+      # The live chat exists only behind a passcode, so e2e/live.spec.ts needs a second site that
+      # has one. It skipped itself in the run above.
+      - run: |
+          SITE_PASSCODE=ci-live-passcode-1 BACKEND_URL=http://127.0.0.1:8000 npx next start -p 3002 &
+          for i in $(seq 1 30); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3002/about)" = 401 ] && break
+            sleep 1
+          done
+          BASE_URL=http://127.0.0.1:3002 LIVE_E2E=1 LIVE_E2E_PASSCODE=ci-live-passcode-1 \
+            npx playwright test e2e/live.spec.ts --trace off
         working-directory: web
       # Every page and every world as a still picture, compared with the baselines in
       # web/e2e/visual.spec.ts-snapshots. The script builds the site again with the worlds off,

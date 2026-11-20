@@ -63,6 +63,22 @@ class EventOdds(BaseModel):
     bookmakers: list[ApiBookmaker] = []
 
 
+class ApiMarketRef(BaseModel):
+    key: str
+
+
+class ApiBookMarkets(BaseModel):
+    key: str
+    markets: list[ApiMarketRef] = []
+
+
+class EventMarkets(BaseModel):
+    """`/events/{id}/markets`: the market keys each book offers for one game, with no prices
+    (added 2026-11-20 for the live chat)."""
+    id: str
+    bookmakers: list[ApiBookMarkets] = []
+
+
 class ApiScore(BaseModel):
     name: str
     score: str
@@ -90,6 +106,7 @@ class _HistoricalEvents(BaseModel):
 
 _EVENTS = TypeAdapter(list[ApiEvent])
 _EVENT_ODDS = TypeAdapter(EventOdds)
+_EVENT_MARKETS = TypeAdapter(EventMarkets)
 _SCORES = TypeAdapter(list[ApiGameScore])
 _HIST_ODDS = TypeAdapter(_HistoricalOdds)
 _HIST_EVENTS = TypeAdapter(_HistoricalEvents)
@@ -196,6 +213,14 @@ class OddsApiClient:
         data = self._get(f"/sports/{sport_key}/events/{event_id}/odds",
                          self._odds_params(markets, bookmakers))
         return OddsResponse(self._parse(_EVENT_ODDS, data), self._raw, self.last_cost)
+
+    def event_markets(self, event_id: str, bookmakers: Sequence[str], *,
+                      sport_key: str = SPORT) -> EventMarkets:
+        """The markets each book offers for one game, with no prices. The live chat's
+        availability list; The Odds API charges 1 credit (`last_cost` says what it charged)."""
+        data = self._get(f"/sports/{sport_key}/events/{event_id}/markets",
+                         {"dateFormat": "iso", "bookmakers": ",".join(bookmakers)})
+        return self._parse(_EVENT_MARKETS, data)
 
     def historical_event_odds(self, event_id: str, at: datetime, markets: Sequence[str],
                               bookmakers: Sequence[str]) -> OddsResponse:

@@ -304,15 +304,25 @@ PRIVATE_ROUTES = {"/api/me/lookups", "/api/me/lookups/{lookup_id}", "/api/me/rec
                   "/api/me/recaps/{game_id}", "/api/me/history/{kind}/{target}"}
 
 
+# The live chat (2026-11-20, GOALS decision 14, the third licensing exception): live prices for
+# one player's or team's lines, or the legs of a parlay. Two of them carry no prices at all (the
+# schedule and the list of markets); `/api/live-markets` refuses a request that names no one.
+# tests/db/test_live_chat.py holds all five to it.
+LIVE_ROUTES = {"/api/live/games", "/api/live/markets", "/api/live-markets", "/api/live/plan",
+               "/api/live/ask"}
+
+
 def test_there_is_no_endpoint_that_lists_prices_across_players(client):
     # The parlay spans players: only the legs someone picked, at one book, in one game
     # (tests/db/test_parlay.py holds it to that).
     # /api/game lists one game's plays and players, with no prices (the test below).
+    # The live chat's routes are the owner's third exception, and are listed on their own.
     paths = {r.path for r in routes()}
-    assert paths - PRIVATE_ROUTES == {
+    assert paths - PRIVATE_ROUTES - LIVE_ROUTES == {
         "/health", "/api/status", "/api/live", "/api/suggest", "/api/lookup",
         "/api/game/{game_id}", "/api/player/{game_id}/{athlete_id}",
         "/api/team/{game_id}/{team_id}", "/api/parlay/{game_id}"}
+    assert LIVE_ROUTES <= paths
 
 
 def test_the_owners_routes_all_need_their_sign_in(client):

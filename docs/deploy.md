@@ -33,10 +33,19 @@ fly apps create juju-backend && fly apps create juju-web
 # Postgres: create a Managed Postgres cluster in iad in the Fly dashboard, then:
 fly secrets set -a juju-backend DATABASE_URL='postgres://...'
 
-# An Odds API key used only by Juju, on the 100K plan. Never paste it into a chat.
+# An Odds API key used only by Juju, on the 100K plan. Never paste it into a chat. The worker
+# archives with it, and the API uses it for the live chat's questions (docs/plans/live-chat.md).
+# The live chat spends credits on every new question with no per-visitor cap, so the site shows
+# it only when `SITE_PASSCODE` is set on juju-web: a public launch without one has no live chat.
 fly secrets set -a juju-backend ODDS_API_KEY=...
 # Optional: the LLM fallback for free text (OpenRouter's OpenAI-compatible API).
 fly secrets set -a juju-backend LLM_API_KEY=... LLM_MODEL=<an OpenRouter model id>
+# Optional: the live chat's assistant (docs/plans/live-chat.md, step 3), DeepSeek Flash. It also
+# serves the free-text fallback above when these are set. The chat itself needs SITE_PASSCODE.
+fly secrets set -a juju-backend LIVE_ASSISTANT=1 LLM_API_KEY=... LLM_MODEL=deepseek-flash \
+  LLM_BASE_URL=https://api.deepseek.com LLM_RESPONSE_FORMAT=json_object \
+  LLM_EXTRA_BODY='{"thinking":{"type":"disabled"}}'
+# api.deepseek.com is the one outbound host this adds; typed chat messages go to it.
 
 cd backend && fly deploy          # runs `alembic upgrade head` first
 fly scale count api=1 worker=1 -a juju-backend
@@ -119,3 +128,4 @@ Save-Data.
 | Fly Managed Postgres, smallest | check current Fly pricing |
 | Cloudflare free plan | $0 |
 | LLM fallback | cents: it is only called when the parser isn't sure, with a daily cap |
+| Live chat assistant | DeepSeek Flash is about $0.15 per million tokens in and $0.60 out (double at peak hours, DeepSeek's own pricing page): a question is a fraction of a cent. At most `LIVE_ASSISTANT_DAILY` (300) a day |
