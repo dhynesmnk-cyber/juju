@@ -17,6 +17,14 @@ export default function Privacy() {
         signed in, the bet pages they open are kept under their name, so they can look back on
         how those bets went. Nobody else&apos;s lookups are kept this way, and nobody else can
         see theirs.</p>
+      <p>The live odds chat is open only to people who have the site&apos;s passcode. Your
+        questions and the last few messages of the chat are used to look up live prices and are
+        not stored on Juju&apos;s servers; the chat itself is kept in your own browser. When the
+        chat&apos;s assistant is switched on, a question Juju can&apos;t read by itself, and
+        those last few messages, are sent to DeepSeek, an outside AI service, to work out what
+        you meant and to word the reply. Don&apos;t put personal details in them. The prices and
+        numbers in a reply always come from the books&apos; live feed, never from the
+        assistant.</p>
     </div>
   );
 }

@@ -43,9 +43,12 @@ for any live HTTP call through the proxy.
   snapshot. Never interpolate between snapshots. LLM output is only matched onto IDs; it never
   supplies a displayed number.
 - **Requests from users never reach a data provider** (ESPN, The Odds API, nflverse). Only the
-  worker does. Two exceptions, both in the API: the optional LLM fallback, and the live chat
-  (`api/live_chat.py`, 2026-11-20), whose questions reach The Odds API through
-  `ingest/live_odds.py`, and only there.
+  worker does. Two exceptions, both in the API: the LLM (the free-text fallback, and the live
+  chat's assistant), and the live chat (`api/live_chat.py`, 2026-11-20), whose questions reach The
+  Odds API through `ingest/live_odds.py`, and only there. The LLM never supplies a displayed
+  number: the assistant (`core/assistant.py`, `ingest/assistant.py`, `api/live_assistant.py`) gets
+  every number from five server-side tools, and what it says is dropped for the template answer
+  if it states a number no tool gave, gives a pick, or is empty.
 - **Licensing** (docs/licensing.md): no endpoint may list prices across players or games, or
   export raw odds. Two exceptions, both the owner's calls:
   - 2026-09-30: a same-game parlay card shows the price of each of the 2 to 6 legs someone

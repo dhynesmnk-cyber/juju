@@ -12,10 +12,11 @@ the list of markets carry no prices.
 import logging
 import re
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -26,16 +27,19 @@ from juju.api.common import SessionDep, respond
 from juju.api.lookup import NICKNAMES
 from juju.api.views import BOOK_NAMES
 from juju.config import Settings, get_settings
+from juju.core import assistant as assistant_rules
 from juju.core import budget, livechat
 from juju.core.enums import PlayKind
 from juju.core.livechat import MAX_LEGS, Answer, Posting, Price
 from juju.core.markets import BY_KEY, CAPTURE_PRIORITY, Market, Scope
 from juju.core.models import Game, LiveStat, Player, SourceHealth
 from juju.db import session_factory
+from juju.ingest.assistant import Assistant
 from juju.ingest.http import RateLimiter
 from juju.ingest.live_odds import (
     Fetched, LiveError, LiveOdds, market_offered, postings_for, subjects,
 )
+from juju.ingest.llm import Budget
 from juju.ingest.odds_api import SOURCE, ApiEvent, OddsApiClient, key_fingerprint
 from juju.ingest.parse import LiveRead, read_live
 from juju.ingest.resolve import (
@@ -126,6 +130,28 @@ def live_odds(settings: Annotated[Settings, Depends(get_settings)]) -> LiveOdds:
 
 LiveDep = Annotated[LiveOdds, Depends(live_odds)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+_assistant: Assistant | None = None
+_assistant_lock = threading.Lock()
+
+
+def assistant_for(settings: Annotated[Settings, Depends(get_settings)]) -> Assistant | None:
+    """The live chat's assistant, or None: it is off unless asked for (LIVE_ASSISTANT) and given
+    a key and a model, so the parse fallback's key alone never turns it on (docs/plans/live-chat.md,
+    step 3)."""
+    global _assistant
+    if not settings.assistant_enabled:
+        return None
+    with _assistant_lock:
+        if _assistant is None:
+            assert settings.llm_api_key is not None and settings.llm_model
+            _assistant = Assistant(
+                settings.llm_api_key.get_secret_value(), settings.llm_base_url, settings.llm_model,
+                Budget(settings.live_assistant_daily), extra_body=settings.llm_extra_body)
+        return _assistant
+
+
+AssistantDep = Annotated[Assistant | None, Depends(assistant_for)]
 
 
 # --- Shared pieces ---------------------------------------------------------------------------
@@ -363,7 +389,7 @@ def _matcher(spec: Market, who: str, event: ApiEvent, reply, market: str):
 
 
 @router.get("/api/live/plan")
-def plan(live: LiveDep, settings: SettingsDep, game_id: str,
+def plan(live: LiveDep, settings: SettingsDep, assistant: AssistantDep, game_id: str,
          q: Annotated[str, Query(max_length=200)] = ""):
     """What a question would cost, before it is asked. No call to The Odds API: it only reads the
     words and looks in the cache."""
@@ -372,11 +398,15 @@ def plan(live: LiveDep, settings: SettingsDep, game_id: str,
     keys: list[str] = []
     alternates: dict[str, bool] = {}
     unsure = False
+    chatty = False
     for part in parts:
         read = read_live(part)
         key = _market_for(read)
         if key is None:
-            unsure = True  # "yards" or a missing stat: one market, which one is decided later
+            if read.yards_of_any_kind:
+                unsure = True  # "yards": one market, which kind is decided by his position
+            else:
+                chatty = True  # no bet named: a follow-up or a question, for the assistant
             continue
         keys.append(key)
         asked = read.line is not None or read.handicap is not None
@@ -385,6 +415,10 @@ def plan(live: LiveDep, settings: SettingsDep, game_id: str,
         keys = ["?"]
     cached = {k for k in keys if k != "?" and live.cached(game_id, k)}
     cost = livechat.cost_of(keys, cached, alternates)
+    if chatty and assistant is not None and not assistant_rules.advice_seeking(q):
+        cost = livechat.Cost.up_to(assistant_rules.MAX_CREDITS)
+    elif chatty and not keys:
+        cost = livechat.Cost(0, 0, 0, "No credits are used until you name a bet.")
     return respond({"cost": {"low": cost.low, "high": cost.high, "cached": cost.cached,
                              "text": cost.text},
                     "credits": credits_block(live, settings)})
@@ -393,9 +427,17 @@ def plan(live: LiveDep, settings: SettingsDep, game_id: str,
 # --- POST /api/live/ask ----------------------------------------------------------------------
 
 
+class Turn(BaseModel):
+    """An earlier turn of the chat, from the browser: only ever words the model reads as context,
+    never numbers it may repeat (`core/assistant.py`), and never a system turn."""
+    role: Literal["user", "assistant"]
+    text: str = Field(max_length=500)
+
+
 class AskIn(BaseModel):
     game_id: str = Field(min_length=6, max_length=64)
     text: str = Field(min_length=1, max_length=200)
+    history: list[Turn] = Field(default_factory=list, max_length=6)
 
 
 @dataclass
@@ -412,7 +454,7 @@ class Leg:
 
 def _reply(live: LiveOdds, settings: Settings, kind: str, message: str, **more) -> dict:
     return {"kind": kind, "message": message, "sentences": [message], "legs": [], "parlay": None,
-            "choices": [], "as_of": None, "cached": True, "cost": 0,
+            "choices": [], "as_of": None, "cached": True, "cost": 0, "ai": False,
             "credits": credits_block(live, settings), "disclaimer": DISCLAIMER, **more}
 
 
@@ -454,9 +496,10 @@ def _plan_leg(session: Session, event: ApiEvent, read: LiveRead) -> Leg | str:
 
 
 def _answer_leg(leg: Leg, event: ApiEvent, replies: dict[str, Fetched], chain: list[str],
-                live: LiveOdds) -> None:
+                live: LiveOdds, fetch: Callable[[str], Fetched] | None = None) -> None:
     """Fill in one leg from the replies already fetched; fetch its alternate market (one more
-    credit) only if the exact line asked for isn't in the main one."""
+    credit) only if the exact line asked for isn't in the main one. `fetch` is how the assistant
+    holds that to a question's credit ceiling."""
     spec = leg.market
     main = replies[spec.key].value
     if not market_offered(main, spec.key):
@@ -478,7 +521,7 @@ def _answer_leg(leg: Leg, event: ApiEvent, replies: dict[str, Fetched], chain: l
     answer = livechat.answer_for(postings, side, asked, chain)
     alt = _alternate_of(spec.key)
     if not answer.exact and asked is not None and alt is not None:
-        fetched = replies.get(alt) or live.odds(event.id, alt)
+        fetched = replies.get(alt) or (fetch or (lambda k: live.odds(event.id, k)))(alt)
         replies[alt] = fetched
         postings += postings_for(fetched.value, {alt}, matches)
         answer = livechat.answer_for(postings, side, asked, chain)
@@ -531,42 +574,66 @@ def _leg_view(leg: Leg) -> dict:
 
 
 @router.post("/api/live/ask")
-def ask(body: AskIn, session: SessionDep, live: LiveDep, settings: SettingsDep):
-    """Free text about this game in, one plain-language answer out. Fetches live odds only for
-    what was asked (cached for a minute), and never anything else."""
+def ask(body: AskIn, session: SessionDep, live: LiveDep, settings: SettingsDep,
+        assistant: AssistantDep):
+    """Free text about this game in, one plain-language answer out. A bet it can read goes
+    straight to the books' prices (cached for a minute); anything else may go to the assistant,
+    when there is one. Fetches live odds only for what was asked, and never anything else."""
     event = _event(live, body.game_id)
     try:
-        return respond(_ask(body, event, session, live, settings))
+        return respond(_ask(body, event, session, live, settings, assistant))
     except LiveError as e:
         return respond(_failure(live, settings, e))
 
 
-def _ask(body: AskIn, event: ApiEvent, session: Session, live: LiveOdds,
-         settings: Settings) -> dict:
-    parts = [x for x in _PARTS.split(body.text) if x.strip()]
-    if not parts:
-        return _reply(live, settings, "ask", f"Ask about a player or team. {EXAMPLES}")
-    if len(parts) > MAX_LEGS:
-        return _reply(live, settings, "ask", f"A parlay has 2 to {MAX_LEGS} legs.")
+def _plan_parts(parts: list[str], session: Session, event: ApiEvent) -> list[Leg] | str:
+    """Every part's bet, or the first thing that is missing."""
     legs: list[Leg] = []
     for part in parts:
         planned = _plan_leg(session, event, read_live(part))
         if isinstance(planned, str):
-            return _reply(live, settings, "ask", planned)
+            return planned
         legs.append(planned)
+    return legs
 
-    # Fetch each distinct market once (the cache makes a repeat free); then answer each leg.
+
+def _fetch_and_answer(legs: list[Leg], event: ApiEvent, session: Session, live: LiveOdds,
+                      settings: Settings, fetch: Callable[[str], Fetched] | None = None
+                      ) -> list[Fetched]:
+    """Fetch each distinct market once (the cache makes a repeat free), then answer each leg and
+    say where its player stands. Returns what was fetched, alternates included."""
+    get = fetch or (lambda k: live.odds(event.id, k))
     replies: dict[str, Fetched] = {}
     for key in dict.fromkeys(leg.market.key for leg in legs):
-        replies[key] = live.odds(event.id, key)
+        replies[key] = get(key)
     for leg in legs:
-        _answer_leg(leg, event, replies, settings.books, live)
+        _answer_leg(leg, event, replies, settings.books, live, fetch=get)
         if leg.subject and leg.answer and leg.answer.picks:
             leg.stands = _stands(session, event.id, leg.subject, leg.market)
-    used = list(replies.values())  # the alternates a leg needed were added as it was answered
-    meta = {"as_of": min(f.fetched_at for f in used), "cached": all(f.cached for f in used),
+    return list(replies.values())  # the alternates a leg needed were added as it was answered
+
+
+def _parlay_view(priced: livechat.ParlayPrice) -> dict:
+    return {"book": priced.book,
+            "book_name": BOOK_NAMES.get(priced.book, priced.book) if priced.book else None,
+            "returns": priced.returns, "notes": list(priced.notes),
+            "legs": [_price_view(p) for p in priced.legs]}
+
+
+def _meta(used: list[Fetched]) -> dict:
+    """When the prices are from, whether they were all cached, and the credits they cost."""
+    if not used:
+        return {"as_of": None, "cached": True, "cost": 0}
+    return {"as_of": min(f.fetched_at for f in used), "cached": all(f.cached for f in used),
             "cost": sum(f.cost for f in used)}
 
+
+def _compose(legs: list[Leg], used: list[Fetched], live: LiveOdds, settings: Settings,
+             as_parlay: bool | None = None) -> dict:
+    """The answer for legs that have been answered: plain sentences from the templates, a card
+    for each line, and a parlay's price when the legs are one."""
+    meta = _meta(used)
+    as_parlay = len(legs) > 1 if as_parlay is None else as_parlay
     unavailable = [leg for leg in legs if leg.answer is None]
     if unavailable:
         message = " ".join(leg.missing or "" for leg in unavailable).strip()
@@ -579,7 +646,7 @@ def _ask(body: AskIn, event: ApiEvent, session: Session, live: LiveOdds,
     for leg in legs:
         sentences += _leg_sentences(leg)
     kind, parlay = "answer", None
-    if len(legs) > 1:
+    if as_parlay:
         kind = "parlay"
         picks = [leg.answer.picks[0] for leg in legs
                  if leg.answer and leg.answer.exact and leg.answer.picks]
@@ -589,11 +656,33 @@ def _ask(body: AskIn, event: ApiEvent, session: Session, live: LiveOdds,
         else:
             sentences.append(livechat.parlay_sentence(len(legs), priced, BOOK_NAMES))
             sentences.extend(priced.notes)
-            parlay = {"book": priced.book,
-                      "book_name": BOOK_NAMES.get(priced.book, priced.book) if priced.book
-                      else None, "returns": priced.returns, "notes": list(priced.notes),
-                      "legs": [_price_view(p) for p in priced.legs]}
+            parlay = _parlay_view(priced)
     return {"kind": kind, "message": " ".join(sentences), "sentences": sentences,
-            "legs": [_leg_view(leg) for leg in legs], "parlay": parlay, "choices": [],
+            "legs": [_leg_view(leg) for leg in legs], "parlay": parlay, "choices": [], "ai": False,
             **meta, "credits": credits_block(live, settings), "disclaimer": DISCLAIMER}
 
+
+def _ask(body: AskIn, event: ApiEvent, session: Session, live: LiveOdds, settings: Settings,
+         assistant: Assistant | None) -> dict:
+    parts = [x for x in _PARTS.split(body.text) if x.strip()]
+    if not parts:
+        return _reply(live, settings, "ask", f"Ask about a player or team. {EXAMPLES}")
+    if len(parts) > MAX_LEGS:
+        return _reply(live, settings, "ask", f"A parlay has 2 to {MAX_LEGS} legs.")
+    # Juju gives prices, never picks: asked for one, it says so, and gives the price if it can.
+    wants_a_pick = assistant_rules.advice_seeking(body.text)
+    planned = _plan_parts(parts, session, event)
+    if isinstance(planned, str):
+        if wants_a_pick:
+            return _reply(live, settings, "refused", assistant_rules.REFUSAL_TEXT)
+        if assistant is not None:
+            from juju.api import live_assistant  # not at the top: it builds on this module
+            return live_assistant.reply(
+                body, event, session, live, settings, assistant, fallback=planned)
+        return _reply(live, settings, "ask", planned)
+    used = _fetch_and_answer(planned, event, session, live, settings)
+    answer = _compose(planned, used, live, settings)
+    if wants_a_pick:
+        answer["sentences"] = [assistant_rules.ADVICE_TEXT, *answer["sentences"]]
+        answer["message"] = " ".join(answer["sentences"])
+    return answer

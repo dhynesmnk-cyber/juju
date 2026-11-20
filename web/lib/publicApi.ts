@@ -11,6 +11,9 @@ const POST_PATHS = [/^lookup$/];
 const LIVE_GET_PATHS = [/^live\/games$/, /^live\/markets$/, /^live\/plan$/, /^live-markets$/];
 const LIVE_POST_PATHS = [/^live\/ask$/];
 
+/** The most a live question may weigh: its text, and the last few turns of the chat. */
+export const LIVE_BODY_LIMIT = 8000;
+
 /** Is this path the live chat's? (`live` alone is the archive's home-page list.) */
 export function isLiveChat(path: string): boolean {
   return /^live[/-]/.test(path);

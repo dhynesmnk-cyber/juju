@@ -117,6 +117,15 @@ class LiveOdds:
         """Would `odds` be free right now? (For the cost shown before a question.)"""
         return self._peek(("odds", event_id, market_key), self.odds_ttl) is not None
 
+    def markets_cached(self, event_id: str) -> bool:
+        """Would `markets` be free right now?"""
+        return self._peek(("markets", event_id), self.markets_ttl) is not None
+
+    def peek(self, event_id: str, market_key: str) -> Fetched[EventOdds] | None:
+        """This market's reply if the last minute fetched it; never a call, never a credit."""
+        hit = self._peek(("odds", event_id, market_key), self.odds_ttl)
+        return None if hit is None else Fetched(hit[1], hit[0], True, 0)  # type: ignore[arg-type]
+
     def cached_at(self, event_id: str, market_key: str) -> datetime | None:
         hit = self._peek(("odds", event_id, market_key), self.odds_ttl)
         return None if hit is None else hit[0]

@@ -55,6 +55,9 @@ its "last updated" date changes.
     - The schedule and the list of markets a game offers carry no prices.
     - Offshore books are never shown, and the best price is never the headline.
     - It reads no archived price, so the live and archived products never mix.
+    - The assistant (step 3) gets its numbers from five tools that each name one player or team,
+      or a parlay's legs; none lists a market or a board, and a name that matches nobody is an
+      error. Its words are checked against what the tools returned for that question.
     - It is behind the same passcode gate as the rest of the site, and is off (404) at the site
       unless `SITE_PASSCODE` is set.
     `tests/db/test_live_chat.py` holds it to these.

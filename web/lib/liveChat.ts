@@ -58,7 +58,7 @@ export interface ParlayView {
 }
 
 export interface LiveAnswer {
-  kind: string;               // answer, parlay, unavailable, ask, not_offered, out_of_credits
+  kind: string;               // answer, parlay, chat, refused, unavailable, ask, not_offered, ...
   message: string;
   sentences: string[];
   legs: LegView[];
@@ -69,6 +69,7 @@ export interface LiveAnswer {
   cost: number;               // credits this question spent
   credits: Credits;
   disclaimer: string;
+  ai: boolean;                // the words are the assistant's (the numbers never are)
 }
 
 export interface PlanCost {
@@ -93,6 +94,26 @@ export interface Turn {
   error: string | null;       // why there is no answer
 }
 
+export interface HistoryTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
+const HISTORY_EXCHANGES = 3;
+const HISTORY_TEXT = 500;
+
+/** The last few exchanges, as the assistant reads them for context ("and the under?"): what was
+ *  asked and what Juju said. Only exchanges that were answered. The backend never trusts the
+ *  numbers in it, so this is words only (core/assistant.py). */
+export function historyFor(turns: Turn[]): HistoryTurn[] {
+  const out: HistoryTurn[] = [];
+  for (const t of turns.filter((x) => x.answer).slice(-HISTORY_EXCHANGES)) {
+    out.push({ role: "user", text: t.text.slice(0, HISTORY_TEXT) });
+    out.push({ role: "assistant", text: (t.answer?.message ?? "").slice(0, HISTORY_TEXT) });
+  }
+  return out;
+}
+
 /** Odds are never cached for longer than this (backend/juju/ingest/live_odds.py): past it, an
  *  answer on screen is an old price. */
 export const STALE_AFTER_MS = 60_000;
@@ -106,7 +127,7 @@ export function normalizeAnswer(raw: Partial<LiveAnswer> & { message: string; cr
     kind: raw.kind ?? "answer", message: raw.message, sentences: raw.sentences ?? [raw.message],
     legs: raw.legs ?? [], parlay: raw.parlay ?? null, choices: raw.choices ?? [],
     as_of: raw.as_of ?? null, cached: raw.cached ?? true, cost: raw.cost ?? 0,
-    credits: raw.credits, disclaimer: raw.disclaimer ?? "",
+    credits: raw.credits, disclaimer: raw.disclaimer ?? "", ai: raw.ai ?? false,
   };
 }
 

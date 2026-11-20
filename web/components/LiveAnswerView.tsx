@@ -50,6 +50,11 @@ export default function LiveAnswerView({ turn, now, onAskAgain }: {
         {error && <p>{error}</p>}
         {answer && (
           <>
+            {answer.ai && (
+              <p className="ai-tag small">
+                AI-written reply. Every price and number is checked against the live books.
+              </p>
+            )}
             {said.map((s, i) => <p key={i}>{s}</p>)}
             {!problem && cards.map((leg) => leg.picks.map((pick) => (
               <PickCard key={`${leg.market}-${pick.point}-${pick.bet}`} leg={leg} pick={pick}

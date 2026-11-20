@@ -648,3 +648,5 @@ footer.foot a { color: var(--muted); padding: 14px 0; white-space: nowrap; }
 }
 .live-form input::placeholder { color: var(--muted); opacity: 1; }
 .cost { margin: 8px 0 0; color: var(--muted); font-size: 0.88rem; }
+.ai-tag { color: var(--muted); }
+.reply.problem .ai-tag { color: var(--text); }

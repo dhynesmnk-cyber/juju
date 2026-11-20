@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   type Credits, type LiveAnswer, type StorageLike, type Turn, MAX_TURNS, STALE_AFTER_MS,
-  ageMs, askErrorText, clockTime, creditsText, forgetEndedThreads, isStale, loadThread,
+  ageMs, askErrorText, clockTime, creditsText, forgetEndedThreads, historyFor, isStale, loadThread,
   isProblem, newTurnId, normalizeAnswer, oppositeSide, priceText, returnsText, saveThread,
   threadKey,
 } from "./liveChat.ts";
@@ -28,7 +28,7 @@ const turn = (n: number, answer: LiveAnswer | null = null): Turn =>
 
 const answerAt = (asOf: string | null): LiveAnswer => ({
   kind: "answer", message: "m", sentences: ["m"], legs: [], parlay: null, choices: [],
-  as_of: asOf, cached: false, cost: 1, credits: credits(), disclaimer: "d",
+  as_of: asOf, cached: false, cost: 1, credits: credits(), disclaimer: "d", ai: false,
 });
 
 test("a price a minute old is stale, one a second younger is not", () => {
@@ -151,4 +151,23 @@ test("problems are told apart from prices", () => {
   for (const k of ["answer", "parlay", "ask"]) assert.equal(isProblem(k), false);
   assert.deepEqual(["Over", "Under", "Yes", "No", "Browns", null].map(oppositeSide),
                    ["Under", "Over", "No", "Yes", null, null]);
+});
+
+test("the assistant gets the last three answered exchanges, as words", () => {
+  const said = (n: number): Turn => turn(n, { ...answerAt("2026-11-20T21:42:00Z"), message: `reply ${n}` });
+  const turns = [said(1), turn(2), said(3), said(4), said(5)];  // turn 2 never got an answer
+  assert.deepEqual(historyFor(turns).map((h) => `${h.role}: ${h.text}`), [
+    "user: question 3", "assistant: reply 3", "user: question 4", "assistant: reply 4",
+    "user: question 5", "assistant: reply 5"]);
+  assert.deepEqual(historyFor([]), []);
+  assert.deepEqual(historyFor([turn(1)]), []);
+  const long = { ...said(1), text: "q".repeat(900) };
+  assert.equal(historyFor([long])[0]?.text.length, 500);
+  assert.ok(historyFor(turns).length <= 6);              // the backend's limit
+});
+
+test("an answer from the assistant is marked, and none is by default", () => {
+  const a = normalizeAnswer({ message: "m", credits: credits() });
+  assert.equal(a.ai, false);
+  assert.equal(normalizeAnswer({ message: "m", credits: credits(), ai: true, kind: "chat" }).ai, true);
 });

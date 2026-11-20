@@ -1,6 +1,8 @@
 """Reading free text deterministically, the LLM reply reader, and the roster search."""
 from decimal import Decimal as D
 
+import json
+
 import httpx
 import pytest
 
@@ -126,3 +128,32 @@ def test_llm_reader_sends_one_strict_request_and_survives_failure():
     reader = LlmReader("sk-test", "https://x.test/v1", "m", Budget(5),
                        httpx.Client(transport=httpx.MockTransport(broken)))
     assert reader.read("anything") is None
+
+
+def test_llm_reader_can_speak_deepseek_json_object_mode_and_extra_fields():
+    """DeepSeek's docs list `json_object` and no `json_schema`; thinking is on by default and
+    is switched off in the request body (docs/plans/live-chat.md, step 3)."""
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.read()))
+        return httpx.Response(200, json={"choices": [{"message": {"content":
+            '{"player_name": "Saquon Barkley", "team": null, "play": "run", "yards": 60}'}}]})
+
+    reader = LlmReader("sk-test", "https://api.deepseek.com", "deepseek-flash", Budget(3),
+                       httpx.Client(transport=httpx.MockTransport(handler)),
+                       response_format="json_object",
+                       extra_body={"thinking": {"type": "disabled"}})
+    assert reader.read("sakwon 60 yd run").player_name == "Saquon Barkley"
+    body = seen[0]
+    assert body["response_format"] == {"type": "json_object"}
+    assert body["thinking"] == {"type": "disabled"} and body["temperature"] == 0
+    assert body["model"] == "deepseek-flash"
+    prompt = body["messages"][0]["content"]
+    assert "JSON" in prompt and "player_name" in prompt and "sakwon 60 yd run" in prompt
+    # the default is unchanged: strict json_schema, and no extra fields
+    seen.clear()
+    default = LlmReader("sk-test", "https://openrouter.ai/api/v1", "m", Budget(1),
+                        httpx.Client(transport=httpx.MockTransport(handler)))
+    default.read("x")
+    assert seen[0]["response_format"]["type"] == "json_schema" and "thinking" not in seen[0]

@@ -8,7 +8,7 @@ import LocalTime from "@/components/LocalTime";
 import MarketsPanel from "@/components/MarketsPanel";
 import {
   type ChatGame, type Credits, type LiveAnswer, type PlanCost, type Turn, askErrorText,
-  loadThread, newTurnId, normalizeAnswer, saveThread,
+  historyFor, loadThread, newTurnId, normalizeAnswer, saveThread,
 } from "@/lib/liveChat";
 
 const IDLE_COST = "Each new question costs 1 credit or more. Repeats within a minute are free.";
@@ -99,7 +99,8 @@ export default function LiveChat({ game, initialCredits }: {
     try {
       const r = await fetch("/api/live/ask", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ game_id: game.id, text: question }),
+        // The last few exchanges go with it, so "and the under?" has something to follow.
+        body: JSON.stringify({ game_id: game.id, text: question, history: historyFor(turns) }),
       });
       if (r.ok) {
         const answer: LiveAnswer = normalizeAnswer(await r.json());
@@ -115,7 +116,7 @@ export default function LiveChat({ game, initialCredits }: {
     setNow(Date.now());
     setBusy(false);
     input.current?.focus();  // ready for the next one
-  }, [busy, game.id]);
+  }, [busy, game.id, turns]);
 
   return (
     <section className="live" aria-label="Live odds">

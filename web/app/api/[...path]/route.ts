@@ -3,7 +3,7 @@
 // for a few seconds. The backend itself has no public address (docs/licensing.md).
 import { type NextRequest, NextResponse } from "next/server";
 import { BACKEND_URL } from "@/lib/backend";
-import { isLiveChat, isPublicApi, liveChatOpen } from "@/lib/publicApi";
+import { LIVE_BODY_LIMIT, isLiveChat, isPublicApi, liveChatOpen } from "@/lib/publicApi";
 import { CLEARED_SECONDS, COOKIE, passIsValid, signPass, verifyToken } from "@/lib/turnstile";
 
 function clientId(req: NextRequest): string {
@@ -57,7 +57,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({}, { status: 404 });
   }
   const text = await req.text();
-  if (text.length > 1000) return NextResponse.json({}, { status: 413 });
+  // A lookup is a line of text; a live question also carries the last few turns of the chat (at
+  // most six of 500 characters), which the backend checks again.
+  if (text.length > (isLiveChat(path) ? LIVE_BODY_LIMIT : 1000)) {
+    return NextResponse.json({}, { status: 413 });
+  }
   // A live question is a few hundred characters at most; no Turnstile: the passcode is its door.
   if (isLiveChat(path)) return forward(req, path, { method: "POST", body: text });
   // Lookups past the backend's threshold need a Turnstile check, when the site has a key.

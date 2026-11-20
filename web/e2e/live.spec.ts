@@ -146,6 +146,39 @@ test("the chat is kept on this device, and a minute-old price is marked as old",
   await expect(page.getByRole("button", { name: "Ask again" })).toBeVisible();
 });
 
+/** What the API answers for a follow-up the assistant words (there is no model in e2e). */
+function chatReply(message: string, kind = "chat") {
+  return {
+    kind, ai: kind === "chat", message, sentences: [message], legs: [], parlay: null,
+    choices: [], as_of: new Date().toISOString(), cached: false, cost: 1, disclaimer: "d",
+    credits: { remaining: 19_000, state: "ok", low_at: 2000, spent: 3, note: null },
+  };
+}
+
+test("a follow-up carries the last turns, and the assistant's words are labelled", async ({ page }) => {
+  await openGame(page);
+  await ask(page, "Barkley over 73.5 rushing yards");
+  let sent: { text: string; history: { role: string; text: string }[] } | null = null;
+  await page.route("**/api/live/ask", async (route) => {
+    sent = route.request().postDataJSON();
+    await route.fulfill({ json: chatReply(
+      "The under pays -112 at DraftKings right now: $10 would return $18.93 if it hits.") });
+  });
+  await box(page).fill("and the under?");
+  await box(page).press("Enter");
+  const reply = page.locator(".reply").last();
+  await expect(reply).toContainText("The under pays -112 at DraftKings");
+  await expect(reply.locator(".ai-tag")).toContainText("AI-written reply");
+  expect(sent).not.toBeNull();
+  const body = sent as unknown as { text: string; history: { role: string; text: string }[] };
+  expect(body.text).toBe("and the under?");
+  expect(body.history.map((h) => h.role)).toEqual(["user", "assistant"]);
+  expect(body.history[0].text).toBe("Barkley over 73.5 rushing yards");
+  expect(body.history[1].text).toContain("Saquon Barkley Over 73.5 rush yards pays -112");
+  // a price Juju itself read has no AI label
+  await expect(page.locator(".reply").first().locator(".ai-tag")).toHaveCount(0);
+});
+
 test("the pages pass the contrast, over-the-world and 44 px audit, and axe", async ({ page }) => {
   await unlock(page);
   for (const path of ["/", "/archive"]) {
@@ -160,6 +193,13 @@ test("the pages pass the contrast, over-the-world and 44 px audit, and axe", asy
   await ask(page, "Barkley over 73.5 rushing yards");
   await ask(page, "Klein got 4 catches");
   await ask(page, "Barkley over 73.5 rushing yards and DeVonta Smith got 6 catches");
+  await page.route("**/api/live/ask", (route) => route.fulfill({ json: chatReply(
+    "The under pays -112 at DraftKings right now.") }));
+  await ask(page, "and the under?");                      // an AI-worded reply, with its label
+  await page.unroute("**/api/live/ask");
+  await page.route("**/api/live/ask", (route) => route.fulfill({ json: chatReply(
+    "I can only help with this game's player and team bets.", "refused") }));
+  await ask(page, "who will win");                        // a refusal
   await page.waitForTimeout(400);
   expect(await page.evaluate(auditText, TEXT), "chat text").toEqual([]);
   expect(await page.evaluate(auditTargets), "chat targets").toEqual([]);

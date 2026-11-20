@@ -96,7 +96,9 @@ def llm_reader(settings: Settings) -> LlmReader | None:
         if _llm is None:
             assert settings.llm_api_key is not None and settings.llm_model
             _llm = LlmReader(settings.llm_api_key.get_secret_value(), settings.llm_base_url,
-                             settings.llm_model, Budget(settings.llm_daily_budget))
+                             settings.llm_model, Budget(settings.llm_daily_budget),
+                             response_format=settings.llm_response_format,
+                             extra_body=settings.llm_extra_body)
         return _llm
 
 

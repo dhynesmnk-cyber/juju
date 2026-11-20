@@ -138,9 +138,18 @@ class Cost:
     low: int
     high: int
     cached: int = 0
+    note: str | None = None   # words to use instead, when the cost depends on the assistant
+
+    @classmethod
+    def up_to(cls, most: int) -> "Cost":
+        """What the assistant may spend: it decides what to look up, so only a ceiling is known."""
+        return cls(0, most, 0, f"This will use up to {most} credits, and often none: it "
+                            "depends on what the assistant looks up.")
 
     @property
     def text(self) -> str:
+        if self.note:
+            return self.note
         if self.high == 0:
             return "Free: answered from the last minute's prices."
         credit = lambda n: f"{n} credit" + ("" if n == 1 else "s")  # noqa: E731

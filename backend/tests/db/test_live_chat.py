@@ -477,7 +477,8 @@ def test_the_live_chat_never_reads_the_archive():
     """Nothing the live path runs imports the archive's rules or its prices and snapshots (the
     chat has a `Price` of its own, in core/livechat.py: that one is fine)."""
     root = Path(live_chat.__file__).resolve().parents[1]
-    for rel in ("api/live_chat.py", "core/livechat.py", "ingest/live_odds.py"):
+    for rel in ("api/live_chat.py", "api/live_assistant.py", "core/livechat.py",
+                "core/assistant.py", "ingest/live_odds.py", "ingest/assistant.py"):
         tree = ast.parse((root / rel).read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module:

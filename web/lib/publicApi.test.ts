@@ -1,7 +1,7 @@
 // `npm test`: Node's own test runner, no network.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isLiveChat, isPublicApi, liveChatOpen } from "./publicApi.ts";
+import { LIVE_BODY_LIMIT, isLiveChat, isPublicApi, liveChatOpen } from "./publicApi.ts";
 
 test("the public door forwards the UI endpoints", () => {
   for (const path of ["live", "status", "suggest", "game/1", "player/1/3929630", "team/1/3",
@@ -42,4 +42,13 @@ test("the live chat is off unless the site has a passcode", () => {
   assert.equal(liveChatOpen(undefined), false);
   assert.equal(liveChatOpen(""), false);
   assert.equal(liveChatOpen("a-real-passcode"), true);
+});
+
+test("a live question may carry the last few turns: 200 characters and six of 500", () => {
+  const worst = JSON.stringify({
+    game_id: "d55cb69fed50a09170560b5b75d8de86", text: "x".repeat(200),
+    history: Array.from({ length: 6 }, () => ({ role: "assistant", text: "y".repeat(500) })),
+  });
+  assert.ok(worst.length < LIVE_BODY_LIMIT, String(worst.length));
+  assert.ok(LIVE_BODY_LIMIT <= 10_000);                  // still bounded
 });
