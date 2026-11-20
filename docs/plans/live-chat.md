@@ -1,13 +1,13 @@
 # The live chat: live odds on demand
 
 **Date:** 2026-11-20. **Decision:** [GOALS decision 14](../GOALS.md). **Licensing:** the third
-exception ([licensing.md](../licensing.md)). **Status:** step 1 (the backend) is built; the rest
-is below. Update this table as each step lands.
+exception ([licensing.md](../licensing.md)). **Status:** steps 1 (the backend) and 2 (the site) are
+built; the rest is below. Update this table as each step lands.
 
 | Step | What | Status |
 |---|---|---|
 | 1 | The backend: parser, rules, cache and credits, the endpoints, their tests, the docs | **done** (2026-11-20) |
-| 2 | The site: game picker, `LiveChat`, markets panel, credit meter; the home page swap; the archive moves to `/archive` | next |
+| 2 | The site: game picker, `LiveChat`, markets panel, credit meter; the home page swap; the archive at `/archive` | **done** (2026-11-20) |
 | 3 | The assistant: follow-up questions with DeepSeek Flash, every number from the server | planned |
 | 4 | Hardening: the privacy page, deploy notes, `HANDOVER.md` | planned |
 
@@ -74,22 +74,43 @@ The twelve answers that shaped it (2026-11-20):
 - Tests: `tests/unit/test_parse_live.py`, `test_livechat.py`, `test_live_odds.py`,
   `tests/db/test_live_chat.py`, all on the recorded PIT @ CLE reply (no new recording).
 
-## Step 2: the site (next)
+## Step 2: the site (built)
 
-- The proxy allow-list (`web/lib/publicApi.ts`) gains `live/games`, `live/markets`,
-  `live-markets`, `live/plan` (GET) and `live/ask` (POST), and the route answers 404 for all of
-  them unless `SITE_PASSCODE` is set. `live/ask` needs a body limit above the 1,000 characters
-  `lookup` has (200 characters of text, and the assistant's few turns later).
-- `/` is the game picker and credit meter; `/live/[eventId]` is the chat. Components:
-  `GamePicker`, `LiveChat` (the game at the top, a search box that keeps focus, the thread),
-  `MarketsPanel` (a sidebar on wide screens, a dropdown on a phone), `CreditsMeter`. The cost
-  line ("This will cost 1 to 2 credits.") comes from `/api/live/plan` as someone types.
-- The thread is kept in `localStorage` per game (`lib/liveChat.ts`), each answer stamped and
-  greyed once it is older than 60 seconds, dropped when the game leaves the schedule.
-- The current home page moves to `/archive`, unchanged. The e2e tests and the visual snapshots
-  that load `/` are pointed at `/archive`; the home snapshots are retaken.
-- Colours only from `web/lib/tokens.ts`; add a pairing before using a new one. 44 px targets.
-- Every live answer says "Live prices, as of …" and that Juju is not a sportsbook.
+- **The front page depends on the passcode.** With `SITE_PASSCODE` set (the laptop preview), `/`
+  is the live home (`components/LiveHome.tsx`: the schedule, grouped by Eastern day, the credits
+  left, no prices) and the T-45 archive is at `/archive` (`components/ArchiveHome.tsx`, the old
+  front page unchanged). Without one, the live chat is off (decision 6 above: no per-visitor cap,
+  so a passcode must stand in front), `/` is the archive exactly as before, the header shows no
+  "Archive" link, and `/live/…` and the live API are 404. So CI, a public launch and every
+  existing test and visual snapshot see the site as it was. The archive's own "back" links go to
+  `/archive`; the header gains "Archive" and the footer says what is live and what is
+  hypothetical, only when the live chat is on.
+- `/live/[eventId]` is the chat (`components/LiveChat.tsx`): the game at the top, the credits
+  (`CreditsMeter`, a warning when low), what's posted (`MarketsPanel`: asked once when the game is
+  opened, 1 credit, kept 5 minutes; a `<details>` open by default, the "dropdown" on a phone),
+  the thread, and the box. The box keeps focus after each answer. While someone types, the cost
+  line comes from `/api/live/plan` ("This will cost 1 to 2 credits."), which never reaches The Odds
+  API. Each answer (`LiveAnswerView`): the plain-language reply, a price card per line (the book
+  of record's price, what $10 returns, the other side, each other book), "Live price as of
+  6:11 PM · from the last minute's prices · no credits used". A bet the books don't post is a
+  plain "Market not available" reply with no price card ("Checked at …", not "Live price").
+- A price a minute old or older (`STALE_AFTER_MS`, the odds' own limit) is dashed, and says it may
+  have moved, with "Ask again".
+- The thread is kept in `localStorage` per game (`lib/liveChat.ts`), at most 40 turns; a question
+  cut off by closing the page says so; the saved chat of a game that has left the schedule is
+  dropped when the front page loads (`ThreadTidy`). Nothing is stored on the server.
+- Links to a game are `prefetch={false}`: opening one lists its bets, which costs a credit.
+- Colours only from `lib/tokens.ts` (one pairing added: orange-bright on the warning tint, the
+  "Ask again" link). `e2e/live.spec.ts` runs the contrast, text-over-the-world and 44 px audit
+  and axe on the live pages (the audit helpers moved to `e2e/auditLib.ts`).
+- `LIVE_ODDS_FIXTURE=1` (`backend/juju/dev_live.py`, dev and CI only) answers the live chat from
+  the recordings with no key and no credits, so Playwright can drive it. CI starts a second site
+  with a passcode for `e2e/live.spec.ts`.
+- **No visual snapshots of the live pages yet:** `scripts/visual.sh` needs Docker, which the
+  cloud container didn't have running, so the pictures would not match CI's. Take them with
+  `scripts/visual.sh --update` once, where Docker runs, with the live site on :3002.
+- Not done, on purpose: "How it works" (`/about`) still describes the archive only; the root
+  page `<title>` and description are the archive's.
 
 ## Step 3: the assistant (planned)
 

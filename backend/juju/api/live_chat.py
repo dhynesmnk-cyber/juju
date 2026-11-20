@@ -95,6 +95,12 @@ def _quota_writer(key: str):
 
 
 def _build(settings: Settings) -> LiveOdds:
+    if settings.live_odds_fixture:  # development and e2e only (dev_live.py): no key, no credits
+        from juju.dev_live import FixtureLive
+        source = FixtureLive()
+        return LiveOdds(source, settings.books, odds_ttl=settings.live_cache_seconds,
+                        markets_ttl=settings.live_markets_cache_seconds,
+                        initial_remaining=source.quota_remaining)
     assert settings.odds_api_key is not None
     key = settings.odds_api_key.get_secret_value()
     # Its own in-memory breaker: a bad hour for live questions never opens the worker's.
@@ -109,7 +115,7 @@ def _build(settings: Settings) -> LiveOdds:
 
 def live_odds(settings: Annotated[Settings, Depends(get_settings)]) -> LiveOdds:
     global _live
-    if settings.odds_api_key is None:
+    if settings.odds_api_key is None and not settings.live_odds_fixture:
         raise HTTPException(503, "Live odds aren't set up on this server: it has no Odds API "
                                  "key.")
     with _live_lock:

@@ -126,6 +126,7 @@ export const pairings: Pairing[] = [
   { fg: "ink", bg: "gold", min: 4.5, use: "a touchdown badge, a lit leg" },
   { fg: "ink", bg: "text", min: 4.5, use: "the chosen tab" },
   { fg: "orangeBright", bg: "orangeTint", min: 4.5, use: "a live chip" },
+  { fg: "orangeBright", bg: "warnTint", min: 4.5, use: "the live chat's \"Ask again\" link" },
   { fg: "gold", bg: "goldTint", min: 4.5, use: "a cashed chip" },
   { fg: "lost", bg: "lostTint", min: 4.5, use: "a lost chip" },
   { fg: "warn", bg: "warnTint", min: 4.5, use: "the status banner" },

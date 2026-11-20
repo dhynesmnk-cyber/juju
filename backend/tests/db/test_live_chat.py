@@ -530,3 +530,32 @@ def test_the_text_is_bounded(client):
     r = client.post("/api/live/ask", json={"game_id": EVENT_ID, "text": "x" * 201})
     assert r.status_code == 422
     assert client.post("/api/live/ask", json={"game_id": EVENT_ID, "text": ""}).status_code == 422
+
+
+def test_the_dev_fixture_source_runs_the_chat_with_no_key(db, monkeypatch):
+    """`LIVE_ODDS_FIXTURE=1` (dev and e2e only, dev_live.py): the recordings, no key, no credits."""
+    monkeypatch.setenv("DATABASE_URL", str(db.url.render_as_string(hide_password=False)))
+    monkeypatch.delenv("ODDS_API_KEY", raising=False)
+    monkeypatch.setenv("LIVE_ODDS_FIXTURE", "1")
+    monkeypatch.setattr(live_chat, "_live", None)
+    get_settings.cache_clear()
+    factory = sessionmaker(bind=db, expire_on_commit=False)
+
+    def session():
+        with factory() as s:
+            yield s
+
+    app_module.app.dependency_overrides.clear()
+    app_module.app.dependency_overrides[app_module.get_session] = session
+    c = TestClient(app_module.app)
+    games = c.get("/api/live/games").json()["games"]
+    assert {g["label"] for g in games} == {"Philadelphia Eagles @ Chicago Bears",
+                                           "Pittsburgh Steelers @ Cleveland Browns"}
+    phi_chi = "47dc7baa254659f3beb2ed2b38c207b6"
+    body = c.post("/api/live/ask", json={"game_id": phi_chi,
+                                         "text": "Barkley over 73.5 rushing yards"}).json()
+    assert body["message"].startswith(
+        "Saquon Barkley Over 73.5 rush yards pays -112 at DraftKings right now")
+    assert body["credits"]["remaining"] == 19_999
+    app_module.app.dependency_overrides.clear()
+    get_settings.cache_clear()

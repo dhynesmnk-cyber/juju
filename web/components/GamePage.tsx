@@ -163,7 +163,7 @@ export default function GamePage({ initial, remember = false }: {
     <>
       <WorldStage world={world} dense />
       <div className="game-head">
-        <Link className="pill" href="/"><span aria-hidden="true">‹</span> Games</Link>
+        <Link className="pill" href="/archive"><span aria-hidden="true">‹</span> Games</Link>
         <div className="scoreboard">
           <p className="match-strip">
             {live && <span className="live-tag"><span className="dot" aria-hidden="true" /> LIVE</span>}

@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     live_cache_seconds: int = 60
     live_markets_cache_seconds: int = 300
     live_low_credits: int = 2000
+    # Development and end-to-end tests only (`dev_live.py`): answer the live chat from the
+    # recordings, with no Odds API key and no credits. Never set in production.
+    live_odds_fixture: bool = False
     # How far back repair_gaps looks for games with no on-time price.
     repair_days: int = 14
     # ESPN event ids whose every response is kept in raw_samples, to replay a game in tests

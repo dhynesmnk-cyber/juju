@@ -19,6 +19,21 @@ site and Playwright all have the same test-only `TRACKER_USERS`, as CI does:
 `TRACKER_USERS=chris:ci-chris-passcode,ash:ci-ash-passcode` before `uvicorn`, `next start` and
 `npx playwright test`. Its lookups stay in the database between runs; it never counts them.
 
+`e2e/live.spec.ts` (the live chat) runs only with `LIVE_E2E=1`, against a site that has a
+passcode: the live chat exists only behind one (`SITE_PASSCODE`; without it `/` is the archive,
+as it always was, and the live API answers 404). Start the API with `LIVE_ODDS_FIXTURE=1` (it
+answers from the recordings: no Odds API key, no credits) and a second site, then:
+
+```bash
+BACKEND_URL=http://127.0.0.1:8000 SITE_PASSCODE=kite-ember-9417 npx next start -p 3002 &
+BASE_URL=http://127.0.0.1:3002 LIVE_E2E=1 LIVE_E2E_PASSCODE=kite-ember-9417 \
+  npx playwright test e2e/live.spec.ts
+```
+
+The API keeps the recorded credits and the 60-second cache in memory: restart it to start again
+from 20,000. There are no visual snapshots of the live pages yet (`scripts/visual.sh` needs
+Docker): `e2e/live.spec.ts` audits their contrast and tap targets instead.
+
 `e2e/challenge.spec.ts` (the Turnstile check) runs only with `TURNSTILE_E2E=1`, against a site
 built with `NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA` and started with
 `TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA`: Cloudflare's public test keys, as

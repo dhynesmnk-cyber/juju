@@ -182,7 +182,7 @@ export default function ResultView({ initial: fromServer, apiPath, pagePath, pin
       </div>
       {aside}
       <ParlaySlip game={view.game.id} />
-      <p><Link className="pill" href="/"><span aria-hidden="true">←</span> Look up another play</Link></p>
+      <p><Link className="pill" href="/archive"><span aria-hidden="true">←</span> Look up another play</Link></p>
     </>
   );
 }

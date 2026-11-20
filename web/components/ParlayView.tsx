@@ -154,7 +154,7 @@ export default function ParlayView({ initial, apiPath, sharePath }: {
         </div>
       </article>
       <RoundRobin view={view} />
-      <p><Link className="pill" href="/"><span aria-hidden="true">←</span> Look up another play</Link></p>
+      <p><Link className="pill" href="/archive"><span aria-hidden="true">←</span> Look up another play</Link></p>
     </>
   );
 }
