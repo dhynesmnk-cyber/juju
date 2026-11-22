@@ -6,8 +6,10 @@ fallback in `/api/lookup`, and the live chat (`api/live_chat.py`, 2026-11-20), w
 reach The Odds API through a 60-second cache and nothing else does.
 """
 import logging
+import sys
 import threading
 import time
+from contextlib import asynccontextmanager
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -36,7 +38,42 @@ from juju.ingest.llm import Budget, LlmReader
 
 log = logging.getLogger("juju.api")
 
-app = FastAPI(title="Juju internal API", docs_url=None, redoc_url=None, openapi_url=None)
+class _CurrentStderr(logging.StreamHandler):
+    """Writes to whatever `sys.stderr` is at that moment, so a stream that was replaced or closed
+    (a test's capture, a restarted shell) never breaks a log call. (Like the standard library's
+    own last-resort handler.)"""
+
+    def __init__(self) -> None:
+        logging.Handler.__init__(self)
+
+    @property
+    def stream(self):  # type: ignore[override]
+        return sys.stderr
+
+
+def configure_logging(logger: logging.Logger | None = None) -> None:
+    """Let `juju.*` messages down to INFO out of the API process. uvicorn sets up only its own
+    loggers, so everything below WARNING was dropped here (the worker and the command line call
+    `basicConfig`): the assistant's one line a question (`api/live_assistant.py`, which says why
+    a reply was dropped) could not be seen. Safe to repeat. Only two INFO messages can come from
+    the API: that line, which never holds the person's words, the model's or a key, and a note
+    when a new Odds API key is first used."""
+    logger = logger or logging.getLogger("juju")
+    if not any(isinstance(h, _CurrentStderr) for h in logger.handlers):
+        handler = _CurrentStderr()
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s %(message)s"))
+        logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    configure_logging()
+    yield
+
+
+app = FastAPI(title="Juju internal API", docs_url=None, redoc_url=None, openapi_url=None,
+              lifespan=lifespan)
 app.include_router(me.router)  # the owners' own section, behind their sign-in (api/me.py)
 app.include_router(live_chat.router)  # live odds on demand (api/live_chat.py)
 

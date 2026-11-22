@@ -132,6 +132,18 @@ LLM_EXTRA_BODY='{"thinking":{"type":"disabled"}}'
 At most 300 assistant messages a day (`LIVE_ASSISTANT_DAILY` changes it), then the chat goes on
 without it. The messages go to DeepSeek; the site's privacy page says so.
 
+To see how it is doing, the API logs one line for each question that reaches it, never the words:
+
+```bash
+docker compose -f deploy/laptop/docker-compose.yml logs --since 15m api | grep assistant
+```
+
+`assistant: ok after 1 tool calls` means its reply was used. Any other word after `assistant:` is
+why it wasn't, and the chat answered from the templates instead: `number` (it stated a number the
+tools didn't give), `advice`, `empty`, `refused` (off topic), `timeout`, `budget` (the daily cap),
+`balance` (DeepSeek says no credit), `rate_limited` or `error`. A failed call to DeepSeek also
+logs its HTTP status as a warning.
+
 A new key's credits are unknown until its first capture: Juju never carries an old key's count
 over, and forgets last month's count when the credits reset. If `up.sh` prints "Captures: none",
 it adds a note: the key in `.env` has no credits left until they reset.

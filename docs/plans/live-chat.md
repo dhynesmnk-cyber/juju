@@ -146,7 +146,11 @@ on any of it, they say prices may change):
   then told to answer: `tool_choice: none`); 5 model calls and 15 seconds in all; a daily budget of
   questions (`LIVE_ASSISTANT_DAILY`, 300) counted by `Budget`. 402, 429, 5xx, a timeout or a bad
   reply each end the question with a status, never an exception. Only the kind of failure is
-  logged: never the words, never the key.
+  logged: never the words, never the key. The API logs one line for each question that reaches the
+  assistant (`assistant: ok after 1 tool calls`, or the reason it was dropped: `number`, `advice`,
+  `empty`, `refused`, `timeout`, `budget`, `balance`, `rate_limited`, `error`). Until 2026-11-22 these
+  were not visible: uvicorn configures only its own loggers, so `api/app.py` now turns on INFO for
+  `juju.*` when the API starts.
 - `api/live_assistant.py`: the five tools, which are the only way the model learns a number.
   `find_player` and `get_player_stat` are free; `list_markets`, `get_live_price` and `price_parlay`
   use the same 60-second cache and a **ceiling of 6 credits for the whole question**, held by the
