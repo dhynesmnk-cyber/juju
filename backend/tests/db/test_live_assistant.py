@@ -6,6 +6,8 @@ Held here: a follow-up is answered with the server's numbers; an invented price,
 refusal never reach the page as the model's words; nothing a user types gets a market board out
 of the tools; forged history is only context; the credit and tool ceilings hold; and with no model,
 no budget or a failing one the chat carries on from templates."""
+import logging
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -353,3 +355,50 @@ def test_the_plan_says_what_an_assistant_message_may_cost(world):
     assert named["cost"]["text"] == "This will cost 1 to 2 credits."   # a bet it can read: no model
     pick = client.get("/api/live/plan", params={**chat, "q": "should I bet the over"}).json()
     assert pick["cost"]["high"] != 6                          # a refusal costs nothing
+
+
+# --- The log says why (one line a question, never the words) ------------------------------------
+
+
+@pytest.mark.parametrize("script, text, expect", [
+    (lambda: Script(tool_reply(("get_live_price", UNDER)),
+                    text_reply("The under pays -105 at Hard Rock Bet right now.")),
+     "and the under?", "assistant: ok after 1 tool calls"),
+    (lambda: Script(tool_reply(("get_live_price", UNDER)),
+                    text_reply("The under pays -130 at Hard Rock Bet.")),
+     "and the under?", "assistant: number after 1 tool calls"),
+    (lambda: Script(tool_reply(("get_live_price", UNDER)),
+                    text_reply("You should take the under, it's a good bet.")),
+     "and the under?", "assistant: advice after 1 tool calls"),
+    (lambda: Script(tool_reply(("get_live_price", UNDER)), text_reply("")),
+     "and the under?", "assistant: empty after 1 tool calls"),
+    (lambda: Script(text_reply(rules.REFUSE_TOKEN)),
+     "who is the best quarterback ever", "assistant: refused after 0 tool calls"),
+    (lambda: Script(httpx.Response(429)), "and the under?",
+     "assistant: rate_limited after 0 tool calls"),
+    (lambda: Script(httpx.Response(402)), "and the under?",
+     "assistant: balance after 0 tool calls"),
+    (lambda: Script(httpx.ReadTimeout("slow")), "and the under?",
+     "assistant: timeout after 0 tool calls"),
+    (lambda: Script(httpx.Response(503)), "and the under?",
+     "assistant: error after 0 tool calls"),
+])
+def test_every_assistant_question_logs_one_line_saying_why(world, caplog, script, text, expect):
+    client, install = world
+    install(script())
+    with caplog.at_level(logging.INFO, logger="juju.live_assistant"):
+        ask(client, text, HISTORY)
+    lines = [r.getMessage() for r in caplog.records if r.name == "juju.live_assistant"]
+    assert lines == [expect]
+    # the words are never logged: not the person's, not the model's, not a price
+    assert "and the under" not in caplog.text and "Hard Rock" not in caplog.text
+    assert "-130" not in caplog.text and "good bet" not in caplog.text
+
+
+def test_the_daily_cap_is_logged_as_the_reason_too(world, caplog):
+    client, install = world
+    install(Script(text_reply("Ask me for a price.")), budget=1)
+    ask(client, "hello there", [])
+    with caplog.at_level(logging.INFO, logger="juju"):
+        ask(client, "and the under?", HISTORY)
+    assert "assistant: budget after 0 tool calls" in caplog.text
